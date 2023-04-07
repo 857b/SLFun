@@ -134,7 +134,7 @@ Module SLprop.
     sl_wf   : forall m0 m1 (MEQ : FMem.eq m0 m1) (HM0 : sl_pred m0), sl_pred m1;
   }.
 
-  Global Bind Scope slprop_scope with t.
+  Bind Scope slprop_scope with t.
 
   Definition eq (h0 h1 : t) : Prop :=
     Morphisms.pointwise_relation FMem.t iff h0 h1.
@@ -164,6 +164,17 @@ Module SLprop.
     - intros ? ? ? H0 H1 m; specialize (H0 m); specialize (H1 m); tauto.
   Qed.
 
+  Global Add Morphism imp
+    with signature eq ==> eq ==> iff
+    as imp_morph.
+  Proof.
+    unfold imp.
+    intros ? ? E0 ? ? E1.
+    setoid_rewrite E0.
+    setoid_rewrite E1.
+    reflexivity.
+  Qed.
+
   Lemma eq_iff_imp h0 h1:
     eq h0 h1 <-> (imp h0 h1 /\ imp h1 h0).
   Proof.
@@ -191,7 +202,10 @@ Module SLprop.
     setoid_rewrite <- MEQ; eauto.
   Qed.
 
-  Global Infix "**" := star (at level 80, right associativity) : slprop_scope.
+  Module Notations.
+    Infix "**" := star (at level 80, right associativity) : slprop_scope.
+  End Notations.
+  Import Notations.
 
   Lemma star_morph_imp [h0 h0' h1 h1']
     (H0 : imp h0 h0')
@@ -263,3 +277,9 @@ Module SLprop.
   Qed.
 
 End SLprop.
+
+Module SLNotations.
+  Include SLprop.Notations.
+  Bind Scope slprop_scope with SLprop.t.
+  Coercion SLprop.sl_pred : SLprop.t >-> Funclass.
+End SLNotations.
