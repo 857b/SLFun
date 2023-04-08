@@ -1,35 +1,53 @@
-Require Import Coq.Program.Equality.
 Require Import Coq.Relations.Relations.
 
 Require Export SLFun.Values.
 
+
 Definition fid : Set := nat.
+
+Record f_sig := mk_f_sig {
+  f_arg_t : Type;
+  f_ret_t : Type;
+}.
+
+Definition sig_context := fid -> option f_sig.
+
+Section Concrete.
+  Context [SG : sig_context].
 
 Inductive instr : Type -> Type :=
   | Ret  [A] (x : A) : instr A
   | Bind [A B] (f : instr A) (g : A -> instr B) : instr B
-  | Call [A] (R : Type) (f : fid) (x : A) : instr R
+  | Call [sg : f_sig] (f : fid) (SIG : SG f = Some sg) (x : f_arg_t sg) : instr (f_ret_t sg)
   | Oracle (A : Type) : instr A
   | Assert (P : mem -> Prop) : instr unit
   (* Memory *)
   | Read (p : ptr) : instr memdata
   | Write (p : ptr) (x : memdata) : instr unit.
 
-Record f_impl := mk_f_impl {
-  f_arg_t : Type;
-  f_ret_t : Type;
-  f_body  : f_arg_t -> instr f_ret_t;
-}.
+Definition f_impl (sig : f_sig) := f_arg_t sig -> instr (f_ret_t sig).
 
-Definition context := fid -> option f_impl.
+Definition opt_type [A] (f : A -> Type) (o : option A) : Type :=
+  match o with
+  | Some x => f x
+  | None   => unit
+  end.
+
+Definition impl_context := forall f : fid, opt_type f_impl (SG f).
 
 (* Small step semantics *)
 
 Section Semantics.
-
-  Variable G : context.
+  Variable G : impl_context.
 
   Definition state A := (mem * instr A)%type.
+
+  Definition get_fun_body [sg] (f : fid) (SIG : SG f = Some sg) : f_arg_t sg -> instr (f_ret_t sg).
+  Proof.
+    specialize (G f).
+    rewrite SIG in G.
+    exact G.
+  Defined.
 
   Inductive step : forall [A], state A -> state A -> Prop :=
     | step_bind_l m m' [A B] (f f' : instr A) (g : A -> instr B)
@@ -37,9 +55,8 @@ Section Semantics.
         step (m, Bind f g) (m', Bind f' g)
     | step_bind_r m [A B] (x : A) (g : A -> instr B):
         step (m, Bind (Ret x) g) (m, g x)
-    | step_call m f arg_t ret_t body x
-        (GET_F : G f = Some (mk_f_impl arg_t ret_t body)):
-        step (m, Call ret_t f x) (m, body x)
+    | step_call m sg f SIG x:
+        step (m, @Call sg f SIG x) (m, get_fun_body f SIG x)
     | step_assert m (P : mem -> Prop)
         (ASSERT : P m):
         step (m, Assert P) (m, Ret tt)
@@ -53,7 +70,6 @@ Section Semantics.
 
   Definition okstate [A] (s : state A) :=
     (exists x, snd s = Ret x) \/ (exists s', step s s').
-
 End Semantics.
 
 (* Specification and proof *)
@@ -65,20 +81,32 @@ Fixpoint oracle_free [A] (i : instr A) : Prop :=
   | _        => True
   end.
 
-Definition context_oracle_free (c : context) :=
-  forall f fi, c f = Some fi -> forall x, oracle_free (f_body fi x).
+Definition context_oracle_free (c : impl_context) : Prop :=
+  forall (f : fid),
+  match SG f as sg return opt_type f_impl sg -> Prop with
+  | Some sig => fun imp => forall x : f_arg_t sig, oracle_free (imp x)
+  | None     => fun _   => True
+  end (c f).
 
-Record f_spec := mk_f_spec {
-  fs_arg_t : Type;
-  fs_ret_t : Type;
-  fs_pre   : fs_arg_t -> mem -> Prop;
-  fs_post  : fs_arg_t -> mem -> fs_ret_t -> mem -> Prop;
+Record f_spec (sg : f_sig) := mk_f_spec {
+  f_pre   : f_arg_t sg -> mem -> Prop;
+  f_post  : f_arg_t sg -> mem -> f_ret_t sg -> mem -> Prop;
 }.
+Global Arguments f_pre  [_].
+Global Arguments f_post [_].
 
-Definition scontext := fid -> f_spec -> Prop.
+Definition spec_context :=
+  forall f : fid, opt_type (fun sg => f_spec sg -> Prop) (SG f).
 
 Section WLP.
-  Variable G : scontext.
+  Variable G : spec_context.
+  
+  Definition fun_has_spec [sg] (f : fid) (SIG : SG f = Some sg) : f_spec sg -> Prop.
+  Proof.
+    specialize (G f).
+    rewrite SIG in G.
+    exact G.
+  Defined.
 
   Fixpoint wlp [A] (i : instr A) {struct i} : forall (post : A -> mem -> Prop) (m : mem), Prop :=
     match i with
@@ -86,10 +114,10 @@ Section WLP.
         post x
     | Bind f g => fun post =>
         wlp f (fun y => wlp (g y) post)
-    | @Call A R f x => fun post m =>
-        exists fpre fpost, G f (mk_f_spec A R fpre fpost) /\
-        fpre x m /\
-        forall r m', fpost x m r m' -> post r m'
+    | @Call sg f SIG x => fun post m =>
+        exists s, fun_has_spec f SIG s /\
+          f_pre s x m /\
+          forall r m', f_post s x m r m' -> post r m'
     | Oracle A => fun post m =>
         exists x : A, post x m
     | Assert P => fun post m =>
@@ -110,37 +138,41 @@ Section WLP.
       apply IHi.
       do 2 intro; apply H, LE.
     - (* Call *)
-      intros (? & ? & ? & ? & IMP).
-      do 2 eexists; do 2 (esplit; [eassumption|]).
+      intros (? & ? & ? & IMP).
+      eexists; do 2 (esplit; [eassumption|]).
       intros; apply LE, IMP; assumption.
     - (* Oracle *)
       intros (? & P); eauto.
   Qed.
 
-  Inductive f_match_spec : f_impl -> f_spec -> Prop :=
-    | intro_match_spec arg_t res_t (pre : arg_t -> mem -> Prop) post body
-        (MATCH : forall x m, pre x m -> wlp (body x) (post x m) m):
-        f_match_spec (mk_f_impl arg_t res_t body) (mk_f_spec arg_t res_t pre post).
+  Definition f_match_spec [sg : f_sig] (fi : f_impl sg) (fs : f_spec sg) : Prop :=
+    forall x m, f_pre fs x m -> wlp (fi x) (f_post fs x m) m.
 End WLP.
 
 Section WLP_Correct.
-  Variables (C : context) (S : scontext).
+  Variables (C : impl_context) (S : spec_context).
 
   Definition context_match_spec : Prop :=
-    forall f fs, S f fs -> exists fi, C f = Some fi /\ f_match_spec S fi fs.
+    forall f,
+    match SG f as sg return
+      opt_type f_impl sg -> opt_type (fun sg => f_spec sg -> Prop) sg -> Prop
+    with
+    | Some sg => fun fi fs => forall s, fs s -> f_match_spec S fi s
+    | None    => fun _  _  => True
+    end (C f) (S f).
 
   Hypothesis MATCH : context_match_spec.
-
-  Lemma match_init_call f ret_t arg_t pre post body x m
-    (FI : C f = Some (mk_f_impl arg_t ret_t body))
-    (FS : S f (mk_f_spec arg_t ret_t pre post))
-    (PRE : pre x m):
-    wlp S (body x) (post x m) m.
+  
+  Lemma elim_MATCH sg f (SIG : SG f = Some sg) s x m
+    (FS : fun_has_spec S f SIG s)
+    (PRE : f_pre s x m):
+    wlp S (get_fun_body C f SIG x) (f_post s x m) m.
   Proof.
-    apply MATCH in FS as (fi' & FI' & SF).
-    rewrite FI in FI'; injection FI' as ?; subst fi'.
-    dependent destruction SF.
-    apply MATCH0, PRE.
+    specialize (MATCH f); unfold get_fun_body, fun_has_spec in *.
+    set (CF := C f) in *; set (SF := S f) in *; clearbody CF SF.
+    rewrite <- (eq_sym_involutive SIG) in *.
+    destruct (eq_sym SIG); simpl in *.
+    apply (MATCH s); assumption.
   Qed.
 
   Lemma wlp_preserved A s s' (post : A -> mem -> Prop):
@@ -149,8 +181,8 @@ Section WLP_Correct.
   Proof.
     induction 1; simpl; try solve [intuition auto].
     - (* Call *)
-      intros (fpre & fpost & SF & PRE & POST).
-      eapply match_init_call in PRE; try eassumption.
+      intros (s & SF & PRE & POST).
+      eapply elim_MATCH in SF; eauto.
       eapply wlp_monotone; eassumption.
   Qed.
 
@@ -165,13 +197,19 @@ Section WLP_Correct.
     - (* Bind *)
       ecase IHi as [(? & ->)|((?,?) & STEP)]. apply WLP. apply OFREE.
       all:eauto using step.
-    - (* Call *)
-      case WLP as (fpre & fpost & SP & _ & _).
-      apply MATCH in SP as (fi & IM & MT); inversion MT; subst.
-      eauto using step.
   Qed.
 
   Hypothesis COFREE : context_oracle_free C.
+
+  Lemma elim_COFREE sg f (SIG : SG f = Some sg) x:
+    oracle_free (get_fun_body C f SIG x).
+  Proof.
+    specialize (COFREE f); unfold get_fun_body.
+    set (CF := C  f) in *; clearbody CF.
+    rewrite <- (eq_sym_involutive SIG).
+    destruct (eq_sym SIG); simpl.
+    apply COFREE.
+  Qed.
 
   Lemma ofree_preserved A s s'
     (OFREE : @oracle_free A (snd s)):
@@ -179,8 +217,7 @@ Section WLP_Correct.
   Proof.
     induction 1; simpl in *; intuition auto.
     - (* Call *)
-      apply COFREE in GET_F.
-      apply GET_F.
+      apply elim_COFREE.
   Qed.
 
   Lemma wlp_stars_okstate A s s' post
@@ -198,16 +235,21 @@ Section WLP_Correct.
     eapply wlp_step; apply H. 
   Qed.
 
-  Lemma func_okstate f arg_t ret_t pre post body x m s'
-    (FI : C f = Some (mk_f_impl arg_t ret_t body))
-    (FS : S f (mk_f_spec arg_t ret_t pre post))
-    (PRE : pre x m)
-    (STEPS : steps C (m, body x) s'):
+  Lemma func_okstate sg f s x m s'
+    (SIG : SG f = Some sg)
+    (FS : fun_has_spec S f SIG s)
+    (PRE : f_pre s x m)
+    (STEPS : steps C (m, get_fun_body C f SIG x) s'):
     okstate C s'.
   Proof.
-    eapply match_init_call in PRE; try eassumption.
+    eapply elim_MATCH in PRE; try eassumption.
     eapply wlp_stars_okstate, STEPS.
-    - eapply COFREE in FI. apply FI.
+    - apply elim_COFREE.
     - exact PRE.
   Qed.
 End WLP_Correct.
+
+End Concrete.
+Global Arguments impl_context : clear implicits.
+Global Arguments spec_context : clear implicits.
+
