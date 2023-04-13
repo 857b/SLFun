@@ -114,6 +114,23 @@ Module FMem.
     apply is_join_emp_l.
   Qed.
 
+  Definition build_join
+    (m0 m1 : t)
+    (H : forall p, FCell.join (m0 p) (m1 p) <> None):
+    exists m : t, is_join m m0 m1.
+  Proof.
+    exists (fun p =>
+      match FCell.join (m0 p) (m1 p) with
+      | Some c => c
+      | None   => FCell.emp (* placeholder *)
+      end).
+    intro p; specialize (H p).
+    destruct FCell.join; congruence.
+  Qed.
+  
+  Definition cell (p : ptr) (d : memdata) : t :=
+    fun r => if Mem.ptr_eq r p then Some d else None.
+
 End FMem.
 
 (* [SLprop] *)
@@ -183,6 +200,7 @@ Module SLprop.
     - intros E m; split; apply E.
   Qed.
 
+  (* [emp] *)
 
   Program Definition emp : t :=
     mk_sl_pred (fun m => FMem.eq m FMem.emp) _.
@@ -190,11 +208,7 @@ Module SLprop.
     rewrite <- MEQ; assumption.
   Qed.
 
-  Program Definition pure (p : Prop) : t :=
-    mk_sl_pred (fun m => FMem.eq m FMem.emp /\ p) _.
-  Next Obligation.
-    rewrite <- MEQ; tauto.
-  Qed.
+  (* [star] *)
 
   Program Definition star (h0 h1 : t) : t :=
     mk_sl_pred (fun m => exists m0 m1, FMem.is_join m m0 m1 /\ h0 m0 /\ h1 m1) _.
@@ -275,6 +289,60 @@ Module SLprop.
     rewrite star_comm.
     apply star_emp_l.
   Qed.
+  
+
+  (* [pure] *)
+
+  Program Definition pure (p : Prop) : t :=
+    mk_sl_pred (fun m => FMem.eq m FMem.emp /\ p) _.
+  Next Obligation.
+    rewrite <- MEQ; tauto.
+  Qed.
+
+  Lemma star_pure (P : Prop) (h : t) (m : FMem.t):
+    sl_pred (pure P ** h) m <-> P /\ h m.
+  Proof.
+    split.
+    - intros (? & ? & J & (EMP & HP) & H).
+      rewrite EMP, FMem.is_join_emp_l in J.
+      rewrite <- J in H.
+      auto.
+    - intros (? & ?).
+      exists FMem.emp, m; simpl; intuition.
+      apply FMem.is_join_emp_l; reflexivity.
+  Qed.
+
+  Lemma imp_pure_l (P : Prop) (h0 h1 : t)
+    (C : P -> imp h0 h1):
+    imp (pure P ** h0) h1.
+  Proof.
+    intros m H%star_pure. case H as [].
+    apply C; auto.
+  Qed.
+
+  Lemma imp_pure_r (P : Prop) (h0 h1 : SLprop.t)
+    (HP : P)
+    (C : imp h0 h1):
+    imp h0 (pure P ** h1).
+  Proof.
+    intros m H0%C.
+    apply star_pure; auto.
+  Qed.
+
+
+  (* cell: points to *)
+
+  Program Definition cell (p : ptr) (d : memdata) : t :=
+    mk_sl_pred (fun m => FMem.eq m (FMem.cell p d)) _.
+  Next Obligation.
+    etransitivity; eauto.
+    symmetry; eauto.
+  Qed.
+
+  (* True *)
+
+  Program Definition True : t :=
+    mk_sl_pred (fun _ => Logic.True) _.
 
 End SLprop.
 

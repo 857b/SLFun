@@ -1,7 +1,11 @@
+Require Import SLFun.Util.
+
+
 Definition ptr : Type := nat.
 
 Definition memdata : Type := nat.
 
+(* TODO: only for non null pointers *)
 Definition mem : Type := ptr -> memdata.
 
 Module Mem.
@@ -19,5 +23,5 @@ Module Mem.
   Defined.
 
   Definition write (m : t) (p : ptr) (x : memdata) : t :=
-    fun p' => if ptr_eq p' p then x else m p'.
+    fset ptr_eq p x m.
 End Mem.

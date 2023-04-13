@@ -3,4 +3,6 @@ Util.v
 Values.v
 ConcreteProg.v
 SL.v
+SLProg.v
 Test/Concrete.v
+Test/SLProg.v

@@ -30,13 +30,14 @@ Definition SPECS : spec_context SIG :=
   fun f => match f with
   | 0 =>
     let sg := mk_f_sig ptr nat in
-    eq {|
-      f_pre  := fun (p : f_arg_t sg) m => Mem.read m p > 0;
-      f_post := fun p m0 r m1 => Mem.read m1 p = S r;
+    fun p : f_arg_t sg => eq {|
+      Spec.pre  := fun m       => Mem.read m p > 0;
+      Spec.post := fun m0 r m1 => Mem.read m1 p = S r;
     |}
-  | 1 => eq {|
-      f_pre  := fun _ _ => True;
-      f_post := fun _ _ _ _ => True;
+  | 1 =>
+    fun _ => eq {|
+      Spec.pre  := fun _     => True;
+      Spec.post := fun _ _ _ => True;
     |}
   | _ => tt
   end.
@@ -45,7 +46,7 @@ Lemma match_context:
   context_match_spec IMPL SPECS.
 Proof.
   intros [|[|]]; simpl. 3:constructor.
-  all:intros ? <-; unfold f_match_spec; simpl.
+  all:intros x ? <-; unfold f_match_spec, Spec.wp_impl; revert x; simpl.
   - (* aux *)
     intros p m.
     case (Mem.read m p); simpl; try reflexivity.
@@ -53,7 +54,7 @@ Proof.
   - (* main *)
     intros _ m _.
     do 3 esplit; simpl.
-    + unfold Mem.read, Mem.write; destruct Mem.ptr_eq. 2:congruence.
+    + unfold Mem.read, Mem.write; rewrite Util.fset_gs.
       repeat constructor.
     + auto.
 Qed.

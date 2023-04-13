@@ -1,6 +1,7 @@
-Require Import Coq.Relations.Relations.
-
 Require Export SLFun.Values.
+
+Require Import Coq.Relations.Relations.
+Require Import Coq.Setoids.Setoid.
 
 
 Definition fid : Set := nat.
@@ -11,6 +12,41 @@ Record f_sig := mk_f_sig {
 }.
 
 Definition sig_context := fid -> option f_sig.
+
+Module Spec. Section Spec.
+  Local Set Implicit Arguments.
+  Variable A : Type.
+
+  Definition wp_t := forall (post : A -> mem -> Prop) (m0 : mem), Prop.
+
+  Definition monotone (wp : wp_t) : Prop :=
+    forall (post0 post1 : A -> mem -> Prop) (LE : forall x m, post0 x m -> post1 x m) m,
+    wp post0 m -> wp post1 m.
+  
+  Record t := mk {
+    pre  : mem -> Prop;
+    post : mem -> A -> mem -> Prop;
+  }.
+
+  Definition le (a b : t) :=
+    forall m0 : mem,
+    pre b m0 -> (pre a m0 /\
+    forall (r : A) (m1 : mem),
+    post a m0 r m1 -> post b m0 r m1).
+
+  Global Instance le_PreOrder : PreOrder le.
+  Proof.
+    unfold le. split.
+    - intro; auto.
+    - intros a b c L0 L1 m0 PC.
+      case (L1 m0) as (PB & L1'); auto.
+      case (L0 m0) as (PA & L0'); auto.
+  Qed.
+
+  Definition wp_impl (wp : wp_t) (s : t) :=
+    forall m0, pre s m0 -> wp (post s m0) m0.
+
+End Spec. End Spec.
 
 Section Concrete.
   Context [SG : sig_context].
@@ -88,36 +124,31 @@ Definition context_oracle_free (c : impl_context) : Prop :=
   | None     => fun _   => True
   end (c f).
 
-Record f_spec (sg : f_sig) := mk_f_spec {
-  f_pre   : f_arg_t sg -> mem -> Prop;
-  f_post  : f_arg_t sg -> mem -> f_ret_t sg -> mem -> Prop;
-}.
-Global Arguments f_pre  [_].
-Global Arguments f_post [_].
+Definition f_spec (sg : f_sig) : Type := f_arg_t sg -> Spec.t (f_ret_t sg) -> Prop.
 
 Definition spec_context :=
-  forall f : fid, opt_type (fun sg => f_spec sg -> Prop) (SG f).
+  forall f : fid, opt_type f_spec (SG f).
 
 Section WLP.
   Variable G : spec_context.
   
-  Definition fun_has_spec [sg] (f : fid) (SIG : SG f = Some sg) : f_spec sg -> Prop.
+  Definition fun_has_spec [sg] (f : fid) (SIG : SG f = Some sg) : f_spec sg.
   Proof.
     specialize (G f).
     rewrite SIG in G.
     exact G.
   Defined.
 
-  Fixpoint wlp [A] (i : instr A) {struct i} : forall (post : A -> mem -> Prop) (m : mem), Prop :=
+  Fixpoint wlp [A] (i : instr A) {struct i} : Spec.wp_t A :=
     match i with
     | Ret x => fun post =>
         post x
     | Bind f g => fun post =>
         wlp f (fun y => wlp (g y) post)
     | @Call sg f SIG x => fun post m =>
-        exists s, fun_has_spec f SIG s /\
-          f_pre s x m /\
-          forall r m', f_post s x m r m' -> post r m'
+        exists s, fun_has_spec f SIG x s /\
+          Spec.pre s m /\
+          forall r m', Spec.post s m r m' -> post r m'
     | Oracle A => fun post m =>
         exists x : A, post x m
     | Assert P => fun post m =>
@@ -128,11 +159,10 @@ Section WLP.
         post tt (Mem.write m p x)
     end.
 
-  Lemma wlp_monotone [A] (i : instr A) (post0 post1 : A -> mem -> Prop) m
-    (LE : forall x m, post0 x m -> post1 x m):
-    wlp i post0 m -> wlp i post1 m.
+  Lemma wlp_monotone [A] (i : instr A):
+    Spec.monotone (wlp i).
   Proof.
-    revert post0 post1 m LE; induction i using instr_ind; do 4 intro; simpl;
+    induction i using instr_ind; do 4 intro; simpl;
     try solve [apply LE | intuition eauto].
     - (* Bind *)
       apply IHi.
@@ -146,7 +176,7 @@ Section WLP.
   Qed.
 
   Definition f_match_spec [sg : f_sig] (fi : f_impl sg) (fs : f_spec sg) : Prop :=
-    forall x m, f_pre fs x m -> wlp (fi x) (f_post fs x m) m.
+    forall x s, fs x s -> Spec.wp_impl (wlp (fi x)) s.
 End WLP.
 
 Section WLP_Correct.
@@ -155,24 +185,23 @@ Section WLP_Correct.
   Definition context_match_spec : Prop :=
     forall f,
     match SG f as sg return
-      opt_type f_impl sg -> opt_type (fun sg => f_spec sg -> Prop) sg -> Prop
+      opt_type f_impl sg -> opt_type f_spec sg -> Prop
     with
-    | Some sg => fun fi fs => forall s, fs s -> f_match_spec S fi s
+    | Some sg => @f_match_spec S sg
     | None    => fun _  _  => True
     end (C f) (S f).
 
   Hypothesis MATCH : context_match_spec.
   
-  Lemma elim_MATCH sg f (SIG : SG f = Some sg) s x m
-    (FS : fun_has_spec S f SIG s)
-    (PRE : f_pre s x m):
-    wlp S (get_fun_body C f SIG x) (f_post s x m) m.
+  Lemma elim_MATCH sg f (SIG : SG f = Some sg) s x
+    (FS : fun_has_spec S f SIG x s):
+    Spec.wp_impl (wlp S (get_fun_body C f SIG x)) s.
   Proof.
     specialize (MATCH f); unfold get_fun_body, fun_has_spec in *.
     set (CF := C f) in *; set (SF := S f) in *; clearbody CF SF.
     rewrite <- (eq_sym_involutive SIG) in *.
     destruct (eq_sym SIG); simpl in *.
-    apply (MATCH s); assumption.
+    apply MATCH; assumption.
   Qed.
 
   Lemma wlp_preserved A s s' (post : A -> mem -> Prop):
@@ -183,7 +212,7 @@ Section WLP_Correct.
     - (* Call *)
       intros (s & SF & PRE & POST).
       eapply elim_MATCH in SF; eauto.
-      eapply wlp_monotone; eassumption.
+      eapply wlp_monotone, SF; eauto.
   Qed.
 
   Lemma wlp_step A m i (post : A -> mem -> Prop)
@@ -237,8 +266,8 @@ Section WLP_Correct.
 
   Lemma func_okstate sg f s x m s'
     (SIG : SG f = Some sg)
-    (FS : fun_has_spec S f SIG s)
-    (PRE : f_pre s x m)
+    (FS : fun_has_spec S f SIG x s)
+    (PRE : Spec.pre s m)
     (STEPS : steps C (m, get_fun_body C f SIG x) s'):
     okstate C s'.
   Proof.
