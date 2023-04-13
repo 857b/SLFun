@@ -210,16 +210,15 @@ Section SLS.
     Lemma Read : sls (CP.Read p) read_spec.
     Proof.
       intros fr m; simpl; intro M0.
+      case M0 as (fm & FM & M0).
+      pose (M0' := M0); destruct M0' as (fm_cell & fm_frame & JOIN & (NNULL & CELL) & _).
+      rewrite CELL in JOIN; clear CELL fm_cell.
+      split. exact NNULL.
+      do 2 esplit. exact FM.
       setoid_rewrite SLprop.star_comm at 2.
       setoid_rewrite SLprop.star_assoc.
-      case M0 as (fm & FM & M0).
-      do 2 esplit. exact FM.
-      exists FMem.emp, fm; intuition.
-      - apply FMem.is_join_emp_r; reflexivity.
-      - split. reflexivity.
-        apply FM.
-        case M0 as (fm_cell & fm_frame & JOIN & CELL & _).
-        simpl in CELL; rewrite CELL in JOIN.
+      eapply SLprop.star_pure; split; auto.
+      - apply FM.
         specialize (JOIN p); unfold FMem.cell in JOIN.
         case Mem.ptr_eq in JOIN. 2:congruence.
         case fm_frame in JOIN; simpl in JOIN; congruence.
@@ -235,8 +234,9 @@ Section SLS.
 
     Lemma Write : sls (CP.Write p d1) write_spec.
     Proof.
-      intros fr m; simpl; intros (fm0 & FM0 & fm_0 & fm_f & J0 & C0 & F0).
-      simpl in C0; rewrite C0 in J0; clear C0 fm_0.
+      intros fr m; simpl; intros (fm0 & FM0 & fm_0 & fm_f & J0 & (NNULL & C0) & F0).
+      split. exact NNULL.
+      rewrite C0 in J0; clear C0 fm_0.
       exists (fset Mem.ptr_eq p (Some d1) fm0).
       simpl; split.
       - intros q d; unfold Mem.write, fset.

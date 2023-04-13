@@ -11,6 +11,8 @@ Definition SIG : sig_context :=
   end.
 
 Definition ptr0 : ptr := 42.
+Lemma ptr0_non_null: ptr0 <> NULL.
+Proof. inversion 1. Qed.
 Global Opaque ptr0.
 
 Definition IMPL : impl_context SIG :=
@@ -31,7 +33,7 @@ Definition SPECS : spec_context SIG :=
   | 0 =>
     let sg := mk_f_sig ptr nat in
     fun p : f_arg_t sg => eq {|
-      Spec.pre  := fun m       => Mem.read m p > 0;
+      Spec.pre  := fun m       => p <> NULL /\ Mem.read m p > 0;
       Spec.post := fun m0 r m1 => Mem.read m1 p = S r;
     |}
   | 1 =>
@@ -48,14 +50,15 @@ Proof.
   intros [|[|]]; simpl. 3:constructor.
   all:intros x ? <-; unfold f_match_spec, Spec.wp_impl; revert x; simpl.
   - (* aux *)
-    intros p m.
+    intros p m; intuition; revert H1.
     case (Mem.read m p); simpl; try reflexivity.
     inversion 1.
   - (* main *)
     intros _ m _.
+    split. exact ptr0_non_null.
     do 3 esplit; simpl.
     + unfold Mem.read, Mem.write; rewrite Util.fset_gs.
-      repeat constructor.
+      repeat constructor. exact ptr0_non_null.
     + auto.
 Qed.
 

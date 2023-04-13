@@ -87,9 +87,11 @@ Section Semantics.
     | step_assert m (P : mem -> Prop)
         (ASSERT : P m):
         step (m, Assert P) (m, Ret tt)
-    | step_read m p:
+    | step_read m p
+        (NNULL : p <> NULL):
         step (m, Read p) (m, Ret (Mem.read m p))
-    | step_write m p x:
+    | step_write m p x
+        (NNULL : p <> NULL):
         step (m, Write p x) (Mem.write m p x, Ret tt).
 
   Definition steps [A] : state A -> state A -> Prop :=
@@ -145,9 +147,9 @@ Section WLP.
     | Assert P => fun post m =>
         P m /\ post tt m
     | Read p => fun post m =>
-        post (Mem.read m p) m
+        p <> NULL /\ post (Mem.read m p) m
     | Write p x => fun post m =>
-        post tt (Mem.write m p x)
+        p <> NULL /\ post tt (Mem.write m p x)
     end.
 
   Lemma wlp_monotone [A] (i : instr A):

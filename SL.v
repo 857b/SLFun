@@ -333,10 +333,9 @@ Module SLprop.
   (* cell: points to *)
 
   Program Definition cell (p : ptr) (d : memdata) : t :=
-    mk_sl_pred (fun m => FMem.eq m (FMem.cell p d)) _.
+    mk_sl_pred (fun m => p <> NULL /\ FMem.eq m (FMem.cell p d)) _.
   Next Obligation.
-    etransitivity; eauto.
-    symmetry; eauto.
+    rewrite <- MEQ; auto.
   Qed.
 
   (* True *)
