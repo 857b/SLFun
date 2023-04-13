@@ -5,13 +5,13 @@ Require Import SLFun.SL.
 Import SLNotations.
 
 
-Definition f_aux  : CP.fid := 0.
-Definition f_main : CP.fid := 1.
+Definition f_aux  : fid := 0.
+Definition f_main : fid := 1.
 
-Definition sig_aux  := CP.mk_f_sig ptr nat.
-Definition sig_main := CP.mk_f_sig (ptr * ptr) unit.
+Definition sig_aux  := mk_f_sig ptr nat.
+Definition sig_main := mk_f_sig (ptr * ptr) unit.
 
-Definition SIG : CP.sig_context :=
+Definition SIG : sig_context :=
   fun f => match f with
   | 0 => Some sig_aux
   | 1 => Some sig_main
@@ -96,23 +96,6 @@ Definition IMPL : CP.impl_context SIG :=
   | 1 => impl_main
   | _ => tt
   end.
-
-Lemma wp_impl_tr_f_spec [sg sp x wp]
-  [IM : Spec.wp_match (sp x) wp]
-  [s] (TR : @tr_f_spec sg (fun x s => s = sp x) x s):
-  CP.Spec.wp_impl wp s.
-Proof.
-  case TR as (? & fr & ? & ?); subst.
-  apply IM.
-Qed.
-
-Lemma tr_f_spec_exists A sg sp x s:
-  @tr_f_spec sg (fun x s => exists y : A, sp s x y) x s ->
-  exists y : A, tr_f_spec (fun x s => sp s x y) x s.
-Proof.
-  intros (? & fr & (y & ?) & ?); subst.
-  eexists y, _, fr; eauto.
-Qed.
 
 Lemma match_context:
   CP.context_match_spec IMPL SPEC.

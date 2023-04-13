@@ -4,15 +4,6 @@ Require Import Coq.Relations.Relations.
 Require Import Coq.Setoids.Setoid.
 
 
-Definition fid : Set := nat.
-
-Record f_sig := mk_f_sig {
-  f_arg_t : Type;
-  f_ret_t : Type;
-}.
-
-Definition sig_context := fid -> option f_sig.
-
 Module Spec. Section Spec.
   Local Set Implicit Arguments.
   Variable A : Type.

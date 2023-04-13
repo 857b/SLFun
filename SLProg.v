@@ -70,10 +70,10 @@ End Spec. End Spec.
 
 Section F_SPEC.
   Local Set Implicit Arguments.
-  Variable sg : CP.f_sig.
+  Variable sg : f_sig.
 
   Definition f_spec :=
-    CP.f_arg_t sg -> Spec.t (CP.f_ret_t sg) -> Prop.
+    f_arg_t sg -> Spec.t (f_ret_t sg) -> Prop.
 
   Definition match_f_spec (s : f_spec) (t : CP.f_spec sg) : Prop :=
     forall x s_s, s x s_s -> Spec.spec_match s_s (t x).
@@ -88,10 +88,28 @@ Section F_SPEC.
     - exists s_s, fr; eauto.
     - reflexivity.
   Qed.
+  
+  Lemma wp_impl_tr_f_spec [sp x wp]
+    [IM : Spec.wp_match (sp x) wp]
+    [s] (TR : tr_f_spec (fun x s => s = sp x) x s):
+    CP.Spec.wp_impl wp s.
+  Proof.
+    case TR as (? & fr & ? & ?); subst.
+    apply IM.
+  Qed.
+
+  Lemma tr_f_spec_exists A sp x s:
+    tr_f_spec (fun x s => exists y : A, sp s x y) x s ->
+    exists y : A, tr_f_spec (fun x s => sp s x y) x s.
+  Proof.
+    intros (? & fr & (y & ?) & ?); subst.
+    eexists y, _, fr; eauto.
+  Qed.
+
 End F_SPEC.
 
 Section SLS.
-  Context [SG : CP.sig_context] (SPC : CP.spec_context SG).
+  Context [SG : sig_context] (SPC : CP.spec_context SG).
 
   (* Separation Logic Spec *)
   Definition sls [A] (i : CP.instr A) (s : Spec.t A) :=
@@ -127,7 +145,7 @@ Section SLS.
     Qed.
   End Bind.
   Section Call.
-    Context [sg : CP.f_sig] (f : CP.fid) (x : CP.f_arg_t sg) (s : Spec.t (CP.f_ret_t sg)).
+    Context [sg : f_sig] (f : fid) (x : f_arg_t sg) (s : Spec.t (f_ret_t sg)).
     Record fun_has_spec : Prop := {
       fd_SIG  : SG f = Some sg;
       fg_SPEC : Spec.spec_match s (CP.fun_has_spec SPC f fd_SIG x);
