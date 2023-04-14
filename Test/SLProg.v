@@ -68,7 +68,7 @@ Proof.
     }
     subst n'; eassumption.
   - intro r.
-    rewrite SLprop.star_comm.
+    SLprop.normalize.
     apply SLprop.imp_pure_l.
     intros ->; reflexivity.
 Defined.

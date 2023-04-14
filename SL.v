@@ -171,6 +171,13 @@ Module SLprop.
     + split; apply h1.(sl_wf); [|symmetry]; exact EM.
   Qed.
 
+  Lemma sl_pred_eq (h0 h1 : t) (m : FMem.t)
+    (E : eq h0 h1):
+    h0 m <-> h1 m.
+  Proof.
+    rewrite E; reflexivity.
+  Qed.
+
   Definition imp (h0 h1 : t) : Prop :=
     forall m, h0 m -> h1 m.
 
@@ -312,6 +319,18 @@ Module SLprop.
       apply FMem.is_join_emp_l; reflexivity.
   Qed.
 
+  Lemma pure_star_pure (P Q : Prop):
+    eq (pure P ** pure Q) (pure (P /\ Q)).
+  Proof.
+    split.
+    - intros (? & ? & J & (E0 & ?) & (E1 & ?)).
+      rewrite E0, E1, FMem.is_join_emp_l in J.
+      simpl; auto.
+    - intros (E & (? & ?)).
+      exists FMem.emp, FMem.emp; simpl; intuition.
+      apply FMem.is_join_emp_l, E.
+  Qed.
+
   Lemma imp_pure_l (P : Prop) (h0 h1 : t)
     (C : P -> imp h0 h1):
     imp (pure P ** h0) h1.
@@ -342,6 +361,144 @@ Module SLprop.
 
   Program Definition True : t :=
     mk_sl_pred (fun _ => Logic.True) _.
+
+  (* Normalisation tactic *)
+
+  Module Norm.
+    Inductive reified :=
+      | REmp
+      | RPure (P : Prop)
+      | RStar (h0 h1 : reified)
+      | RAtom (h : t).
+
+    Fixpoint reflect (h : reified) : t :=
+      match h with
+      | REmp        => emp
+      | RPure P     => pure P
+      | RStar h0 h1 => reflect h0 ** reflect h1
+      | RAtom h     => h
+      end.
+
+    Ltac reify_core h :=
+      match h with
+      | emp          => exact REmp
+      | pure ?P      => exact (RPure P)
+      | star ?h0 ?h1 => refine (RStar _ _); [reify_core h0 | reify_core h1]
+      | ?h           => exact (RAtom h)
+      end.
+    
+    (* add an hypothesis [reflect r = h] to the goal *)
+    Ltac reify h :=
+      let R := fresh "Reified" in
+      unshelve eassert (reflect _ = h) as R;
+      [ reify_core h | reflexivity | revert R ].
+
+
+    Definition r_rewrite_two (h0 h1 : reified) : reified :=
+      match h0, h1 with
+      | REmp, h | h, REmp => h
+      | RPure P, RPure Q  => RPure (P /\ Q)
+      | h0, RPure P       => RStar (RPure P) h0
+      | h0, h1            => RStar h0 h1
+      end.
+
+    Lemma r_rewrite_two_correct h0 h1:
+      eq (reflect (r_rewrite_two h0 h1)) (reflect h0 ** reflect h1).
+    Proof.
+      case h0, h1; simpl; symmetry; try reflexivity;
+        auto using star_emp_l, star_emp_r, star_comm, pure_star_pure.
+    Qed.
+
+    Definition r_rewrite_head (h : reified) : reified :=
+      match h with
+      | RStar h0 (RStar h1 h2) =>
+          match r_rewrite_two h0 h1 with
+          | RStar h0 h1 => RStar h0 (RStar h1 h2)
+          | h           => RStar h h2
+          end
+      | RStar h0 h1 => r_rewrite_two h0 h1
+      | h => h
+      end.
+
+    Lemma r_rewrite_head_correct h:
+      eq (reflect (r_rewrite_head h)) (reflect h).
+    Proof.
+      case h; simpl; try reflexivity.
+      intros h0 []; simpl; try apply r_rewrite_two_correct.
+      specialize (r_rewrite_two_correct h0 h1).
+      destruct r_rewrite_two; simpl; try solve [intros ->; apply star_assoc].
+      rewrite <- star_assoc; intros ->; rewrite star_assoc; reflexivity.
+    Qed.
+
+    Fixpoint r_rewrite_flat (h : reified) (acc : reified) {struct h} : reified :=
+      match h with
+      | RStar h0 h1 => r_rewrite_flat h0 (r_rewrite_flat h1 acc)
+      | h => r_rewrite_head (RStar h acc)
+      end.
+
+    Lemma r_rewrite_flat_correct h acc:
+      eq (reflect (r_rewrite_flat h acc)) (reflect h ** reflect acc).
+    Proof.
+      revert acc; induction h; intro; try solve [apply r_rewrite_head_correct].
+      simpl; rewrite IHh1, IHh2, star_assoc; reflexivity.
+    Qed.
+
+    Definition r_normalize h :=
+      r_rewrite_flat h REmp.
+
+    Lemma r_normalize_correct h:
+      eq (reflect (r_normalize h)) (reflect h).
+    Proof.
+      unfold r_normalize.
+      rewrite r_rewrite_flat_correct.
+      apply star_emp_r.
+    Qed.
+
+    Local Lemma normalize_r_eq r h:
+      reflect r = h ->
+      eq h (reflect (r_normalize r)).
+    Proof.
+      intros <-. rewrite r_normalize_correct. reflexivity.
+    Qed.
+
+    (* Solve a goal [h = ?h] *)
+    Ltac normalize_core :=
+      match goal with
+      | |- eq ?h _ =>
+          let R := fresh "R" in
+          reify h; intro R;
+          apply normalize_r_eq in R; cbn in R;
+          exact R
+      end.
+
+    Ltac normalize :=
+      match goal with
+      | |- eq _ ?h =>
+          first [
+            is_evar h; normalize_core
+          | etransitivity; [normalize_core|etransitivity; [|symmetry;normalize_core]]]
+      | |- sl_pred _ _ =>
+          eapply sl_pred_eq; [normalize_core|]
+      | |- imp _ _ =>
+          eapply imp_morph; [normalize_core|normalize_core|]
+      | |- _ = _ => reflexivity
+      end.
+
+    Local Lemma test_normalize_0 h:
+      eq (emp ** h) (h ** emp).
+    Proof.
+      normalize. reflexivity.
+    Qed.
+    
+    Local Lemma test_normalize_1 h P Q:
+      eq (pure P ** emp ** h ** pure Q) (h ** pure (P /\ Q) ** emp).
+    Proof.
+      normalize. reflexivity.
+    Qed.
+
+  End Norm.
+  
+  Ltac normalize := Norm.normalize.
 
 End SLprop.
 

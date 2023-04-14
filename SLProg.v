@@ -215,8 +215,7 @@ Section SLS.
       rewrite CELL in JOIN; clear CELL fm_cell.
       split. exact NNULL.
       do 2 esplit. exact FM.
-      setoid_rewrite SLprop.star_comm at 2.
-      setoid_rewrite SLprop.star_assoc.
+      SLprop.normalize.
       eapply SLprop.star_pure; split; auto.
       - apply FM.
         specialize (JOIN p); unfold FMem.cell in JOIN.
