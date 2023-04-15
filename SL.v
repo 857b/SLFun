@@ -1,3 +1,4 @@
+Require Import SLFun.Util.
 Require Import SLFun.Values.
 
 Require Import Coq.Setoids.Setoid.
@@ -135,17 +136,8 @@ End FMem.
 
 (* [SLprop] *)
 
-Lemma pull_Equivalence [A B] (f : A -> B) (R : relation B) (E : Equivalence R):
-  Equivalence (fun x y => R (f x) (f y)).
-Proof.
-  constructor; repeat intro.
-  - reflexivity.
-  - symmetry; auto.
-  - etransitivity; eauto.
-Qed.
-
 Module SLprop.
-  
+
   Record t := mk_sl_pred {
     sl_pred :> FMem.t -> Prop;
     sl_wf   : forall m0 m1 (MEQ : FMem.eq m0 m1) (HM0 : sl_pred m0), sl_pred m1;
@@ -154,12 +146,11 @@ Module SLprop.
   Bind Scope slprop_scope with t.
 
   Definition eq (h0 h1 : t) : Prop :=
-    Morphisms.pointwise_relation FMem.t iff h0 h1.
+    forall m : FMem.t, h0 m <-> h1 m.
 
   Global Instance eq_Equivalence : Equivalence eq.
   Proof.
-    apply (pull_Equivalence sl_pred).
-    auto with typeclass_instances.
+    Rel.by_expr (Rel.pull sl_pred (Rel.point FMem.t iff)).
   Qed.
 
   Global Add Morphism sl_pred
@@ -183,9 +174,7 @@ Module SLprop.
 
   Global Instance imp_PreOrder : PreOrder imp.
   Proof.
-    split.
-    - intros ? ?; auto.
-    - intros ? ? ? H0 H1 m; specialize (H0 m); specialize (H1 m); tauto.
+    Rel.by_expr (Rel.pull sl_pred (Rel.point FMem.t Basics.impl)).
   Qed.
 
   Global Add Morphism imp
@@ -349,7 +338,34 @@ Module SLprop.
   Qed.
 
 
-  (* cell: points to *)
+  (* [ex] : exists *)
+
+  Program Definition ex (A : Type) (h : A -> t) : t :=
+    mk_sl_pred (fun m => exists x : A, h x m) _.
+  Next Obligation.
+    setoid_rewrite <- MEQ; eauto.
+  Qed.
+
+  Global Add Parametric Morphism A : (ex A)
+    with signature Morphisms.pointwise_relation A eq ==> eq
+    as ex_morph.
+  Proof.
+    intros h0 h1 E m; simpl.
+    setoid_rewrite E.
+    reflexivity.
+  Qed.
+
+  Lemma exists_star A (h0 : A -> t) (h1 : t):
+    eq (ex A h0 ** h1) (ex A (fun x => star (h0 x) h1)).
+  Proof.
+    intro m; split.
+    - intros (m0 & m1 & J & (x & H0) & H1).
+      exists x, m0, m1; eauto.
+    - intros (x & (m0 & m1 & J & H0 & H1)).
+      repeat (esplit; eauto).
+  Qed.
+
+  (* [cell] : points-to *)
 
   Program Definition cell (p : ptr) (d : memdata) : t :=
     mk_sl_pred (fun m => p <> NULL /\ FMem.eq m (FMem.cell p d)) _.
@@ -369,6 +385,7 @@ Module SLprop.
       | REmp
       | RPure (P : Prop)
       | RStar (h0 h1 : reified)
+      | REx   (A : Type) (h : A -> reified)
       | RAtom (h : t).
 
     Fixpoint reflect (h : reified) : t :=
@@ -376,71 +393,114 @@ Module SLprop.
       | REmp        => emp
       | RPure P     => pure P
       | RStar h0 h1 => reflect h0 ** reflect h1
+      | REx   A h   => ex A (fun x => reflect (h x))
       | RAtom h     => h
       end.
 
-    Ltac reify_core h :=
+    Inductive reifyI : reified -> t -> Prop :=
+      | RIEmp    : reifyI REmp emp
+      | RIPure P : reifyI (RPure P) (pure P)
+      | RIStar r0 r1 h0 h1 (R0 : reifyI r0 h0) (R1 : reifyI r1 h1) :
+                   reifyI (RStar r0 r1) (h0 ** h1)
+      | RIEx   A r h (R : forall x : A, reifyI (r x) (h x)) :
+                   reifyI (REx A r) (ex A h)
+      | RIAtom h : reifyI (RAtom h) h.
+
+    Lemma reifyI_reflect r h:
+      reifyI r h -> eq (reflect r) h.
+    Proof.
+      induction 1; simpl; try reflexivity.
+      - rewrite IHreifyI1, IHreifyI2; reflexivity.
+      - setoid_rewrite H; reflexivity.
+    Qed.
+
+    (* solves a goal [reifyI ?R h] *)
+    Ltac reify_core :=
+      match goal with |- reifyI _ ?h =>
       match h with
-      | emp          => exact REmp
-      | pure ?P      => exact (RPure P)
-      | star ?h0 ?h1 => refine (RStar _ _); [reify_core h0 | reify_core h1]
-      | ?h           => exact (RAtom h)
-      end.
+      | emp          => apply RIEmp
+      | pure ?P      => apply RIPure
+      | star ?h0 ?h1 => apply RIStar; [reify_core h0 | reify_core h1]
+      | ex   ?A ?h   => apply RIEx;
+                        let x := fresh "x" in intro x; cbn beta; reify_core
+      | ?h           => apply RIAtom
+      end end.
     
-    (* add an hypothesis [reflect r = h] to the goal *)
+    (* adds an hypothesis [reifyI r h] to the goal *)
     Ltac reify h :=
       let R := fresh "Reified" in
-      unshelve eassert (reflect _ = h) as R;
-      [ reify_core h | reflexivity | revert R ].
+      eassert (reifyI _ h) as R;
+      [ reify_core | revert R ].
 
 
-    Definition r_rewrite_two (h0 h1 : reified) : reified :=
-      match h0, h1 with
-      | REmp, h | h, REmp => h
-      | RPure P, RPure Q  => RPure (P /\ Q)
-      | h0, RPure P       => RStar (RPure P) h0
-      | h0, h1            => RStar h0 h1
-      end.
-
-    Lemma r_rewrite_two_correct h0 h1:
-      eq (reflect (r_rewrite_two h0 h1)) (reflect h0 ** reflect h1).
+    Definition r_rewrite_3:
+      let Goal h0 h1 := {h : reified | eq (reflect h) (reflect h0 ** reflect h1)} in
+      forall (r2 : forall (h0 h1 : reified), Goal h0 h1) h0 h1, Goal h0 h1.
     Proof.
-      case h0, h1; simpl; symmetry; try reflexivity;
-        auto using star_emp_l, star_emp_r, star_comm, pure_star_pure.
-    Qed.
+      intros Goal r2 h0 h1.
+      unshelve refine (
+        let def : Goal h0 h1 := r2 h0 h1 in
+        match h1 as h1' return Goal h0 h1' -> Goal h0 h1' with
+        | RStar h1 h2 => fun _ =>
+            let (rr2, e) := r2 h0 h1 in
+            let def : Goal h0 (RStar h1 h2) := exist _ (RStar rr2 h2) _ in
+            match rr2 as rr2' return
+              eq (reflect rr2') (reflect h0 ** reflect h1) -> _
+            with
+            | RStar h0' h1' => fun e => exist _ (RStar h0' (RStar h1' h2)) _
+            | _ => fun _ => def
+            end e
+        | _ => fun def => def
+        end def);
+      simpl.
+      - rewrite e, star_assoc; reflexivity.
+      - rewrite <- star_assoc, e, star_assoc; reflexivity.
+    Defined.
 
-    Definition r_rewrite_head (h : reified) : reified :=
-      match h with
-      | RStar h0 (RStar h1 h2) =>
-          match r_rewrite_two h0 h1 with
-          | RStar h0 h1 => RStar h0 (RStar h1 h2)
-          | h           => RStar h h2
-          end
-      | RStar h0 h1 => r_rewrite_two h0 h1
-      | h => h
-      end.
+    Local Lemma sl_eq_refl h: eq h h.
+    Proof. reflexivity. Qed.
 
-    Lemma r_rewrite_head_correct h:
-      eq (reflect (r_rewrite_head h)) (reflect h).
+    Fixpoint r_rewrite_2 (h0 h1 : reified) {struct h1}:
+      {h : reified | eq (reflect h) (reflect h0 ** reflect h1)}.
     Proof.
-      case h; simpl; try reflexivity.
-      intros h0 []; simpl; try apply r_rewrite_two_correct.
-      specialize (r_rewrite_two_correct h0 h1).
-      destruct r_rewrite_two; simpl; try solve [intros ->; apply star_assoc].
-      rewrite <- star_assoc; intros ->; rewrite star_assoc; reflexivity.
-    Qed.
+      pose (Goal h0 h1 := {h : reified | eq (reflect h0 ** reflect h1) (reflect h)}).
+      cut (Goal h0 h1).
+        intros [h E]; exists h; symmetry; exact E.
+      refine (match h1 as h1' return Goal h0 h1' with
+              | REmp     => exist _ h0 _
+              | REx A h1 => exist _ (REx A (fun x => proj1_sig (r_rewrite_3 r_rewrite_2 h0 (h1 x)))) _
+              | RPure Q  =>
+                  match h0 as h0' return Goal h0' (RPure Q) with
+                  | RPure P => exist _ (RPure (P /\ Q)) _
+                  | h0      => exist _ (RStar (RPure Q) h0) (star_comm _ _)
+                  end
+              | h1       => exist _ (RStar h0 h1) (sl_eq_refl _)
+              end);
+      simpl; auto using star_emp_r, pure_star_pure.
+      - rewrite star_comm, exists_star.
+        apply ex_morph; intro x.
+        case r_rewrite_3 as [rw E]; simpl.
+        rewrite E, star_comm; reflexivity.
+    Defined.
+
+    Definition r_rewrite_star := r_rewrite_3 r_rewrite_2.
 
     Fixpoint r_rewrite_flat (h : reified) (acc : reified) {struct h} : reified :=
       match h with
+      | REmp        => acc
       | RStar h0 h1 => r_rewrite_flat h0 (r_rewrite_flat h1 acc)
-      | h => r_rewrite_head (RStar h acc)
+      | REx A h     => REx A (fun x => r_rewrite_flat (h x) acc)
+      | h           => proj1_sig (r_rewrite_star h acc)
       end.
 
     Lemma r_rewrite_flat_correct h acc:
       eq (reflect (r_rewrite_flat h acc)) (reflect h ** reflect acc).
     Proof.
-      revert acc; induction h; intro; try solve [apply r_rewrite_head_correct].
-      simpl; rewrite IHh1, IHh2, star_assoc; reflexivity.
+      revert acc; induction h; intro;
+        try solve [apply (proj2_sig (r_rewrite_star _ acc))]; simpl.
+      - rewrite star_emp_l; reflexivity.
+      - rewrite IHh1, IHh2, star_assoc; reflexivity.
+      - setoid_rewrite H; rewrite exists_star; reflexivity.
     Qed.
 
     Definition r_normalize h :=
@@ -455,10 +515,10 @@ Module SLprop.
     Qed.
 
     Local Lemma normalize_r_eq r h:
-      reflect r = h ->
+      reifyI r h ->
       eq h (reflect (r_normalize r)).
     Proof.
-      intros <-. rewrite r_normalize_correct. reflexivity.
+      intros <-%reifyI_reflect. rewrite r_normalize_correct. reflexivity.
     Qed.
 
     (* Solve a goal [h = ?h] *)
@@ -473,9 +533,11 @@ Module SLprop.
 
     Ltac normalize :=
       match goal with
-      | |- eq _ ?h =>
+      | |- eq ?h0 ?h1 =>
           first [
-            is_evar h; normalize_core
+            is_evar h0; is_evar h1; reflexivity
+          | is_evar h1; normalize_core
+          | is_evar h0; symmetry; normalize_core
           | etransitivity; [normalize_core|etransitivity; [|symmetry;normalize_core]]]
       | |- sl_pred _ _ =>
           eapply sl_pred_eq; [normalize_core|]
@@ -494,6 +556,26 @@ Module SLprop.
       eq (pure P ** emp ** h ** pure Q) (h ** pure (P /\ Q) ** emp).
     Proof.
       normalize. reflexivity.
+    Qed.
+
+    Local Lemma test_normalize_2 h0 A h1:
+      eq (h0 ** ex A h1 ** emp) (ex A (fun x => emp ** h0 ** h1 x))%slprop.
+    Proof.
+      normalize. reflexivity.
+    Qed.
+
+    Local Lemma test_normalize_3 A h P h1:
+      eq (h ** ex A (fun x => pure (P x) ** h1 x))%slprop
+         (ex A (fun x => (pure (P x) ** h ** h1 x)))%slprop.
+    Proof.
+      etransitivity. normalize. reflexivity.
+    Qed.
+    
+    Local Lemma test_normalize_4 A B h0 h1 P Q:
+      eq (h0 ** ex A (fun x => ex B (h1 x) ** pure (P x)) ** pure Q)%slprop
+         (ex A (fun x => ex B (fun y => (pure (P x /\ Q) ** h0 ** h1 x y))))%slprop.
+    Proof.
+      etransitivity. normalize. reflexivity.
     Qed.
 
   End Norm.

@@ -9,8 +9,18 @@ Module CP := ConcreteProg.
 Import SLNotations.
 Open Scope slprop.
 
+
 Definition match_fmem (f : FMem.t) (m : mem) :=
   forall p v, f p = Some v -> m p = v.
+
+Definition fmem_of_mem (m : mem) : FMem.t :=
+  fun p => Some (m p).
+
+Lemma match_fmem_of_mem m:
+  match_fmem (fmem_of_mem m) m.
+Proof.
+  injection 1 as ->; reflexivity.
+Qed.
 
 Definition mem_match_sl (sl : SLprop.t) (m : mem) :=
   exists fm : FMem.t, match_fmem fm m /\ sl fm.
@@ -22,13 +32,14 @@ Proof.
 Qed.
 
 Global Add Morphism mem_match_sl
-  with signature SLprop.eq ==> eq ==> iff
+  with signature SLprop.eq ==> Logic.eq ==> iff
   as mem_match_sl_morph.
 Proof.
   symmetric_iff; intros ? ? slE.
   apply mem_match_sl_morph_imp.
   rewrite slE; reflexivity.
 Qed.
+
 
 Module Spec. Section Spec.
   Local Set Implicit Arguments.
@@ -39,16 +50,37 @@ Module Spec. Section Spec.
     post : A -> SLprop.t;
   }.
 
+  Definition eq (s0 s1 : t) :=
+    SLprop.eq (pre s0) (pre s1) /\ forall x : A, SLprop.eq (post s0 x) (post s1 x).
+
+  Global Instance eq_Equivalence : Equivalence eq.
+  Proof.
+    Rel.by_expr (Rel.conj (Rel.pull pre SLprop.eq) (Rel.pull post (Rel.point A SLprop.eq))).
+  Qed.
+
+  Global Add Morphism mk
+    with signature SLprop.eq ==> Morphisms.pointwise_relation A SLprop.eq ==> eq
+    as mk_morph.
+  Proof.
+    intros ? ? E0 ? ? E1; exact (conj E0 E1).
+  Qed.
+
   Definition le (s0 s1 : t) :=
     SLprop.imp (pre s1) (pre s0) /\ forall x : A, SLprop.imp (post s0 x) (post s1 x).
 
+  Global Add Morphism le
+    with signature eq ==> eq ==> iff
+    as le_morph.
+  Proof.
+    intros s0 s0' [E0a E0b] s1 s1' [E1a E1b].
+    unfold le, Morphisms.pointwise_relation in *.
+    rewrite E0a, E1a. setoid_rewrite E0b. setoid_rewrite E1b.
+    reflexivity.
+  Qed.
+
   Global Instance le_PreOrder : PreOrder le.
   Proof.
-    unfold le. split.
-    - intro; split; reflexivity.
-    - intros a b c [L0a L0b] [L1a L1b]; split.
-      + rewrite L1a, L0a; reflexivity.
-      + intro; rewrite L0b, L1b; reflexivity.
+    Rel.by_expr (Rel.conj (Rel.pull pre (Basics.flip SLprop.imp)) (Rel.pull post (Rel.point A SLprop.imp))).
   Qed.
 
   Definition frame (s : t) (fr : SLprop.t) : t := {|
@@ -88,34 +120,48 @@ Section F_SPEC.
     - exists s_s, fr; eauto.
     - reflexivity.
   Qed.
-  
-  Lemma wp_impl_tr_f_spec [sp x wp]
-    [IM : Spec.wp_match (sp x) wp]
-    [s] (TR : tr_f_spec (fun x s => s = sp x) x s):
+
+  Lemma wp_impl_tr_f_spec [sp : f_spec] [x wp]
+    (IM : forall s (SP : sp x s), Spec.wp_match s wp)
+    s (TR : tr_f_spec sp x s):
     CP.Spec.wp_impl wp s.
   Proof.
-    case TR as (? & fr & ? & ?); subst.
-    apply IM.
+    case TR as (? & fr & SP & ->).
+    apply IM, SP.
   Qed.
-
-  Lemma tr_f_spec_exists A sp x s:
-    tr_f_spec (fun x s => exists y : A, sp s x y) x s ->
-    exists y : A, tr_f_spec (fun x s => sp s x y) x s.
-  Proof.
-    intros (? & fr & (y & ?) & ?); subst.
-    eexists y, _, fr; eauto.
-  Qed.
-
 End F_SPEC.
 
-Section SLS.
+Section SLS. 
   Context [SG : sig_context] (SPC : CP.spec_context SG).
 
   (* Separation Logic Spec *)
-  Definition sls [A] (i : CP.instr A) (s : Spec.t A) :=
+  Definition sls [A] (i : CP.instr A) (s : Spec.t A) : Prop :=
     Spec.wp_match s (CP.wlp SPC i).
 
+  Lemma sls_morph_imp [A] (i : CP.instr A) (s0 s1 : Spec.t A) (LE : Spec.le s0 s1):
+    sls i s0 -> sls i s1.
+  Proof.
+    intros SLS fr m0; simpl; intro M0.
+    eapply CP.wlp_monotone, SLS with (fr := fr); cycle 1; simpl.
+    - eapply mem_match_sl_morph_imp, M0.
+      apply SLprop.star_morph_imp; [apply LE|reflexivity].
+    - intros x m1.
+      apply mem_match_sl_morph_imp, SLprop.star_morph_imp; [apply LE|reflexivity].
+  Qed.
+
+  Global Add Parametric Morphism A i : (@sls A i)
+    with signature (@Spec.eq A) ==> iff
+    as sls_morph.
+  Proof.
+    symmetric_iff.
+    intros s0 s1 E.
+    apply sls_morph_imp.
+    rewrite E; reflexivity.
+  Qed.
+
   (* Constructors *)
+
+  (** Instructions *)
 
   Section Ret.
     Context [A : Type] (x : A) (sp : A -> SLprop.t).
@@ -161,30 +207,6 @@ Section SLS.
       exact (SLE _ M0).
     Qed.
   End Call.
-  Section Frame.
-    Context [A : Type] (f : CP.instr A) [s : Spec.t A] (Sf : sls f s) (fr : SLprop.t).
-
-    Lemma Frame : sls f (Spec.frame s fr).
-    Proof.
-      intros fr' m0; simpl.
-      setoid_rewrite SLprop.star_assoc at 1.
-      intros M0; eapply CP.wlp_monotone, Sf with (fr := (fr ** fr')); auto.
-      simpl; setoid_rewrite SLprop.star_assoc; auto.
-    Qed.
-  End Frame.
-  Section Cons. 
-    Context [A : Type] (f : CP.instr A) [s0 s1 : Spec.t A] (Sf : sls f s0) (LE : Spec.le s0 s1).
-
-    Lemma Cons : sls f s1.
-    Proof.
-      intros fr m0; simpl; intro M0.
-      eapply CP.wlp_monotone, Sf with (fr := fr); cycle 1; simpl.
-      - eapply mem_match_sl_morph_imp, M0.
-        apply SLprop.star_morph_imp; [apply LE|reflexivity].
-      - intros x m1.
-        apply mem_match_sl_morph_imp, SLprop.star_morph_imp; [apply LE|reflexivity].
-    Qed.
-  End Cons.
   Section Assert.
     Variable (P : SLprop.t).
 
@@ -246,4 +268,61 @@ Section SLS.
         destruct fm_f; simpl; [discriminate 1|reflexivity].
     Qed.
   End Write.
+
+  (** Proof *)
+
+  Section ProofRules.
+    Context [A : Type] (f : @CP.instr SG A).
+
+    Lemma Cons [s0 s1 : Spec.t A] (Sf : sls f s0) (LE : Spec.le s0 s1):
+      sls f s1.
+    Proof.
+      eapply sls_morph_imp; eauto.
+    Qed.
+
+    Lemma Frame [s : Spec.t A] (Sf : sls f s) (fr : SLprop.t):
+      sls f (Spec.frame s fr).
+    Proof.
+      intros fr' m0; simpl.
+      setoid_rewrite SLprop.star_assoc at 1.
+      intros M0; eapply CP.wlp_monotone, Sf with (fr := (fr ** fr')); auto.
+      simpl; setoid_rewrite SLprop.star_assoc; auto.
+    Qed.
+
+    Lemma CFrame [s0 s1 : Spec.t A] (Sf : sls f s0) (fr : SLprop.t) (LE : Spec.le (Spec.frame s0 fr) s1):
+      sls f s1.
+    Proof.
+      eapply Cons, LE.
+      eapply Frame, Sf.
+    Qed.
+
+    Lemma PureE (P : Prop) (pre : SLprop.t) (post : A -> SLprop.t)
+      (Sf : P -> sls f (Spec.mk pre post)):
+      sls f (Spec.mk (SLprop.pure P ** pre) post).
+    Proof.
+      intros fr m0; simpl; intros (fm0 & FM0 & H0).
+      erewrite SLprop.sl_pred_eq in H0 by SLprop.normalize.
+      apply SLprop.star_pure in H0 as (HP & H0).
+      apply (Sf HP).
+      exists fm0; eauto.
+    Qed.
+
+    Lemma ExistsE [X : Type] (pre : X -> SLprop.t) (post : A -> SLprop.t)
+      (Sf : forall x : X, sls f (Spec.mk (pre x) post)):
+      sls f (Spec.mk (SLprop.ex X pre) post).
+    Proof.
+      intros fr m0; simpl; intros (fm0 & FM0 & H0).
+      erewrite SLprop.sl_pred_eq in H0 by SLprop.normalize.
+      case H0 as (x & H0).
+      apply (Sf x).
+      exists fm0; eauto.
+    Qed.
+  End ProofRules.
 End SLS.
+
+Ltac normalize :=
+  match goal with
+  | |- sls _ _ (Spec.mk _ _) =>
+      eapply sls_morph; [eapply Spec.mk_morph; [|intro]; SLprop.Norm.normalize_core |]
+  | _ => SLprop.normalize
+  end.
