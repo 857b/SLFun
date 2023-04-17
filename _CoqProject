@@ -4,5 +4,6 @@ Values.v
 ConcreteProg.v
 SL.v
 SLProg.v
+FunProg.v
 Test/ConcreteProg.v
 Test/SLProg.v

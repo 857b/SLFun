@@ -36,7 +36,6 @@ Module Spec. Section Spec.
 
   Definition wp_impl (wp : wp_t) (s : t) :=
     forall m0, pre s m0 -> wp (post s m0) m0.
-
 End Spec. End Spec.
 
 Section Concrete.

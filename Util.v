@@ -102,3 +102,73 @@ Lemma fset_go [A B] e x y (f : A -> B) x'
 Proof.
   unfold fset; case e; congruence.
 Qed.
+
+(* heterogeneous tuple *)
+
+Module Tuple.
+  Fixpoint t (TS : list Type) : Type :=
+    match TS with
+    | nil       => unit
+    | cons T TS => T * t TS
+    end.
+
+  (* arrow *)
+
+  Fixpoint arrow (TS : list Type) (TRG : Type) : Type :=
+    match TS with
+    | nil       => TRG
+    | cons T TS => T -> arrow TS TRG
+    end.
+
+  Fixpoint arrow_of_fun [TS : list Type] [TRG : Type]:
+    (t TS -> TRG) -> arrow TS TRG :=
+    match TS as TS' return (t TS' -> TRG) -> arrow TS' TRG with
+    | nil       => fun f => f tt
+    | cons T TS => fun f x => arrow_of_fun (fun xs => f (x, xs))
+    end.
+
+  Fixpoint arrow_to_fun [TS : list Type] [TRG : Type]:
+    arrow TS TRG -> (t TS -> TRG) :=
+    match TS as TS' return arrow TS' TRG -> (t TS' -> TRG) with
+    | nil       => fun f _  => f
+    | cons T TS => fun f xs => let (x, xs) := xs in arrow_to_fun (f x) xs
+    end.
+
+  Lemma arrow_to_of [TS : list Type] [TRG : Type] (f : t TS -> TRG) (x : t TS):
+    arrow_to_fun (arrow_of_fun f) x = f x.
+  Proof.
+    induction TS; destruct x; simpl; auto.
+    apply IHTS.
+  Qed.
+
+  (* forall *)
+
+  Fixpoint all (TS : list Type) : (t TS -> Prop) -> Prop :=
+    match TS as TS' return (t TS' -> Prop) -> Prop with
+    | nil       => fun P => P tt
+    | cons T TS => fun P => forall (x : T), all TS (fun xs => P (x, xs))
+    end.
+
+  Lemma all_iff TS P:
+    all TS P <-> forall xs : t TS, P xs.
+  Proof.
+    induction TS; simpl; [|setoid_rewrite IHTS];
+      (split; [intros H []; apply H | auto]).
+  Qed.
+
+  (* exists *)
+  
+  Fixpoint ex (TS : list Type) : (t TS -> Prop) -> Prop :=
+    match TS as TS' return (t TS' -> Prop) -> Prop with
+    | nil       => fun P => P tt
+    | cons T TS => fun P => exists (x : T), ex TS (fun xs => P (x, xs))
+    end.
+  
+  Lemma ex_iff TS P:
+    ex TS P <-> exists xs : t TS, P xs.
+  Proof.
+    induction TS; simpl; [|setoid_rewrite IHTS];
+      (split; intro H; [decompose record H|case H as [[]]]; eauto).
+  Qed.
+End Tuple.
+
