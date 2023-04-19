@@ -264,6 +264,14 @@ Module SLprop.
     exact H.
   Qed.
 
+  Lemma star_comm12 h0 h1 h2:
+    eq (h0 ** h1 ** h2) (h1 ** h0 ** h2).
+  Proof.
+    rewrite <- star_assoc.
+    setoid_rewrite star_comm at 2.
+    apply star_assoc.
+  Qed.
+
   Lemma star_emp_l h:
     eq (emp ** h) h.
   Proof.
@@ -363,6 +371,50 @@ Module SLprop.
       exists x, m0, m1; eauto.
     - intros (x & (m0 & m1 & J & H0 & H1)).
       repeat (esplit; eauto).
+  Qed.
+
+  Lemma imp_exists A (h : A -> t) (wit : A):
+    imp (h wit) (ex A h).
+  Proof.
+    exists wit; assumption.
+  Qed.
+
+  Lemma imp_exists_l A (h0 : A -> t) (h1 : t)
+    (C : forall x : A, imp (h0 x) h1):
+    imp (ex A h0) h1.
+  Proof.
+    intros m [x H0]; eapply C, H0.
+  Qed.
+
+  Lemma imp_exists_r A (h0 : t) (h1 : A -> t) (wit : A)
+    (C : imp h0 (h1 wit)):
+    imp h0 (ex A h1).
+  Proof.
+    rewrite <- imp_exists with (wit := wit); exact C.
+  Qed.
+
+  (* [wand] *)
+
+  Program Definition wand (h0 h1 : t) : t :=
+    mk_sl_pred (fun m0 => forall m m1 (J : FMem.is_join m m0 m1) (H0 : h0 m1), h1 m) _.
+  Next Obligation.
+    eapply HM0; eauto.
+    rewrite MEQ; exact J.
+  Qed.
+
+  Lemma elim_wand (h0 h1 : t):
+    imp (wand h0 h1 ** h0) h1.
+  Proof.
+    intros m (m0 & m1 & J & HW & H0).
+    eapply HW; eauto.
+  Qed.
+
+  Lemma intro_wand (h0 h1 h2 : t)
+    (H : imp (h0 ** h1) h2):
+    imp h0 (wand h1 h2).
+  Proof.
+    intros m0 H0 m m1 J H1.
+    eapply H; exists m0, m1; eauto.
   Qed.
 
   (* [cell] : points-to *)

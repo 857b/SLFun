@@ -1,9 +1,10 @@
 Require Import Coq.Setoids.Setoid.
+Require Coq.Vectors.Vector.
 
 
 (* Relation classes *)
 
-Local Lemma R_refl [A] (R : relation A) (x y : A) (X : R x x) (E : x = y): R x y.
+Lemma R_refl [A] (R : relation A) (x y : A) (X : R x x) (E : x = y): R x y.
 Proof.
   rewrite <- E; apply X.
 Qed.
@@ -114,31 +115,32 @@ Module Tuple.
 
   (* arrow *)
 
-  Fixpoint arrow (TS : list Type) (TRG : Type) : Type :=
+  Fixpoint arrow (TS : list Type) : forall (TRG : t TS -> Type), Type :=
     match TS with
-    | nil       => TRG
-    | cons T TS => T -> arrow TS TRG
+    | nil       => fun TRG => TRG tt
+    | cons T TS => fun TRG => forall (x : T), arrow TS (fun xs => TRG (x, xs))
     end.
 
-  Fixpoint arrow_of_fun [TS : list Type] [TRG : Type]:
-    (t TS -> TRG) -> arrow TS TRG :=
-    match TS as TS' return (t TS' -> TRG) -> arrow TS' TRG with
-    | nil       => fun f => f tt
-    | cons T TS => fun f x => arrow_of_fun (fun xs => f (x, xs))
+  Fixpoint arrow_of_fun [TS : list Type] {struct TS}:
+    forall [TRG : t TS -> Type] (f : forall x : t TS, TRG x), arrow TS TRG :=
+    match TS as TS return forall (TRG : t TS -> Type) (f : forall x : t TS, TRG x), arrow TS TRG with
+    | nil       => fun TRG f => f tt
+    | cons T TS => fun TRG f x => arrow_of_fun (fun xs => f (x, xs))
     end.
 
-  Fixpoint arrow_to_fun [TS : list Type] [TRG : Type]:
-    arrow TS TRG -> (t TS -> TRG) :=
-    match TS as TS' return arrow TS' TRG -> (t TS' -> TRG) with
-    | nil       => fun f _  => f
-    | cons T TS => fun f xs => let (x, xs) := xs in arrow_to_fun (f x) xs
-    end.
+  Fixpoint arrow_to_fun [TS : list Type] {struct TS}:
+    forall [TRG : t TS -> Type] (f : arrow TS TRG) (x : t TS), TRG x.
+  Proof.
+    case TS as [|T TS].
+    - intros TRG f [].      exact f.
+    - intros TRG f (x, xs). exact (arrow_to_fun TS (fun xs => TRG (x, xs)) (f x) xs).
+  Defined.
 
-  Lemma arrow_to_of [TS : list Type] [TRG : Type] (f : t TS -> TRG) (x : t TS):
+  Lemma arrow_to_of [TS : list Type] [TRG : t TS -> Type] (f : forall x : t TS, TRG x) (x : t TS):
     arrow_to_fun (arrow_of_fun f) x = f x.
   Proof.
     induction TS; destruct x; simpl; auto.
-    apply IHTS.
+    apply (IHTS (fun xs => TRG (a0, xs))).
   Qed.
 
   (* forall *)
@@ -172,3 +174,54 @@ Module Tuple.
   Qed.
 End Tuple.
 
+(* Extension of the Coq.Vector library *)
+
+Module Vector.
+  Include Coq.Vectors.Vector.
+
+  Lemma ext A n (u v : Vector.t A n)
+    (E : forall i : Fin.t n, Vector.nth u i = Vector.nth v i):
+    u = v.
+  Proof.
+    apply eq_nth_iff.
+    intros ? ? <-; apply E.
+  Qed.
+
+  Lemma map_const A B f v n:
+    @map A B f n (const v n) = const (f v) n.
+  Proof.
+    induction n; simpl; f_equal; auto.
+  Qed.
+  
+  Lemma map2_const_l A B C n f u v:
+    @map2 A B C f n (const v n) u = map (f v) u.
+  Proof.
+    induction n; simpl.
+    - destruct u using case0.
+      reflexivity.
+    - destruct u using caseS'.
+      simpl; f_equal; auto.
+  Qed.
+  
+  Lemma map2_const_r A B C n f u v:
+    @map2 A B C f n u (const v n) = map (fun x => f x v) u.
+  Proof.
+    induction n; simpl.
+    - destruct u using case0.
+      reflexivity.
+    - destruct u using caseS'.
+      simpl; f_equal; auto.
+  Qed.
+  
+  Lemma to_list_inj A n (v0 v1 : t A n)
+    (E : to_list v0 = to_list v1):
+    v0 = v1.
+  Proof.
+    induction v0; simpl in *.
+    - case v1 using case0. reflexivity.
+    - case v1 using caseS'.
+      injection E as -> E.
+      rewrite (IHv0 _ E).
+      reflexivity.
+  Qed.
+End Vector.

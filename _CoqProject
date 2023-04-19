@@ -5,5 +5,7 @@ ConcreteProg.v
 SL.v
 SLProg.v
 FunProg.v
+VProg.v
 Test/ConcreteProg.v
 Test/SLProg.v
+Test/VProg.v

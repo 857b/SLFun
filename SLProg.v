@@ -213,12 +213,21 @@ Section SLS.
     Definition sl_assert : @CP.instr SG unit :=
       CP.Assert (fun m => exists fr, mem_match_sl (P ** fr) m).
 
-    Definition assert_spec : Spec.t unit :=
-      Spec.mk P (fun _ => P).
+    Definition assert_spec (Q : SLprop.t) : Spec.t unit :=
+      Spec.mk Q (fun _ => Q).
 
-    Lemma Assert : sls sl_assert assert_spec.
+    Lemma Assert_imp Q (IMP : SLprop.imp Q P):
+      sls sl_assert (assert_spec Q).
     Proof.
-      intros fr m; simpl; eauto.
+      intros fr m; simpl; intuition eauto.
+      exists fr.
+      eapply mem_match_sl_morph_imp; eauto.
+      apply SLprop.star_morph_imp; auto; reflexivity.
+    Qed.
+
+    Lemma Assert : sls sl_assert (assert_spec P).
+    Proof.
+      apply Assert_imp; reflexivity.
     Qed.
   End Assert.
   Section Read.

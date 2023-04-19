@@ -30,14 +30,42 @@ Module TF.
     Variable P : TF.p.
 
     Local Set Implicit Arguments.
-    Record t := mk {
+    Record t := mk_v {
       v_val : p_val P;
       v_sel : Tuple.t (p_sel P v_val);
     }.
     Local Unset Implicit Arguments.
 
+    Definition arrow (TRG : t -> Type) : Type :=
+      forall (val : p_val P), Tuple.arrow (p_sel P val) (fun sel => TRG (mk_v val sel)).
+
+    Definition arrow_of_fun [TRG : t -> Type] (f : forall x : t, TRG x) : arrow TRG :=
+      fun val => Tuple.arrow_of_fun (fun sel => f (mk_v val sel)).
+
+    Definition arrow_to_fun [TRG : t -> Type] (f : arrow TRG) (x : t): TRG x.
+    Proof.
+      case x as [val sel].
+      exact (Tuple.arrow_to_fun (f val) sel).
+    Defined.
+
+    Lemma arrow_to_of [TRG : t -> Type] (f : forall x : t, TRG x) (x : t):
+      arrow_to_fun (arrow_of_fun f) x = f x.
+    Proof.
+      case x as []; refine (Tuple.arrow_to_of _ _).
+    Qed.
+
+    Definition arrow_ext [TRG : t -> Type] (f : forall x : t, TRG x):
+      forall x : t, TRG x
+      := arrow_to_fun (arrow_of_fun f).
+
+    Lemma arrow_ext_id [TRG] f x:
+      @arrow_ext TRG f x = f x.
+    Proof.
+      apply arrow_to_of.
+    Qed.
+
     Definition all (f : t -> Prop) :=
-      forall (v : p_val P), Tuple.all (p_sel P v) (fun sels => f (mk v sels)).
+      forall (v : p_val P), Tuple.all (p_sel P v) (fun sels => f (mk_v v sels)).
 
     Lemma all_iff f:
       all f <-> forall x : t, f x.
@@ -48,7 +76,7 @@ Module TF.
     Qed.
 
     Definition ex (f : t -> Prop) :=
-      exists (v : p_val P), Tuple.ex (p_sel P v) (fun sels => f (mk v sels)).
+      exists (v : p_val P), Tuple.ex (p_sel P v) (fun sels => f (mk_v v sels)).
 
     Lemma ex_iff f:
       ex f <-> exists x : t, f x.
@@ -58,9 +86,13 @@ Module TF.
       destruct x; eauto.
     Qed.
   End Values.
+
+  Definition mk [p_val] (p_sel : p_val -> list Type)
+    (v_val : p_val) (v_sel : Tuple.t (p_sel v_val)) : t (mk_p p_val p_sel)
+    := mk_v (mk_p p_val p_sel) v_val v_sel.
   
   Definition unit : p := mk_p unit (fun _ => nil).
-  Definition tt : t unit := mk unit tt tt.
+  Definition tt : t unit := mk_v unit tt tt.
 End TF.
 
 Inductive instr : TF.p -> Type :=
