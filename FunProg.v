@@ -13,6 +13,13 @@ Module Spec. Section Spec.
     forall (post0 post1 : A -> Prop) (LE : forall x, post0 x -> post1 x),
     wp post0 -> wp post1.
 
+  Lemma wp_morph (wp : wp_t) (MONO : monotone wp) (post0 post1 : A -> Prop)
+    (POST : forall x : A, post0 x <-> post1 x):
+    wp post0 <-> wp post1.
+  Proof.
+    split; apply MONO, POST.
+  Qed.
+
   Record t := {
     pre  : Prop;
     post : A -> Prop;
@@ -27,14 +34,12 @@ Module TF.
   }.
 
   Section Values.
-    Variable P : TF.p.
+    Context [P : TF.p].
 
-    Local Set Implicit Arguments.
     Record t := mk_v {
       v_val : p_val P;
       v_sel : Tuple.t (p_sel P v_val);
     }.
-    Local Unset Implicit Arguments.
 
     Definition arrow (TRG : t -> Type) : Type :=
       forall (val : p_val P), Tuple.arrow (p_sel P val) (fun sel => TRG (mk_v val sel)).
@@ -52,16 +57,6 @@ Module TF.
       arrow_to_fun (arrow_of_fun f) x = f x.
     Proof.
       case x as []; refine (Tuple.arrow_to_of _ _).
-    Qed.
-
-    Definition arrow_ext [TRG : t -> Type] (f : forall x : t, TRG x):
-      forall x : t, TRG x
-      := arrow_to_fun (arrow_of_fun f).
-
-    Lemma arrow_ext_id [TRG] f x:
-      @arrow_ext TRG f x = f x.
-    Proof.
-      apply arrow_to_of.
     Qed.
 
     Definition all (f : t -> Prop) :=
@@ -86,6 +81,14 @@ Module TF.
       destruct x; eauto.
     Qed.
   End Values.
+  Global Arguments t : clear implicits.
+  Global Arguments mk_v : clear implicits.
+  Global Arguments arrow : clear implicits.
+  Global Arguments all : clear implicits.
+  Global Arguments ex : clear implicits.
+  
+  Global Arguments arrow !_ _/.
+  Global Arguments arrow_of_fun !_ _ _/.
 
   Definition mk [p_val] (p_sel : p_val -> list Type)
     (v_val : p_val) (v_sel : Tuple.t (p_sel v_val)) : t (mk_p p_val p_sel)
@@ -117,3 +120,9 @@ Proof.
   - (* Call *)
     rewrite !TF.all_iff; intuition.
 Qed.
+
+
+Definition BindA [A B : TF.p] (f : instr A) (g : TF.arrow A (fun _ => instr B)) : instr B :=
+  @Bind A B f (TF.arrow_to_fun g).
+
+Global Arguments BindA : simpl never.
