@@ -10,7 +10,7 @@ Import VProg._Abbrev.
 
 Definition f_main : fid := 0.
 
-Definition sig_main := mk_f_sig (ptr * ptr) unit.
+Definition sig_main := mk_f_sig (ptr * ptr) ptr.
 
 Definition SIG : sig_context :=
   fun f => match f with
@@ -18,11 +18,11 @@ Definition SIG : sig_context :=
   | _ => None
   end.
 
-Definition spec_main_n (ps : ptr * ptr) : SP.Spec.t unit :=
+Definition spec_main_n (ps : ptr * ptr) : SP.Spec.t ptr :=
   let (p0, p1) := ps in {|
   SP.Spec.pre  := SLprop.ex nat (fun n0 => SLprop.cell p0 n0) **
                   SLprop.ex nat (fun n1 => SLprop.cell p1 n1);
-  SP.Spec.post := fun _ => SLprop.True;
+  SP.Spec.post := fun p => (SLprop.ex nat (fun n => SLprop.cell p n) ** SLprop.True)%slprop;
 |}.
 
 Definition spec_main : SP.f_spec sig_main :=
@@ -36,17 +36,18 @@ Definition SPEC : CP.spec_context SIG :=
 
 Definition data42 : nat := 42.
 
-Definition vprog_main (ps : ptr * ptr) : instr SPEC unit :=
+Definition vprog_main (ps : ptr * ptr) : instr SPEC ptr :=
   let (p0, p1) := ps in
   Bind _ (Read  _ p0) (fun v0 =>
   Bind _ (Write _ p1 data42) (fun _ =>
-  Assert _ [_] (fun '(v1,_) => ([CTX.mka (SLprop.cell p0,  v1)], v1 = v0)))).
+  Bind _ (Assert _ [_] (fun '(v1,_) => ([CTX.mka (SLprop.cell p0,  v1)], v1 = v0))) (fun _ =>
+  Ret _ p0 (fun p => [Vprop.mk (SLprop.cell p)])))).
 
 Definition impl_main (ps : ptr * ptr) :
-  { i : CP.instr unit | i = i_impl (vprog_main ps) }.
+  { i : CP.instr ptr | i = i_impl (vprog_main ps) }.
 Proof.
-  unfold i_impl, vprog_main; simpl.
-  case ps as (p, p0); simpl.
+  unfold i_impl, vprog_main; cbn.
+  case ps as (p, p0); cbn.
   eexists. reflexivity.
 Defined.
 
@@ -61,38 +62,37 @@ Proof.
   eapply SP.Cons.
   - eapply (proj2_sig (i_spec (vprog_main _) [CTX.mka (SLprop.cell p0, v0); CTX.mka (SLprop.cell p1, v1)]))
       with (post := fun _ => True).
-    + simple refine (Bind_SpecI1 _ _ _ _ _ _ _ _ _ _). 1,3,5,7,9,11,13:shelve.
-      { hnf.
-        simple refine (@Read_SpecI _ _ _ _). 1:shelve.
-        unshelve eexists.
-        - exact (Vector.cons _ true _ (Vector.cons _ false _ (Vector.nil _))).
-        - cbn; SLprop.normalize; reflexivity. }
-      { cbn; repeat intro. reflexivity. }
+    + Tac.build_spec.
+    (*
+    + Tac.build_Bind_init.
+      { Tac.build_Read. }
+      { Tac.cbn_refl. }
       cbn; repeat intro.
-      simple refine (Bind_SpecI1 _ _ _ _ _ _ _ _ _ _). 1,3,5,7,9,11,13:shelve.
-      { unshelve refine (@Write_SpecI _ _ _ _ _). 1:shelve.
-        unshelve eexists.
-        - exact (Vector.cons _ false _ (Vector.cons _ true _ (Vector.nil _))).
-        - cbn; SLprop.normalize; reflexivity. }
-      { cbn; repeat intro. reflexivity. }
+      Tac.build_Bind_init.
+      { Tac.build_Write. }
+      { Tac.cbn_refl. }
       cbn; repeat intro.
-      { unshelve refine (@Assert_SpecI _ _ _ _ _).
-        1:repeat (constructor; [shelve|]); constructor.
-        cbn.
-        unshelve eexists.
-        - exact (Vector.cons _ false _ (Vector.cons _ true _ (Vector.nil _))).
-        - cbn; SLprop.normalize; reflexivity. }
-      { cbn; repeat intro. reflexivity. }
-      { cbn; repeat intro. reflexivity. }
-      { cbn; repeat intro. reflexivity. }
-      { cbn; repeat intro. reflexivity. }
-      { cbn; repeat intro. reflexivity. }
-      { cbn; repeat intro. reflexivity. }
-      { cbn; repeat intro. reflexivity. }
-      { cbn; repeat intro. reflexivity. }
+      Tac.build_Bind_init.
+      { Tac.build_Assert. }
+      { Tac.cbn_refl. }
+      cbn; repeat intro.
+      { simple refine (@Ret_SpecI _ _ _ _ _ _ _).
+        Tuple.build_shape.
+        shelve.
+        CTX.Inj.build. }
+      Tac.cbn_refl. Tac.cbn_refl. Tac.cbn_refl. Tac.cbn_refl.
+      Tac.cbn_refl. Tac.cbn_refl. Tac.cbn_refl. Tac.cbn_refl.
+      Tac.cbn_refl. Tac.cbn_refl. Tac.cbn_refl. Tac.cbn_refl.
+    *)
     + unfold FP.BindA. cbn. auto.
   - cbn.
     split; cbn.
     + SLprop.normalize. reflexivity.
-    + constructor.
+    + clear; intro p.
+      apply SLprop.imp_exists_l; intros (v, (?, [])).
+      apply SLprop.imp_pure_l;   intros _.
+      apply SLprop.imp_exists_r with (wit := v).
+      apply SLprop.star_morph_imp.
+      reflexivity.
+      constructor.
 Qed.

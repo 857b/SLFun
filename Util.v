@@ -172,6 +172,11 @@ Module Tuple.
     induction TS; simpl; [|setoid_rewrite IHTS];
       (split; intro H; [decompose record H|case H as [[]]]; eauto).
   Qed.
+
+  (* Tactic *)
+
+  Global Ltac build_shape :=
+    repeat (refine (pair _ _); [shelve|]); exact tt.
 End Tuple.
 
 (* Extension of the Coq.Vector library *)
@@ -224,4 +229,9 @@ Module Vector.
       rewrite (IHv0 _ E).
       reflexivity.
   Qed.
+
+  (* Tactic *)
+
+  Global Ltac build_shape :=
+    repeat (refine (Vector.cons _ _ _ _); [shelve|]); exact (Vector.nil _).
 End Vector.

@@ -231,12 +231,111 @@ Module CTX.
   Qed.
 
   Module Inj.
-    Local Set Implicit Arguments.
+    Definition ieq (c0 c1 : CTX.t) (img : Sub.t c1) :=
+      SLprop.eq (sl (sub c1 img)) (sl c0).
 
-    Record t (c0 c1 : CTX.t) := {
-      img : Sub.t c1;
-      ieq : SLprop.eq (sl (sub c1 img)) (sl c0);
-    }.
+    Lemma ieqE [c0 c1 img] (IEQ : ieq c0 c1 img):
+      SLprop.eq (sl (sub c1 img)) (sl c0).
+    Proof.
+      exact IEQ.
+    Qed.
+
+    Definition osub (c1 : CTX.t) := Vector.t (option nat) (length c1).
+
+    Fixpoint n_insert (n : nat) (x : atom) (xs : list (nat * atom)) : list (nat * atom) :=
+      match xs with
+      | nil => [(n, x)]
+      | (n', x') :: tl => if Nat.leb n n' then (n, x) :: xs
+                          else (n', x') :: n_insert n x tl
+      end.
+
+    Lemma n_insert_eq n x xs:
+      SLprop.eq (sl (map snd (n_insert n x xs))) (sla x ** sl (map snd xs)).
+    Proof.
+      revert n x; induction xs as [|(n', x') tl]; intros; simpl.
+      - reflexivity.
+      - case Nat.leb; simpl.
+        + reflexivity.
+        + rewrite IHtl, SLprop.star_comm12; reflexivity.
+    Qed.
+
+    Fixpoint n_list_of_osub (c1 : CTX.t) : osub c1 -> list (nat * atom).
+    Proof.
+      case c1 as [|a c1].
+      - intros _. exact nil.
+      - intros [[n|] sb]%Vector.uncons.
+        + exact (n_insert n a (n_list_of_osub c1 sb)).
+        + exact (n_list_of_osub c1 sb).
+    Defined.
+
+    Definition c0_of_osub (c1 : CTX.t) (sb : osub c1) : CTX.t :=
+      map snd (n_list_of_osub c1 sb).
+
+    Global Arguments c0_of_osub _ !_/.
+
+    Definition img_of_osub (c1 : CTX.t) : osub c1 -> Sub.t c1 :=
+      Vector.map (fun o => match o with Some _ => true | None => false end).
+      
+    Lemma osub_ieq (c1 : CTX.t) (sb : osub c1):
+      ieq (c0_of_osub c1 sb) c1 (img_of_osub c1 sb).
+    Proof.
+      unfold ieq; induction c1.
+      - simpl; reflexivity.
+      - case sb as [[]] using Vector.caseS'; simpl.
+        + rewrite n_insert_eq.
+          apply SLprop.star_morph_eq. reflexivity.
+          apply IHc1.
+        + apply IHc1.
+    Qed.
+
+    Inductive ieq_asm (a : atom) (n : option nat): Prop :=.
+
+    Local Lemma inst_ieq_asm a : ieq_asm a None -> unit.
+    Proof. constructor. Qed.
+
+    Global Ltac clear_ieq_asm :=
+      repeat match goal with
+      | H : ieq_asm _ ?n |- _ => apply inst_ieq_asm in H; clear H
+      end.
+
+    Inductive ieq_goal : forall (n : nat) (c0 : CTX.t), Prop :=
+      | Ieq_Done n : ieq_goal n nil
+      | Ieq_Cons [n a c0] (A : ieq_asm a (Some n)) (C : ieq_goal (S n) c0) : ieq_goal n (a :: c0).
+
+    Fixpoint ieq_unification_goal (c0 c1 : CTX.t): forall (sb : osub c1), Prop.
+    Proof.
+      case c1 as [|a c1].
+      - intros _; exact (ieq_goal O c0).
+      - intros [n sb]%Vector.uncons.
+        exact (ieq_asm a n -> ieq_unification_goal c0 c1 sb).
+    Defined.
+
+    Lemma ieqI [c0 c1 : CTX.t]
+      (sb : osub c1)
+      (U : ieq_unification_goal c0 c1 sb)
+      (C0 : c0 = c0_of_osub c1 sb)
+      [img : Sub.t c1] (IMG : img = img_of_osub c1 sb):
+      ieq c0 c1 img.
+    Proof.
+      subst; apply osub_ieq.
+    Qed.
+
+    Global Ltac build :=
+      simple refine (CTX.Inj.ieqI _ _ _ _);
+      [ (* sb *)
+        Vector.build_shape
+      | (* U *)
+        clear; cbn; intros;
+        repeat (match goal with
+          | H : CTX.Inj.ieq_asm (existT _ ?v _) _ |- CTX.Inj.ieq_goal _ (existT _ ?v _ :: _) =>
+              refine (Ieq_Cons H _); clear H
+          | |- ieq_goal _ nil =>
+              clear_ieq_asm; exact (Ieq_Done _)
+          | |- ieq_goal _ (existT _ ?v _ :: _) =>
+              fail "Inj.build" v
+        end)
+      | (* C0  *) cbn; reflexivity
+      | (* IMG *) cbn; reflexivity ].
   End Inj.
 End CTX.
 
@@ -396,9 +495,10 @@ Section Ret.
   Inductive Ret_Spec (ctx : CTX.t) : i_spec_t A ctx -> Prop
     := Ret_SpecI
     (sels : Tuple.t (map Vprop.ty (sp x)))
-    (ij : CTX.Inj.t (VpropList.inst (sp x) sels) ctx) :
+    (csm : Sub.t ctx)
+    (ij : CTX.Inj.ieq (VpropList.inst (sp x) sels) ctx csm) :
     Ret_Spec ctx {|
-      sf_csm  := CTX.Inj.img ij;
+      sf_csm  := csm;
       sf_prd  := sp;
       sf_spec := FP.Ret (TF.mk (fun x => VpropList.sel (sp x)) x sels);
     |}.
@@ -409,14 +509,14 @@ Section Ret.
   |}.
   Next Obligation.
     destruct SP; do 2 intro; simpl in *.
-    eapply SP.CFrame with (fr := CTX.sl (CTX.sub ctx (Sub.neg (CTX.Inj.img ij)))).
+    eapply SP.CFrame with (fr := CTX.sl (CTX.sub ctx (Sub.neg csm))).
     - apply SP.Ret
        with (sp := fun x' => (SLprop.pure (x' = x) ** CTX.sl (VpropList.inst (sp x) sels))%slprop).
     - split; simpl.
       + SLprop.normalize. apply SLprop.imp_pure_r. reflexivity.
-        rewrite CTX.sl_split with (s := CTX.Inj.img ij).
+        rewrite CTX.sl_split with (s := csm).
         apply SLprop.star_morph_imp. 2:reflexivity.
-        rewrite (CTX.Inj.ieq ij); reflexivity.
+        rewrite (CTX.Inj.ieqE ij); reflexivity.
       + intro x'. SLprop.normalize. apply SLprop.imp_pure_l. intros ->.
         unfold sf_post; cbn.
         apply SLprop.imp_exists_r with (wit := sels).
@@ -601,7 +701,8 @@ Section Assert.
   Inductive Assert_Spec (ctx : CTX.t) : i_spec_t unit ctx -> Prop
     := Assert_SpecI
     (p : Tuple.t A)
-    (ij : CTX.Inj.t (fst (P p)) ctx):
+    (img : Sub.t ctx)
+    (ij : CTX.Inj.ieq (fst (P p)) ctx img):
     Assert_Spec ctx {|
       sf_csm  := Sub.const ctx false;
       sf_prd  := fun _ => nil;
@@ -616,7 +717,7 @@ Section Assert.
   Next Obligation.
     destruct SP; do 2 intro; simpl in *.
     case PRE as (PRE & POST).
-    eapply SP.CFrame with (fr := CTX.sl (CTX.sub ctx (Sub.neg (CTX.Inj.img ij)))).
+    eapply SP.CFrame with (fr := CTX.sl (CTX.sub ctx (Sub.neg img))).
     - apply SP.Assert_imp with (Q := CTX.sl (fst (P p))).
       apply SLprop.imp_exists_r with (wit := p).
       apply SLprop.imp_pure_r. exact PRE.
@@ -630,8 +731,8 @@ Section Assert.
         unfold Sub.neg, Sub.const; rewrite Vector.map_const; simpl.
         rewrite Sub.sub_const_true.
         rewrite sl_eq; reflexivity.
-      + rewrite CTX.sl_split with (s := CTX.Inj.img ij).
-        setoid_rewrite (CTX.Inj.ieq ij).
+      + rewrite CTX.sl_split with (s := img).
+        setoid_rewrite (CTX.Inj.ieqE ij).
         reflexivity.
   Qed.
 End Assert.
@@ -641,7 +742,8 @@ Section Read.
   Inductive Read_Spec (ctx : CTX.t) : i_spec_t memdata ctx -> Prop
     := Read_SpecI
     (d : memdata)
-    (ij : CTX.Inj.t [CTX.mka (SLprop.cell p, d)] ctx):
+    (img : Sub.t ctx)
+    (ij : CTX.Inj.ieq [CTX.mka (SLprop.cell p, d)] ctx img):
     Read_Spec ctx {|
       sf_csm  := Sub.const ctx false;
       sf_prd  := fun _ => nil;
@@ -654,14 +756,14 @@ Section Read.
   |}.
   Next Obligation.
     destruct SP; do 2 intro; simpl in *.
-    eapply SP.CFrame with (fr := CTX.sl (CTX.sub ctx (Sub.neg (CTX.Inj.img ij)))).
+    eapply SP.CFrame with (fr := CTX.sl (CTX.sub ctx (Sub.neg img))).
     - eapply SP.Read with (d := d).
     - eassert (IEq : SLprop.eq _ _). {
-        etransitivity. apply (CTX.Inj.ieq ij).
+        etransitivity. apply (CTX.Inj.ieqE ij).
         simpl; SLprop.normalize.
       }
       split; simpl.
-      + rewrite CTX.sl_split with (s := CTX.Inj.img ij).
+      + rewrite CTX.sl_split with (s := img).
         apply SLprop.star_morph_imp. 2:reflexivity.
         rewrite IEq; reflexivity.
       + intro x'. SLprop.normalize. apply SLprop.imp_pure_l. intros ->.
@@ -682,9 +784,10 @@ Section Write.
   Inductive Write_Spec (ctx : CTX.t) : i_spec_t unit ctx -> Prop
     := Write_SpecI
     (d0 : memdata)
-    (ij : CTX.Inj.t [CTX.mka (SLprop.cell p, d0)] ctx):
+    (csm : Sub.t ctx)
+    (ij : CTX.Inj.ieq [CTX.mka (SLprop.cell p, d0)] ctx csm):
     Write_Spec ctx {|
-      sf_csm  := CTX.Inj.img ij;
+      sf_csm  := csm;
       sf_prd  := fun _ => [Vprop.mk (SLprop.cell p)];
       sf_spec := FP.Ret (TF.mk (fun _ => [memdata]) tt (d, tt));
     |}.
@@ -695,12 +798,12 @@ Section Write.
   |}.
   Next Obligation.
     destruct SP; do 2 intro; simpl in *.
-    eapply SP.CFrame with (fr := CTX.sl (CTX.sub ctx (Sub.neg (CTX.Inj.img ij)))).
+    eapply SP.CFrame with (fr := CTX.sl (CTX.sub ctx (Sub.neg csm))).
     - eapply SP.Write with (d0 := d0).
     - split; unfold sf_post, sf_post_ctx, sf_rsel; simpl.
-      + rewrite CTX.sl_split with (s := CTX.Inj.img ij).
+      + rewrite CTX.sl_split with (s := csm).
         apply SLprop.star_morph_imp. 2:reflexivity.
-        rewrite (CTX.Inj.ieq ij); simpl; SLprop.normalize; reflexivity.
+        rewrite (CTX.Inj.ieqE ij); simpl; SLprop.normalize; reflexivity.
       + intros []; SLprop.normalize.
         apply SLprop.imp_exists_r with (wit := (d, tt)).
         apply SLprop.imp_pure_r. assumption.
@@ -709,3 +812,50 @@ Section Write.
 End Write.
 
 End VProg.
+
+Module Tac.
+  Ltac cbn_refl := cbn; repeat intro; reflexivity.
+
+  Ltac build_Ret :=
+    simple refine (@Ret_SpecI _ _ _ _ _ _ _);
+    [ Tuple.build_shape | shelve | CTX.Inj.build ].
+
+  Ltac build_Bind_init :=
+    simple refine (Bind_SpecI1 _ _ _ _ _ _ _ _ _ _);
+    [ shelve | | shelve | | shelve | | shelve |
+    | shelve | | shelve | | shelve | ].
+
+  Ltac build_Bind build_f :=
+    build_Bind_init;
+    [ (* S_F   *) hnf; build_f
+    | (* F_PRD *) cbn_refl
+    | (* S_G0  *) cbn; repeat intro; build_f
+    | (* S_G   *) cbn_refl
+    | (* CSM   *) cbn_refl
+    | (* PRD   *) cbn_refl
+    | (* SPEC  *) cbn_refl ].
+
+  Ltac build_Assert :=
+    simple refine (@Assert_SpecI _ _ _ _ _ _);
+    [ (* p *) Tuple.build_shape | shelve | (* ij *) CTX.Inj.build ].
+
+  Ltac build_Read :=
+    simple refine (@Read_SpecI _ _ _ _ _);
+    [ shelve | shelve | (* ij *) CTX.Inj.build ].
+
+  Ltac build_Write :=
+    simple refine (@Write_SpecI _ _ _ _ _ _);
+    [ shelve | shelve | (* ij *) CTX.Inj.build ].
+
+  Ltac build_spec :=
+    let rec build_spec :=
+    hnf;
+    match goal with
+    | |- Ret_Spec    _ _ _ _ => build_Ret
+    | |- Bind_Spec _ _ _ _ _ => build_Bind build_spec
+    | |- Assert_Spec _ _ _ _ => build_Assert
+    | |- Read_Spec     _ _ _ => build_Read
+    | |- Write_Spec  _ _ _ _ => build_Write
+    end
+    in build_spec.
+End Tac.
