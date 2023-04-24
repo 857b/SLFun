@@ -20,6 +20,14 @@ Module Spec. Section Spec.
     split; apply MONO, POST.
   Qed.
 
+  Definition wp_eq (wp0 wp1 : wp_t) : Prop :=
+    forall post : A -> Prop, wp0 post <-> wp1 post.
+
+  Global Instance wp_eq_Equivalence : Equivalence wp_eq.
+  Proof.
+    apply Equivalence.pointwise_equivalence, iff_equivalence.
+  Qed.
+
   Record t := {
     pre  : Prop;
     post : A -> Prop;
@@ -121,6 +129,17 @@ Proof.
     rewrite !TF.all_iff; intuition.
 Qed.
 
+Definition eqv [A : TF.p] (p0 p1 : instr A) : Prop :=
+  Spec.wp_eq (wlp p0) (wlp p1).
+
+Global Instance eqv_Equivalence A : Equivalence (@eqv A).
+Proof.
+  Rel.by_expr (Rel.pull (@wlp A) (@Spec.wp_eq _)).
+Qed.
+
+
+Definition wlpA [A : TF.p] (i : instr A) (post : TF.arrow A (fun _ => Prop)) : Prop :=
+  wlp i (TF.arrow_to_fun post).
 
 Definition BindA [A B : TF.p] (f : instr A) (g : TF.arrow A (fun _ => instr B)) : instr B :=
   @Bind A B f (TF.arrow_to_fun g).

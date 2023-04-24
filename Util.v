@@ -1,5 +1,7 @@
-Require Import Coq.Setoids.Setoid.
+Require Import Coq.Setoids.Setoid Coq.Lists.List.
 Require Coq.Vectors.Vector.
+
+Import ListNotations.
 
 
 (* Relation classes *)
@@ -104,7 +106,79 @@ Proof.
   unfold fset; case e; congruence.
 Qed.
 
+
+(* propostions *)
+
+Lemma exists_eq_const [A : Type] (P : A -> Prop) (x0 : A)
+  (C : forall x, P x -> x = x0):
+  (exists x, P x) <-> P x0.
+Proof.
+  split; eauto.
+  intros [x H].
+  case (C x H).
+  exact H.
+Qed.
+
+Definition and_list : list Prop -> Prop :=
+  List.fold_right and True.
+
+Lemma and_list_rev (u : list Prop):
+  and_list (rev u) <-> and_list u.
+Proof.
+  unfold and_list.
+  enough (IH : forall P, fold_right and P (rev u) <-> fold_right and True u /\ P).
+  rewrite IH; tauto.
+  induction u; intro; simpl.
+  - tauto.
+  - rewrite fold_right_app, IHu; simpl; tauto.
+Qed.
+
+Definition elim_and_list_f (u : list Prop) (P : Prop) : Prop :=
+  List.fold_right (fun (asm goal : Prop) => asm -> goal) P u.
+
+Lemma elim_and_list (u : list Prop) (P : Prop):
+  elim_and_list_f u P <-> (and_list u -> P).
+Proof.
+  induction u; simpl.
+  - tauto.
+  - rewrite IHu; tauto.
+Qed.
+
+Inductive and_list_eq (u v : list Prop) : Prop :=
+  and_list_eqI (E : and_list u <-> and_list v).
+
+Lemma simpl_and_list_0 : and_list_eq nil nil.
+Proof. constructor; reflexivity. Qed.
+
+Lemma simpl_and_list_r1 [x : Prop] [xs ys]
+  (pf : x)
+  (E : and_list_eq xs ys):
+  and_list_eq (x :: xs) ys.
+Proof.
+  constructor; simpl.
+  case E as [->]; tauto.
+Qed.
+
+Lemma simpl_and_list_m1 [x y : Prop] [xs ys]
+  (E0 : x <-> y)
+  (E1 : and_list_eq xs ys):
+  and_list_eq (x :: xs) (y :: ys).
+Proof.
+  constructor; simpl.
+  case E1 as [->]; tauto.
+Qed.
+
+Lemma simpl_and_list_e1 [x : Prop] [xs ys]
+  (E : and_list_eq xs ys):
+  and_list_eq (x :: xs) (x :: ys).
+Proof.
+  apply simpl_and_list_m1; tauto.
+Qed.
+
 (* heterogeneous tuple *)
+
+Definition type_iso (A B : Type) (f : A -> B) (g : B -> A) : Prop :=
+  (forall x : A, g (f x) = x) /\ (forall y : B, f (g y) = y).
 
 Module Tuple.
   Fixpoint t (TS : list Type) : Type :=
@@ -173,10 +247,168 @@ Module Tuple.
       (split; intro H; [decompose record H|case H as [[]]]; eauto).
   Qed.
 
-  (* Tactic *)
+  (* reversing *)
+
+  Fixpoint iso_rev_f (TS0 TS1 : list Type) {struct TS0} : (t TS0 * t TS1) -> t (List.rev_append TS0 TS1).
+  Proof.
+    case TS0 as [|T TS0]; simpl.
+    - exact (fun '(_, x1) => x1).
+    - exact (fun '(x, x0, x1) => iso_rev_f _ (cons T TS1) (x0, (x, x1))).
+  Defined.
+
+  Fixpoint iso_rev_g (TS0 TS1 : list Type) {struct TS0} : t (List.rev_append TS0 TS1) -> t TS0 * t TS1.
+  Proof.
+    case TS0 as [|T TS0]; simpl.
+    - exact (fun x1 => (tt, x1)).
+    - intros [x0 (x, x1)]%iso_rev_g.
+      exact (x, x0, x1).
+  Defined.
+
+  Lemma type_iso_rev (TS0 TS1 : list Type):
+    type_iso (t TS0 * t TS1) (t (List.rev_append TS0 TS1)) (iso_rev_f TS0 TS1) (iso_rev_g TS0 TS1).
+  Proof.
+    split; revert TS1; induction TS0 as [|T TS0]; simpl; intro.
+    - intros ([], ?); reflexivity.
+    - intros ((x, x0), x1); rewrite IHTS0; reflexivity.
+    - reflexivity.
+    - intro y.
+      specialize (IHTS0 (cons T TS1) y).
+      destruct iso_rev_g as (?, (?, ?)).
+      exact IHTS0.
+  Qed.
+
+  (* equality *)
+
+  (* avoid losing [TS] while reducing [u] and [v] *)
+  Inductive typed_eq [TS : list Type] (u v : Tuple.t TS) : Prop :=
+    typed_eqI (E : u = v).
+
+  Fixpoint eq_list [TS : list Type] {struct TS}:
+    forall (u v : t TS), list Prop.
+  Proof.
+    case TS as [|T TS].
+    - exact (fun _ _ => nil).
+    - exact (fun '(x, xs) '(y, ys) => (x = y) :: eq_list TS xs ys).
+  Defined.
+
+  Lemma eq_iff_list [TS : list Type] (u v : t TS):
+    u = v <-> and_list (eq_list u v).
+  Proof.
+    induction TS as [|T TS].
+    - destruct u, v; simpl; intuition.
+    - destruct u as (x, xs), v as (y, ys); simpl; rewrite <- IHTS.
+      intuition congruence.
+  Qed.
+
+  (* Tactics *)
 
   Global Ltac build_shape :=
     repeat (refine (pair _ _); [shelve|]); exact tt.
+  
+  (* replacing a product type with a tuple, given a term that let-matches on the product type *)
+
+  Definition type_iso_tu (A : Type) (TS : list Type) :=
+    type_iso A (t TS).
+
+  Inductive type_iso_tu_goal [T : Type] (t : T) : forall (P : Prop) (pf : P), Prop :=
+    | type_iso_tu_goal_cont [P0 P1 : Prop] (C : P0 -> P1) [pf : P0]:
+        type_iso_tu_goal t P0 pf -> type_iso_tu_goal t P1 (C pf)
+    | type_iso_tu_goal_end [P : Prop] (pf : P):
+        type_iso_tu_goal t P pf.
+
+  Lemma type_iso_tu_nil:
+    type_iso_tu unit nil (fun _ => tt) (fun _ => tt).
+  Proof.
+    split; intros []; reflexivity.
+  Qed.
+
+  Lemma type_iso_tu_one A:
+    type_iso_tu A [A] (fun x => (x, tt)) (fun '(x, _) => x).
+  Proof.
+    split.
+    - reflexivity.
+    - intros (?, []); reflexivity.
+  Qed.
+
+  (* NOTE: [_ * _] is left associative but [Tuple.t] is right associative *)
+  Lemma type_iso_tu_prod A AS f g B
+    (H : type_iso_tu A AS f g):
+    type_iso_tu (A * B) (B :: AS) (fun '(xs, x) => (x, f xs)) (fun '(x, xs) => (g xs, x)).
+  Proof.
+    split.
+    - intros (xs, x); rewrite (proj1 H); reflexivity.
+    - intros (x, xs); rewrite (proj2 H); reflexivity.
+  Qed.
+
+  Lemma type_iso_tu_init [A TS0 f0 g0 TS1 f1 g1]
+    (E : type_iso_tu A (List.rev_append TS0 nil)
+                       (fun x => iso_rev_f TS0 nil (f0 x, tt))
+                       (fun y => g0 (let (y, _) := iso_rev_g TS0 nil y in y)) ->
+         type_iso_tu A TS1 f1 g1)
+    (H : type_iso_tu A TS0 f0 g0):
+    type_iso_tu A TS1 f1 g1.
+  Proof.
+    apply E.
+    pose proof (R := type_iso_rev TS0 []).
+    split.
+    - intro x. rewrite (proj1 R), (proj1 H). reflexivity.
+    - intro y. rewrite (proj2 H).
+      specialize (proj2 R y).
+      case iso_rev_g as (?, []); auto.
+  Qed.
+
+  Ltac build_type_iso_tu_aux :=
+    lazymatch goal with
+    (* BUG Coq 8.15.2 in the second test if we reverse the first two cases:
+        Anomaly
+        "File "pretyping/constr_matching.ml", line 399, characters 14-20: Assertion failed." *)
+    | |- type_iso_tu_goal (let 'tt := _ in _) _ _ =>
+        refine (type_iso_tu_goal_end _ type_iso_tu_nil)
+    | |- type_iso_tu_goal (let (_, _) := ?x in _) _ _ =>
+        refine (type_iso_tu_goal_cont _ (type_iso_tu_prod _ _ _ _ _) _);
+        destruct x as (?, ?)
+    | |- type_iso_tu_goal _ _ _ =>
+        refine (type_iso_tu_goal_end _ (type_iso_tu_one _))
+    end.
+
+  Ltac build_type_iso_tu :=
+    refine (type_iso_tu_goal_cont _ (type_iso_tu_init _) _);
+    [ repeat build_type_iso_tu_aux
+    | cbn; exact (fun pf => pf) ].
+
+  Module Test.
+    Lemma prf_by_type_iso_tu_goal [A T : Type] (f : A -> T) (P : Prop) (pf : P)
+      (DUMMY : forall x : A, type_iso_tu_goal (f x) P pf):
+      P.
+    Proof. exact pf. Qed.
+
+    Definition test_f0' (n0 n1 n2 : nat) := tt.
+    Definition test_f0 '(n0, n1, n2) := test_f0' n0 n1 n2.
+
+    Goal exists TS f g,
+      type_iso_tu (nat * nat * bool) TS f g /\ TS = TS.
+    Proof.
+      do 3 eexists. split.
+      eapply (prf_by_type_iso_tu_goal test_f0).
+      intro x.
+      unfold test_f0; cbn.
+      build_type_iso_tu.
+      reflexivity.
+    Qed.
+    
+    Definition test_f1 'tt := tt.
+    
+    Goal exists TS f g,
+      type_iso_tu unit TS f g /\ TS = TS.
+    Proof.
+      do 3 eexists. split.
+      eapply (prf_by_type_iso_tu_goal test_f1).
+      intro x.
+      unfold test_f1; cbn.
+      build_type_iso_tu.
+      reflexivity.
+    Qed.
+  End Test.
 End Tuple.
 
 (* Extension of the Coq.Vector library *)
