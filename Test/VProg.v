@@ -18,17 +18,34 @@ Definition SIG : sig_context :=
   | _ => None
   end.
 
-Definition spec_main : f_spec sig_main :=
-  fun '(p0, p1, p2) =>
-  Spec.mk_r0 (fun '(n0, n1, n2) =>
-  Spec.mk_r1 [CTX.mka (SLprop.cell p2, n2)]
+Definition spec_main : FSpec sig_main (fun '(p0, p1, p2) =>
+  Spec.Expanded.mk_r0 (fun '(n0, n1, n2) =>
+  Spec.Expanded.mk_r1 [CTX.mka (SLprop.cell p2, n2)]
              [CTX.mka (SLprop.cell p0, n0); CTX.mka (SLprop.cell p1, n1)] True (fun p =>
-  Spec.mk_r2 (fun '(n, n1') =>
-  Spec.mk_r3 [CTX.mka (SLprop.cell p, n); CTX.mka (SLprop.cell p1, n1')] (n1' > 0)))).
+  Spec.Expanded.mk_r2 (fun '(n, n1') =>
+  Spec.Expanded.mk_r3 [CTX.mka (SLprop.cell p, n); CTX.mka (SLprop.cell p1, n1')] (n1' > 0))))).
+Proof.
+  Tac.build_FSpec.
+  (*
+  refine (VProg.Tac.mk_red_FSpec _ _); cbn.
+  intro ax. Tac.of_expanded_arg.
+  refine (Spec.Expanded.of_expandedI _ _ _); cbn.
+  intro sel0. Tac.of_expanded_arg.
+  refine (Spec.Expanded.of_expanded1I _ _ _); cbn.
+  intro rx.
+  simple refine (Spec.Expanded.of_expanded2I _ _ _ _ _ _).
+  1,2,3,4,6,8:shelve.
+  { (* sel1_TU_GOAL *) cbn; intro (* sel1 *); Tuple.build_type_iso_tu. }
+  { (* S_VPOST *) Tac.cbn_refl. }
+  { (* S3 *) cbn; repeat intro; refine (Spec.Expanded.of_expanded3I _). }
+  cbn. reflexivity.
+  *)
+Defined.
+
 
 Definition SPEC : CP.spec_context SIG :=
   fun f => match f with
-  | 0 => SP.tr_f_spec (tr_f_spec spec_main)
+  | 0 => SP.tr_f_spec (tr_f_spec (m_spec spec_main))
   | _ => tt
   end.
 
@@ -51,7 +68,7 @@ Proof.
 Defined.
 
 Lemma imatch_main (ps : ptr * ptr * ptr):
-  impl_match SPEC (vprog_main ps) (spec_main ps).
+  impl_match SPEC (vprog_main ps) (m_spec spec_main ps).
 Proof.
   case ps as ((p0, p1), p2).
   Tac.build_impl_match.
@@ -60,14 +77,10 @@ Proof.
   cbn.
   intros ((n0, n1), n2).
   (* apply Impl_MatchI. (* Coq 8.15.2 BUG: Anomaly "in retyping: unbound local variable." *) *)
-  simple refine (@Impl_MatchI _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _).
-  1,2,3,4, 6,8,10,12:shelve.
-  - (* sel1_TU_GOAL *)
-    cbn; do 2 intro (* x sel1 *).
-    Tuple.build_type_iso_tu.
+  simple refine (@Impl_MatchI _ _ _ _ _ _ _ _ _ _ _ _ _ _).
+  1,3,5:shelve.
   - (* F0      *) cbn. Tac.build_spec.
   - (* F       *) Tac.cbn_refl.
-  - (* S_VPOST *) Tac.cbn_refl.
   - (* EX_SEL1 *)
     cbn; repeat intro.
     Tac.simplify_ex_eq_tuple.

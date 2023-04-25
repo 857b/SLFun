@@ -106,6 +106,21 @@ Proof.
   unfold fset; case e; congruence.
 Qed.
 
+(* Transparent lemmas about lists *)
+
+Module ListTransp.
+  Lemma map_map [A B C] (f : A -> B) (g : B -> C) (l : list A):
+    map g (map f l) = map (fun x => g (f x)) l.
+  Proof.
+    induction l; simpl; f_equal; auto.
+  Defined.
+
+  Lemma map_app [A B] (f : A -> B) (u v : list A):
+    map f (u ++ v) = map f u ++ map f v.
+  Proof.
+    induction u; simpl; f_equal; auto.
+  Defined.
+End ListTransp.
 
 (* propostions *)
 

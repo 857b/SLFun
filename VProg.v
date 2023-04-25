@@ -390,6 +390,14 @@ Module VpropList.
   Definition of_ctx : CTX.t -> t :=
     map (@projT1 _ _).
 
+  Lemma of_inst (vs : t) (sl : sel_t vs):
+    of_ctx (inst vs sl) = vs.
+  Proof.
+    induction vs; simpl.
+    - reflexivity.
+    - destruct sl; simpl; f_equal; auto.
+  Defined.
+
   Fixpoint sel_of_ctx (c : CTX.t) : sel_t (of_ctx c) :=
     match c with
     | nil => tt
@@ -416,6 +424,10 @@ Module VpropList.
     - case ss0 as (s0, ss0); simpl.
       rewrite IHvs0; reflexivity.
   Qed.
+
+  Definition app_of_ctx c0 c1:
+    VpropList.of_ctx (c0 ++ c1) = VpropList.of_ctx c0 ++ VpropList.of_ctx c1
+    := ListTransp.map_app _ c0 c1.
 End VpropList.
 
 Module _Abbrev.
@@ -427,18 +439,20 @@ Module _Abbrev.
 End _Abbrev.
 Import _Abbrev.
 
-Module Spec. Section Spec.
+Module Spec.
+Section Spec.
   Local Set Implicit Arguments.
   Variable A : Type.
 
-  Record t_r3 : Type := mk_r3 {
-    post : CTX.t; (* post condition, the Vprop.t should not depend on sel1 *)
-    ens  : Prop;  (* ensures *)
+  Record t_r3 (vp : VpropList.t) : Type := mk_r3 {
+    spost : VpropList.sel_t vp; (* post condition selectors *)
+    ens   : Prop;               (* ensures *)
   }.
 
   Record t_r2 : Type := mk_r2 {
-    sel1_t : Type;
-    f_r3 :> sel1_t -> t_r3;
+    sel1_t : list Type;
+    vpost  : VpropList.t; (* post condition vprops *)
+    f_r3 :> Tuple.t sel1_t -> t_r3 vpost; (* TODO? arrow *)
   }.
 
   Record t_r1 : Type := mk_r1 {
@@ -453,22 +467,147 @@ Module Spec. Section Spec.
     f_r1 :> sel0_t -> t_r1;
   }.
 
+  Definition post (vp : VpropList.t) (s : t_r3 vp) : CTX.t :=
+    VpropList.inst vp (spost s).
+
+End Spec.
+Module Expanded. Section Expanded.
+  Local Set Implicit Arguments.
+  Variable A : Type.
+
+  Record t_r3 : Type := mk_r3 {
+    post : CTX.t;
+    ens  : Prop;
+  }.
+
+  Record t_r2 : Type := mk_r2 {
+    sel1_t : Type;
+    f_r3 :> sel1_t -> t_r3;
+  }.
+
+  Record t_r1 : Type := mk_r1 {
+    prs : CTX.t;
+    pre : CTX.t;
+    req : Prop;
+    f_r2 :> A -> t_r2;
+  }.
+
+  Record t : Type := mk_r0 {
+    sel0_t : Type;
+    f_r1 :> sel0_t -> t_r1;
+  }.
+
+
+  Definition tr_post (e : Expanded.t_r2) : SLprop.t :=
+    SLprop.ex (sel1_t e) (fun sel1 =>
+      SLprop.pure (ens (e sel1)) **
+      CTX.sl (post (e sel1)))%slprop.
+
   Definition tr (vs : t) (ss : SP.Spec.t A) : Prop :=
     exists sel0 : sel0_t vs,
-    ss = {|
+    SP.Spec.eq ss
+    {|
       SP.Spec.pre  := SLprop.pure (req (vs sel0)) **
                       CTX.sl (pre (vs sel0)) **
                       CTX.sl (prs (vs sel0));
-      SP.Spec.post := fun x : A => SLprop.ex (sel1_t (vs sel0 x)) (fun sel1 =>
-                      SLprop.pure (ens (vs sel0 x sel1)) **
-                      CTX.sl (post (vs sel0 x sel1)) **
-                      CTX.sl (prs (vs sel0)))%slprop;
-    |}.
+      SP.Spec.post := fun x : A =>
+                      tr_post (vs sel0 x) **
+                      CTX.sl (prs (vs sel0));
+    |}%slprop.
+
+
+  Definition to_expanded2 (s : Spec.t_r2) : Expanded.t_r2 :=
+    @mk_r2 (Tuple.t (Spec.sel1_t s)) (fun sel1 =>
+    mk_r3 (Spec.post (s sel1)) (Spec.ens (s sel1))).
+
+  Definition to_expanded (s : Spec.t A) : Expanded.t :=
+    @mk_r0 (Spec.sel0_t s) (fun sel0 =>
+    mk_r1 (Spec.prs (s sel0)) (Spec.pre (s sel0)) (Spec.req (s sel0)) (fun x =>
+    to_expanded2 (s sel0 x))).
+
+  Inductive of_expanded3 (e : Expanded.t_r3) : Spec.t_r3 (VpropList.of_ctx (post e)) -> Prop
+    := of_expanded3I:
+    of_expanded3 e (Spec.mk_r3 _ (VpropList.sel_of_ctx (post e)) (ens e)).
+
+  Inductive of_expanded2 (e : Expanded.t_r2) : Spec.t_r2 -> Prop
+    := of_expanded2I
+    (* changing [sel1_t] into a tuple *)
+    (sel1_tu   : list Type)
+    (sel1_tu_f : sel1_t e -> Tuple.t sel1_tu)
+    (sel1_tu_g : Tuple.t sel1_tu -> sel1_t e)
+    (sel1_TU   : Tuple.type_iso_tu (sel1_t e) sel1_tu sel1_tu_f sel1_tu_g)
+    (sel1_TU_GOAL : forall sel1 : sel1_t e,
+      Tuple.type_iso_tu_goal (e sel1) _ sel1_TU)
+    (* the vprops of [post] must be independents of [sel1] *)
+    (vpost : VpropList.t)
+    (VPOST : Tuple.arrow sel1_tu (fun sel1' =>
+      let sel1 : sel1_t e := sel1_tu_g sel1' in
+      VpropList.of_ctx (post (e sel1)) = vpost))
+    (s3 : Tuple.arrow sel1_tu (fun _ => Spec.t_r3 vpost))
+    (S3 : Tuple.arrow sel1_tu (fun sel1' =>
+      let sel1 : sel1_t e := sel1_tu_g sel1' in
+      of_expanded3 (e sel1)
+        (eq_rect_r Spec.t_r3 (Tuple.arrow_to_fun s3 sel1')
+                   (Tuple.arrow_to_fun VPOST sel1')))):
+    of_expanded2 e (@Spec.mk_r2 sel1_tu vpost (Tuple.arrow_to_fun s3)).
+
+  Inductive of_expanded1 (e : Expanded.t_r1) : Spec.t_r1 A -> Prop
+    := of_expanded1I
+    (s2 : A -> Spec.t_r2)
+    (S2 : forall x : A, of_expanded2 (e x) (s2 x)):
+    of_expanded1 e (Spec.mk_r1 (prs e) (pre e) (req e) s2).
+
+  Inductive of_expanded (e : Expanded.t) : Spec.t A -> Prop
+    := of_expandedI
+    (s1 : sel0_t e -> Spec.t_r1 A)
+    (S1 : forall sel0 : sel0_t e, of_expanded1 (e sel0) (s1 sel0)):
+    of_expanded e (@Spec.mk_r0 A (sel0_t e) s1).
+
+  Lemma of_expanded2_equiv e s
+    (E : of_expanded2 e s):
+    SLprop.eq (tr_post e) (tr_post (to_expanded2 s)).
+  Proof.
+    destruct E; unfold tr_post, to_expanded2; cbn.
+    eenough (forall sel1' : Tuple.t sel1_tu, SLprop.eq _ _) as C.
+    - apply SLprop.eq_iff_imp; split; cycle 1;
+      apply SLprop.imp_exists_l.
+      + intro sel1'.
+        apply SLprop.imp_exists_r with (wit := sel1_tu_g sel1').
+        rewrite (C sel1'). reflexivity.
+      + intro sel1.
+        apply SLprop.imp_exists_r with (wit := sel1_tu_f sel1).
+        rewrite C, (proj1 sel1_TU). reflexivity.
+    - intro sel1'.
+      apply R_refl. reflexivity.
+      set (x_S3 := Tuple.arrow_to_fun S3 sel1'); clearbody x_S3; clear S3.
+      set (x_s3 := Tuple.arrow_to_fun s3 sel1') in *.
+        simpl in x_s3, x_S3; fold x_s3 in x_S3; clearbody x_s3; clear s3.
+      set (x_VPOST := Tuple.arrow_to_fun VPOST sel1') in *; clearbody x_VPOST; clear VPOST.
+      destruct x_VPOST; cbn in *.
+      case x_S3; cbn.
+      rewrite VpropList.inst_of_ctx.
+      reflexivity.
+  Qed.
+
+  Lemma of_expanded_equiv e s ss
+    (E : of_expanded e s):
+    tr e ss <-> tr (to_expanded s) ss.
+  Proof.
+    case E as [s1 S1]; unfold tr; cbn.
+    apply Morphisms_Prop.ex_iff_morphism; intro sel0.
+    case (S1 sel0) as [s2 S2]; cbn.
+    setoid_rewrite (fun x => of_expanded2_equiv (S2 x)).
+    reflexivity.
+  Qed.
+End Expanded. End Expanded.
   
-  Definition spec_match (vs : t) (ss : SP.Spec.t A -> Prop) : Prop :=
+  Definition tr [A : Type] (s : t A) : SP.Spec.t A -> Prop :=
+    Expanded.tr (Expanded.to_expanded s).
+  
+  Definition spec_match [A : Type] (vs : t A) (ss : SP.Spec.t A -> Prop) : Prop :=
     forall s0, tr vs s0 ->
     exists s1, SP.Spec.le s1 s0 /\ ss s1.
-End Spec. End Spec.
+End Spec.
 
 Section F_SPEC.
   Local Set Implicit Arguments.
@@ -490,6 +629,11 @@ Section F_SPEC.
     - reflexivity.
     - exact TR.
   Qed.
+
+  Record FSpec (e : f_arg_t sg -> Spec.Expanded.t (f_ret_t sg)) := mk_FSpec {
+    m_spec  : f_arg_t sg -> Spec.t (f_ret_t sg);
+    m_equiv : forall x : f_arg_t sg, Spec.Expanded.of_expanded (e x) (m_spec x);
+  }.
 End F_SPEC.
 
 Section VProg.
@@ -611,15 +755,17 @@ Section FunImpl.
          FP.wlp (sf_spec f) (fun r =>
            let x      := TF.v_val r in
            let f_post := VpropList.inst (sf_prd f x) (TF.v_sel r) in
-           exists sel1 : Spec.sel1_t (spec sel0 x),
+           exists sel1 : Tuple.t (Spec.sel1_t (spec sel0 x)),
            CTX.Inj.ieq (Spec.post (spec sel0 x sel1) ++ Spec.prs (spec sel0))
                        f_post (Sub.const f_post true) /\
            Spec.ens (spec sel0 x sel1)
          )):
     impl_match.
   Proof.
-    intros ? [sel0 ->].
+    intros ? [sel0 E].
+    setoid_rewrite E; clear E.
     do 2 esplit. reflexivity.
+    cbn.
     apply SP.PureE; intro REQ.
     case (H sel0) as (f & F_CSM & F_SPEC & WLP); clear H.
     eapply SP.Cons.
@@ -630,6 +776,7 @@ Section FunImpl.
     - intro x.
       apply SLprop.imp_exists_l; intro rsel.
       apply SLprop.imp_pure_l;   intros (sel1 & ij & ENS).
+      unfold Expanded.tr_post; cbn; SLprop.normalize.
       apply SLprop.imp_exists_r with (wit := sel1).
       apply SLprop.imp_pure_r. exact ENS.
       rewrite F_CSM; unfold Sub.neg, Sub.const;
@@ -638,16 +785,24 @@ Section FunImpl.
       rewrite ij; reflexivity.
   Qed.
 
-  Inductive Impl_Match (s_1 : Spec.t_r1 A) : Prop :=
-    Impl_MatchI
-      (* changing [sel1_t] into a tuple *)
-      (sel1_tu : A -> list Type)
-      (sel1_tu_f : forall x : A, Spec.sel1_t (s_1 x) -> Tuple.t (sel1_tu x))
-      (sel1_tu_g : forall x : A, Tuple.t (sel1_tu x) -> Spec.sel1_t (s_1 x))
-      (sel1_TU : forall x : A,
-        Tuple.type_iso_tu (Spec.sel1_t (s_1 x)) (sel1_tu x) (sel1_tu_f x) (sel1_tu_g x))
-      (sel1_TU_GOAL : forall (x : A) (sel1 : Spec.sel1_t (s_1 x)),
-        Tuple.type_iso_tu_goal (s_1 x sel1) _ (sel1_TU x)):
+  Section Impl_Match.
+    Variable (s_1 : Spec.t_r1 A).
+
+  Let s_post (x : A) (sel1 : Tuple.t (Spec.sel1_t (s_1 x))) :=
+    Spec.post (s_1 x sel1) ++ Spec.prs s_1.
+  Let s_vpost (x : A) :=
+    Spec.vpost (s_1 x) ++ VpropList.of_ctx (Spec.prs s_1).
+
+  Local Lemma s_vpost_eq (x : A) (sel1 : Tuple.t (Spec.sel1_t (s_1 x))):
+    VpropList.of_ctx (s_post x sel1) = s_vpost x.
+  Proof.
+    unfold s_post, s_vpost, post.
+    rewrite VpropList.app_of_ctx, VpropList.of_inst.
+    reflexivity.
+  Defined.
+
+  Inductive Impl_Match : Prop :=
+    Impl_MatchI:
       (* functional representation of the implementation *)
       let ctx : CTX.t := Spec.pre s_1 ++ Spec.prs s_1 in
       forall
@@ -655,25 +810,17 @@ Section FunImpl.
       (f  : i_spec_t A ctx) (F  : add_csm f0 (Sub.const ctx true) = f),
       let f_post (r : TF.t (sf_rvar f)) :=
         VpropList.inst (sf_prd f (TF.v_val r)) (TF.v_sel r) in
-      let s_post (x : A) (sel1 : Spec.sel1_t (s_1 x)) :=
-        Spec.post (s_1 x sel1) ++ Spec.prs s_1 in
       forall
-      (* the vprops of [post] must be independents of [sel1] *)
-      (s_vpost : A -> VpropList.t)
-      (S_VPOST : forall (x : A), Tuple.arrow (sel1_tu x) (fun sel1' =>
-              let sel1 : Spec.sel1_t (s_1 x) := sel1_tu_g x sel1' in
-              VpropList.of_ctx (s_post x sel1) = s_vpost x))
       (* simplification of the existential quantification on sel1.
          Maybe we could expend the wlp of add_csm to remove the equalities on
          non consumed vprops ? *)
-      (ex_sel1 : forall (x : A) (P : Spec.sel1_t (s_1 x) -> Prop),
+      (ex_sel1 : forall (x : A) (P : Tuple.t (Spec.sel1_t (s_1 x)) -> Prop),
               Tuple.arrow (VpropList.sel (s_vpost x)) (fun _ => Prop))
-      (EX_SEL1 : forall (x : A) (P : Spec.sel1_t (s_1 x) -> Prop),
+      (EX_SEL1 : forall (x : A) (P : Tuple.t (Spec.sel1_t (s_1 x)) -> Prop),
               Tuple.arrow (VpropList.sel (s_vpost x)) (fun rsel =>
-              Tuple.ex (sel1_tu x) (fun sel1' =>
-              let sel1 : Spec.sel1_t (s_1 x) := sel1_tu_g x sel1' in
+              Tuple.ex (sel1_t (s_1 x)) (fun sel1 =>
               Tuple.typed_eq (VpropList.sel_of_ctx (s_post x sel1))
-                             (eq_rect_r VpropList.sel_t rsel (Tuple.arrow_to_fun (S_VPOST x) sel1')) /\
+                             (eq_rect_r VpropList.sel_t rsel (s_vpost_eq x sel1)) /\
               P sel1) <-> Tuple.arrow_to_fun (ex_sel1 x P) rsel))
 
       (* equivalence between the specified post-condition and the post-condition of
@@ -687,7 +834,8 @@ Section FunImpl.
              FP.wlpA (sf_spec f) (TF.arrow_of_fun (P := sf_rvar f) (fun r =>
                let x := TF.v_val r in
                Tuple.arrow_to_fun (ex_sel1 x (fun sel1 => Spec.ens (s_1 x sel1))) (TF.arrow_to_fun rsel r)))),
-      Impl_Match s_1.
+      Impl_Match.
+  End Impl_Match.
 
   Lemma intro_impl_match1
     (H : forall sel0, Impl_Match (spec sel0)):
@@ -707,14 +855,14 @@ Section FunImpl.
       eapply FP.wlp_monotone, WLP, REQ.
       intro r; rewrite TF.arrow_to_of.
       clear WLP REQ; simpl.
-      intros (sel1' & [SEQ] & ENS)%(proj2 (Tuple.arrow_to_fun (EX_SEL1 _ _) _))%Tuple.ex_iff.
+      intros (sel1 & [SEQ] & ENS)%(proj2 (Tuple.arrow_to_fun (EX_SEL1 _ _) _))%Tuple.ex_iff.
       clear ex_sel1 EX_SEL1.
-      exists (sel1_tu_g (TF.v_val r) sel1').
+      exists sel1.
       split. 2:exact ENS.
       apply TF.arrow_to_fun with (x := r) in RSEL.
-      set (x_VPOST := Tuple.arrow_to_fun (S_VPOST _) _) in SEQ; clearbody x_VPOST; clear S_VPOST.
-      set (x_rsel  := TF.arrow_to_fun rsel r) in *; clearbody x_rsel; clear rsel; cbn in x_rsel.
-      set (x_vpost := s_vpost _) in *; clearbody x_vpost; clear s_vpost.
+      set (x_VPOST := s_vpost_eq _ _ _) in SEQ; clearbody x_VPOST.
+      set (x_rsel  := TF.arrow_to_fun rsel r) in *; clearbody x_rsel; clear rsel; cbn in *.
+      set (x_vpost := vpost _ ++ _) in *; clearbody x_vpost.
       destruct x_VPOST; cbn in *; subst x_rsel.
       rewrite VpropList.inst_of_ctx in RSEL.
       exact RSEL.
@@ -926,7 +1074,6 @@ Section Bind.
 
       reflexivity.
   Qed.
-
 End Bind.
 Section Assert.
   Context [A : Type] (P : A -> CTX.t * Prop).
@@ -1058,6 +1205,58 @@ Module Tac.
       [ econstructor; shelve | reflexivity | clear H ]
     end.
 
+  Local Lemma ref_arg_unit [A : Type] [P : A -> Type] (f : unit -> A) [f' : A]
+    (E : f = fun 'tt => f')
+    (C : P f'):
+    P (f tt).
+  Proof.
+    rewrite E; exact C.
+  Qed.
+
+  Local Lemma ref_arg_pair [A X Y : Type] [P : A -> Type] (f : X * Y -> A) [f' : Y -> X -> A] [x : X] [y : Y]
+    (E : f = fun '(x,y) => f' y x)
+    (C : P (f' y x)):
+    P (f (x, y)).
+  Proof.
+    rewrite E; exact C.
+  Qed.
+
+  Ltac of_expanded_arg :=
+    repeat lazymatch goal with
+    | |- _ (let 'tt := ?x in _) (?s _) =>
+        destruct x;
+        refine (ref_arg_unit s eq_refl _)
+    | |- _ (let (_,_) := ?x in _) (?s _) =>
+        destruct x;
+        refine (ref_arg_pair s eq_refl _)
+    end.
+
+  Local Lemma mk_red_FSpec [sg : f_sig] [e : f_arg_t sg -> Spec.Expanded.t (f_ret_t sg)]
+    [s0 s1 : f_arg_t sg -> Spec.t (f_ret_t sg)]
+    (E : forall x : f_arg_t sg, Spec.Expanded.of_expanded (e x) (s0 x))
+    (R : s1 = s0):
+    FSpec sg e.
+  Proof.
+    exists s1.
+    rewrite R; exact E.
+  Defined.
+
+  (* solves a goal [FSpec sig espec] *)
+  Ltac build_FSpec :=
+    refine (mk_red_FSpec _ _);
+    [ cbn;
+      intro (* arg *); of_expanded_arg;
+      refine (Spec.Expanded.of_expandedI _ _ _); cbn;
+      intro (* sel0 *); of_expanded_arg;
+      refine (Spec.Expanded.of_expanded1I _ _ _); cbn;
+      intro (* ret *);
+      simple refine (Spec.Expanded.of_expanded2I _ _ _ _ _ _);
+      [ shelve | shelve | shelve | shelve
+      | (* sel1_TU_GOAL *) cbn; intro (* sel1 *); Tuple.build_type_iso_tu
+      | shelve | (* S_VPOST *) Tac.cbn_refl
+      | shelve | (* S3      *) cbn; repeat intro; refine (Spec.Expanded.of_expanded3I _) ]
+    | cbn; reflexivity ].
+
 
   Ltac build_Ret :=
     simple refine (@Ret_SpecI _ _ _ _ _ _ _);
@@ -1162,12 +1361,9 @@ Module Tac.
     |- Impl_Match _ _ (match ?x with _ => _ end) => destruct x
     end;
 
-    simple refine (@Impl_MatchI _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _);
-    [ shelve | shelve | shelve | shelve
-    | (* sel1_TU_GOAL *) cbn; do 2 intro (* x sel1 *); Tuple.build_type_iso_tu
-    | shelve | (* F0      *) cbn; Tac.build_spec
+    simple refine (@Impl_MatchI _ _ _ _ _ _ _ _ _ _ _ _ _ _);
+    [ shelve | (* F0      *) cbn; Tac.build_spec
     | shelve | (* F       *) Tac.cbn_refl
-    | shelve | (* S_VPOST *) Tac.cbn_refl
     | shelve | (* EX_SEL1 *) cbn; repeat intro; simplify_ex_eq_tuple
     | (* rsel *) cbn; repeat intro; Tuple.build_shape
     | (* RSEL *) cbn; repeat intro; CTX.Inj.build
