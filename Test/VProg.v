@@ -8,17 +8,38 @@ Import ListNotations.
 Import VProg._Abbrev.
 
 
-Definition f_main : fid := 0.
+Definition f_0 : fid := 0.
+Definition f_1 : fid := 0.
+Definition f_2 : fid := 2.
 
-Definition sig_main := mk_f_sig (ptr * ptr * ptr) ptr.
+Definition sig_0 := mk_f_sig (ptr * ptr) unit.
+Definition sig_1 := mk_f_sig (ptr * ptr * ptr) unit.
+Definition sig_2 := mk_f_sig (ptr * ptr * ptr) ptr.
 
 Definition SIG : sig_context :=
   fun f => match f with
-  | 0 => Some sig_main
+  | 0 => Some sig_0
+  | 1 => Some sig_1
+  | 2 => Some sig_2
   | _ => None
   end.
 
-Definition spec_main : FSpec sig_main (fun '(p0, p1, p2) =>
+Definition spec_0 : FSpec sig_0 (fun '(p0, p1) =>
+  Spec.Expanded.mk_r0 (fun '(n0, n1) =>
+  Spec.Expanded.mk_r1 [] [CTX.mka (SLprop.cell p0, n0); CTX.mka (SLprop.cell p1, n1)] True (fun _ =>
+  Spec.Expanded.mk_r2 (fun 'tt =>
+  Spec.Expanded.mk_r3 [CTX.mka (SLprop.cell p0, n1); CTX.mka (SLprop.cell p1, n0)] True)))).
+Proof. Tac.build_FSpec. Defined.
+
+Definition spec_1 : FSpec sig_1 (fun '(p0, p1, p2) =>
+  Spec.Expanded.mk_r0 (fun '(n0, n1, n2) =>
+  Spec.Expanded.mk_r1 [CTX.mka (SLprop.cell p2, n2)]
+    [CTX.mka (SLprop.cell p0, n0); CTX.mka (SLprop.cell p1, n1)] True (fun _ =>
+  Spec.Expanded.mk_r2 (fun 'tt =>
+  Spec.Expanded.mk_r3 [CTX.mka (SLprop.cell p0, n1); CTX.mka (SLprop.cell p1, n0)] True)))).
+Proof. Tac.build_FSpec. Defined.
+
+Definition spec_2 : FSpec sig_2 (fun '(p0, p1, p2) =>
   Spec.Expanded.mk_r0 (fun '(n0, n1, n2) =>
   Spec.Expanded.mk_r1 [CTX.mka (SLprop.cell p2, n2)]
              [CTX.mka (SLprop.cell p0, n0); CTX.mka (SLprop.cell p1, n1)] True (fun p =>
@@ -42,35 +63,99 @@ Proof.
   *)
 Defined.
 
-
 Definition SPEC : CP.spec_context SIG :=
   fun f => match f with
-  | 0 => SP.tr_f_spec (tr_f_spec (m_spec spec_main))
+  | 0 => cp_f_spec (m_spec spec_0)
+  | 1 => cp_f_spec (m_spec spec_1)
+  | 2 => cp_f_spec (m_spec spec_2)
   | _ => tt
   end.
 
+Definition HSPC_f_0 := cp_has_spec SPEC f_0 eq_refl eq_refl.
+
+
+Definition vprog_0 : f_body SPEC sig_0 := fun '(p0, p1) =>
+  Bind _ (Read  _ p0)    (fun v0 =>
+  Bind _ (Read  _ p1)    (fun v1 =>
+  Bind _ (Write _ p0 v1) (fun _  =>
+         (Write _ p1 v0) ))).
+
+Definition vprog_1 : f_body SPEC sig_1 := fun '(p0, p1, p2) =>
+  Call (sg := sig_0) _ f_0 eq_refl (p0, p1) _ (HSPC_f_0 _).
+
 Definition data42 : nat := 42.
 
-Definition vprog_main (ps : ptr * ptr * ptr) : instr SPEC ptr :=
-  let '(p0, p1, p2) := ps in
+Definition vprog_2 : f_body SPEC sig_2 := fun '(p0, p1, p2) =>
   Bind _ (Read  _ p0) (fun v0 =>
   Bind _ (Write _ p1 data42) (fun _ =>
   Bind _ (Assert _ (fun '(v0', v1') =>
     ([CTX.mka (SLprop.cell p0, v0'); CTX.mka (SLprop.cell p1, v1')], v0' = v0))) (fun _ =>
   Ret _ p0 (fun p => [Vprop.mk (SLprop.cell p)])))).
 
-Definition impl_main (ps : ptr * ptr * ptr) :
-  { i : CP.instr ptr | i = i_impl (vprog_main ps) }.
+Definition impl_2 (ps : ptr * ptr * ptr) :
+  { i : CP.instr ptr | i = i_impl (vprog_2 ps) }.
 Proof.
-  unfold i_impl, vprog_main; cbn.
+  unfold i_impl, vprog_2; cbn.
   case ps as ((p0, p1), p2); cbn.
   eexists. reflexivity.
 Defined.
 
-Lemma imatch_main (ps : ptr * ptr * ptr):
-  impl_match SPEC (vprog_main ps) (m_spec spec_main ps).
+Lemma imatch_0:
+  f_body_match SPEC vprog_0 (m_spec spec_0).
 Proof.
-  case ps as ((p0, p1), p2).
+  intros (p0, p1).
+  Tac.build_impl_match.
+  unfold FP.BindA; cbn; tauto.
+Qed.
+
+Lemma imatch_1:
+  f_body_match SPEC vprog_1 (m_spec spec_1).
+Proof.
+  intros ((p0, p1), p2).
+  Tac.build_impl_match.
+  (*
+  refine (intro_impl_match1 _ _ _ _); cbn;
+  (* intro and destruct sel0 *)
+  intro;
+  repeat lazymatch goal with
+  |- Impl_Match _ _ (match ?x with _ => _ end) => destruct x
+  end.
+
+  simple refine (@Impl_MatchI _ _ _ _ _ _ _ _ _ _ _ _ _ _).
+  1,3,5:shelve.
+  - (* F0      *) cbn.
+    Tac.build_spec.
+    (*
+    simple refine (Call_SpecI _ _ _ _ _ _ _ _ _).
+    1,2,4,6:shelve.
+    + (* ij_pre *)
+      cbn.
+      repeat lazymatch goal with |- CTX.Inj.ieq (Spec.pre ?x) _ _ =>
+        Tac.build_matched_shape x; cbn
+      end.
+      CTX.Inj.build.
+    + (* ij_prs *)
+      cbn.
+      CTX.Inj.build.
+    + (* SF *)
+      cbn.
+      reflexivity.
+    *)
+  - (* F       *) Tac.cbn_refl.
+  - (* EX_SEL1 *) cbn; repeat intro; Tac.simplify_ex_eq_tuple.
+  - (* rsel    *) cbn; repeat intro; Tuple.build_shape.
+  - (* RSEL    *) cbn; repeat intro; CTX.Inj.build.
+  *)
+  - (* WLP     *)
+    cbn.
+    unfold FP.BindA; cbn.
+    tauto.
+Qed.
+
+Lemma imatch_2:
+  f_body_match SPEC vprog_2 (m_spec spec_2).
+Proof.
+  intros ((p0, p1), p2).
   Tac.build_impl_match.
   (*
   apply intro_impl_match1.

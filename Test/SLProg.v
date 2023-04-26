@@ -44,10 +44,8 @@ Definition SPEC : CP.spec_context SIG :=
   end.
 
 Lemma call_aux (p : ptr) (n : nat):
-  @fun_has_spec _ SPEC sig_aux f_aux p (spec_aux_n p n).
+  @fun_has_spec _ SPEC sig_aux f_aux p eq_refl (spec_aux_n p n).
 Proof.
-  unshelve eexists. reflexivity.
-  simpl.
   apply (tr_f_spec_match spec_aux).
   do 2 esplit.
 Defined.
@@ -85,7 +83,7 @@ Proof.
   intro; simpl; normalize; apply PureE; intros ->.
   eapply Bind.
     eapply CFrame with (fr := SLprop.cell p1 n1).
-    eapply Call with (fs := call_aux p0 n0).
+    apply (Call _ _ _ _ _ (call_aux p0 n0)).
     rewrite SLprop.star_comm; reflexivityR.
   intro m; simpl.
   eapply Bind.

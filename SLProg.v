@@ -191,18 +191,16 @@ Section SLS.
     Qed.
   End Bind.
   Section Call.
-    Context [sg : f_sig] (f : fid) (x : f_arg_t sg) (s : Spec.t (f_ret_t sg)).
-    Record fun_has_spec : Prop := {
-      fd_SIG  : SG f = Some sg;
-      fg_SPEC : Spec.spec_match s (CP.fun_has_spec SPC f fd_SIG x);
-    }.
-    Variables (fs : fun_has_spec).
+    Context [sg : f_sig] (f : fid) (x : f_arg_t sg) (HSIG : SG f = Some sg) (s : Spec.t (f_ret_t sg)).
 
-    Lemma Call : sls (CP.Call f (fd_SIG fs) x) s.
+    Definition fun_has_spec :=
+      Spec.spec_match s (CP.fun_has_spec SPC f HSIG x).
+    Hypothesis (HSPC : fun_has_spec).
+
+    Lemma Call : sls (CP.Call f HSIG x) s.
     Proof.
       intros fr m0; simpl; intro M0.
-      case fs as [SIG SPEC]; simpl.
-      case (SPEC fr) as (t_s & HS & SLE).
+      case (HSPC fr) as (t_s & HS & SLE).
       exists t_s. split. exact HS.
       exact (SLE _ M0).
     Qed.

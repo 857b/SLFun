@@ -95,8 +95,11 @@ Module TF.
   Global Arguments all : clear implicits.
   Global Arguments ex : clear implicits.
   
-  Global Arguments arrow !_ _/.
-  Global Arguments arrow_of_fun !_ _ _/.
+  Global Arguments arrow !P _/.
+  Global Arguments arrow_of_fun !P _ _/.
+  Global Arguments all !P _/.
+  Global Arguments ex  !P _/.
+
 
   Definition mk [p_val] (p_sel : p_val -> list Type)
     (v_val : p_val) (v_sel : Tuple.t (p_sel v_val)) : t (mk_p p_val p_sel)
