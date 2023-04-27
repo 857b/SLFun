@@ -3,37 +3,6 @@ Require Import SLFun.Util.
 Require Import Coq.Setoids.Setoid.
 
 
-Module Spec. Section Spec.
-  Local Set Implicit Arguments.
-  Variable A : Type.
-
-  Definition wp_t := forall (post : A -> Prop), Prop.
-
-  Definition monotone (wp : wp_t) : Prop :=
-    forall (post0 post1 : A -> Prop) (LE : forall x, post0 x -> post1 x),
-    wp post0 -> wp post1.
-
-  Lemma wp_morph (wp : wp_t) (MONO : monotone wp) (post0 post1 : A -> Prop)
-    (POST : forall x : A, post0 x <-> post1 x):
-    wp post0 <-> wp post1.
-  Proof.
-    split; apply MONO, POST.
-  Qed.
-
-  Definition wp_eq (wp0 wp1 : wp_t) : Prop :=
-    forall post : A -> Prop, wp0 post <-> wp1 post.
-
-  Global Instance wp_eq_Equivalence : Equivalence wp_eq.
-  Proof.
-    apply Equivalence.pointwise_equivalence, iff_equivalence.
-  Qed.
-
-  Record t := {
-    pre  : Prop;
-    post : A -> Prop;
-  }.
-End Spec. End Spec.
-
 (* Type family *)
 Module TF.
   Record p := mk_p {
@@ -109,28 +78,46 @@ Module TF.
   Definition tt : t unit := mk_v unit tt tt.
 End TF.
 
-Inductive instr : TF.p -> Type :=
-  | Ret [A] (x : TF.t A) : instr A
-  | Bind [A B] (f : instr A) (g : TF.t A -> instr B) : instr B
-  | Call [A] (s : Spec.t (TF.t A)) : instr A
-  | Assert (P : Prop) : instr TF.unit.
+Module Spec.
+  Local Set Implicit Arguments.
+  Section WLP.
+    Variable A : Type.
 
-Fixpoint wlp [A : TF.p] (i : instr A) : Spec.wp_t (TF.t A) :=
-  match i with
-  | Ret x     => fun post => post x
-  | Bind f g  => fun post => wlp f (fun x => wlp (g x) post)
-  | @Call A s => fun post => Spec.pre s /\ TF.all A (fun x => Spec.post s x -> post x)
-  | Assert P  => fun post => P /\ post TF.tt
-  end.
+    Definition post_t := A -> Prop.
+    Definition wp_t   := post_t -> Prop.
 
-Lemma wlp_monotone A i : Spec.monotone (@wlp A i).
-Proof.
-  induction i; do 3 intro; simpl; try solve [intuition auto].
-  - (* Bind *)
-    apply IHi; intro x; apply (H x), LE.
-  - (* Call *)
-    rewrite !TF.all_iff; intuition.
-Qed.
+    Definition monotone (wp : wp_t) : Prop :=
+      forall (post0 post1 : post_t) (LE : forall x, post0 x -> post1 x),
+      wp post0 -> wp post1.
+
+    Lemma wp_morph (wp : wp_t) (MONO : monotone wp) (post0 post1 : post_t)
+      (POST : forall x, post0 x <-> post1 x):
+      wp post0 <-> wp post1.
+    Proof.
+      split; apply MONO, POST.
+    Qed.
+
+    Definition wp_eq (wp0 wp1 : wp_t) : Prop :=
+      forall post : post_t, wp0 post <-> wp1 post.
+
+    Global Instance wp_eq_Equivalence : Equivalence wp_eq.
+    Proof.
+      apply Equivalence.pointwise_equivalence, iff_equivalence.
+    Qed.
+  End WLP.
+
+  Record t (A : TF.p) := {
+    pre  : Prop;
+    post : TF.arrow A (fun _ => Prop);
+  }.
+End Spec.
+
+
+Definition instr (A : TF.p) : Type := {wp : Spec.wp_t (TF.t A) | Spec.monotone wp}.
+Definition wlp [A : TF.p] (i : instr A) : Spec.wp_t (TF.t A)
+  := proj1_sig i.
+Definition wlp_monotone [A : TF.p] (i : instr A) : Spec.monotone (wlp i)
+  := proj2_sig i.
 
 Definition eqv [A : TF.p] (p0 p1 : instr A) : Prop :=
   Spec.wp_eq (wlp p0) (wlp p1).
@@ -140,11 +127,88 @@ Proof.
   Rel.by_expr (Rel.pull (@wlp A) (@Spec.wp_eq _)).
 Qed.
 
+Inductive wlpA [A : TF.p] (i : instr A) (post : TF.arrow A (fun _ => Prop)) : Prop :=
+  wlpA_I (P : wlp i (TF.arrow_to_fun post)).
 
-Definition wlpA [A : TF.p] (i : instr A) (post : TF.arrow A (fun _ => Prop)) : Prop :=
-  wlp i (TF.arrow_to_fun post).
 
-Definition BindA [A B : TF.p] (f : instr A) (g : TF.arrow A (fun _ => instr B)) : instr B :=
-  @Bind A B f (TF.arrow_to_fun g).
+Section Instr.
+  Local Obligation Tactic := cbn; intros; do 3 intro; try solve [intuition auto].
 
-Global Arguments BindA : simpl never.
+  Program Definition Ret [A : TF.p] (x : TF.t A) : instr A
+    := fun post => post x.
+
+  Program Definition Bind [A B : TF.p] (f : instr A) (g : TF.arrow A (fun _ => instr B)) : instr B
+    := fun post => wlp f (fun x => wlp (TF.arrow_to_fun g x) post).
+  Next Obligation.
+    apply wlp_monotone; intro; apply wlp_monotone, LE.
+  Qed.
+
+  Program Definition Call [A : TF.p] (s : Spec.t A) : instr A
+    := fun post => Spec.pre s /\ forall x : TF.t A, TF.arrow_to_fun (Spec.post s) x -> post x.
+
+  Program Definition Assert (P : Prop) : instr TF.unit
+    := fun post => P /\ post TF.tt.
+End Instr.
+
+Inductive wlp_formula [A : TF.p] (i : instr A) (f : forall post : TF.t A -> Prop, Prop) : Prop :=
+  wlp_formulaI (F : forall post, f post -> wlp i post).
+
+Section WLP_Formula.
+  Lemma wlp_formulaE [A i f post] (H : @wlp_formula A i f) (F : f post): wlp i post.
+  Proof.
+    case H; auto.
+  Qed.
+
+  Lemma wlp_formula_def [A] i:
+    @wlp_formula A i (wlp i).
+  Proof.
+    constructor; auto.
+  Qed.
+
+  Lemma wlp_formula_Bind [A B f g ff fg]
+    (Ff : wlp_formula f ff)
+    (Fg : TF.arrow A (fun x => wlp_formula (TF.arrow_to_fun g x) (TF.arrow_to_fun fg x))):
+    wlp_formula (@Bind A B f g)
+      (fun post => ff (fun x => TF.arrow_to_fun fg x post)).
+  Proof.
+    constructor.
+    intros post HF%(wlp_formulaE Ff); simpl.
+    eapply wlp_monotone, HF; simpl.
+    intros x HG%(wlp_formulaE (TF.arrow_to_fun Fg x)).
+    exact HG.
+  Qed.
+
+  Lemma wlp_formula_Call [A] s:
+    wlp_formula (@Call A s)
+      (fun post => Spec.pre s /\ TF.all A (fun x => TF.arrow_to_fun (Spec.post s) x -> post x)).
+  Proof.
+    constructor; setoid_rewrite TF.all_iff; auto.
+  Qed.
+End WLP_Formula.
+
+(* solves a goal [wlp_formula i ?f] *)
+Ltac build_wlp_formula :=
+  let rec build :=
+  lazymatch goal with
+  | |- wlp_formula (Bind _ _) _ =>
+      refine (wlp_formula_Bind _ _);
+      [ build | cbn; repeat intro; build ]
+  | |- wlp_formula (Call _) _ =>
+      refine (wlp_formula_Call _)
+  | |- _ =>
+      refine (wlp_formula_def _)
+  end
+  in build.
+
+Local Lemma by_wlp_lem [pre : Prop] [A] [i : instr A] [post f]
+  (F : wlp_formula i f)
+  (C : pre -> f (TF.arrow_to_fun post))
+  (P : pre): wlpA i post.
+Proof.
+  constructor; case F as [F].
+  apply F, C, P.
+Qed.
+
+Ltac by_wlp :=
+  refine (FunProg.by_wlp_lem _ _);
+  [ build_wlp_formula | cbn].

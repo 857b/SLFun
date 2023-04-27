@@ -105,7 +105,8 @@ Lemma imatch_0:
 Proof.
   intros (p0, p1).
   Tac.build_impl_match.
-  unfold FP.BindA; cbn; tauto.
+  FP.by_wlp.
+  tauto.
 Qed.
 
 Lemma imatch_1:
@@ -147,8 +148,7 @@ Proof.
   - (* RSEL    *) cbn; repeat intro; CTX.Inj.build.
   *)
   - (* WLP     *)
-    cbn.
-    unfold FP.BindA; cbn.
+    FP.by_wlp.
     tauto.
 Qed.
 
@@ -191,8 +191,7 @@ Proof.
   - (* RSEL    *) cbn; repeat intro. CTX.Inj.build.
   *)
   - (* WLP *)
-    cbn.
-    unfold FP.BindA; cbn.
+    FP.by_wlp.
     intuition.
     unfold data42; repeat constructor.
 Qed.

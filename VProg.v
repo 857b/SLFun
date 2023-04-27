@@ -706,7 +706,7 @@ Section AddCsm.
     {|
       sf_csm  := Sub.or (sf_csm s) csm;
       sf_prd  := fun x => sf_prd s x ++ VpropList.of_ctx acsm;
-      sf_spec := FP.BindA (sf_spec s) (TF.arrow_of_fun (P:=sf_rvar s) (fun x =>
+      sf_spec := FP.Bind (sf_spec s) (TF.arrow_of_fun (P:=sf_rvar s) (fun x =>
                    FP.Ret (TF.mk _ (TF.v_val x) (VpropList.app_sel (TF.v_sel x) (VpropList.sel_of_ctx acsm)))
                  ))
     |}.
@@ -946,10 +946,10 @@ Section Bind.
                 let TF_B prd := TF.mk_p B (fun y => VpropList.sel (prd y)) in
                 @FP.Bind TF_A (TF_B prd)
                     (sf_spec s_f)
-                    (fun x =>
+                    (TF.arrow_of_fun (P := TF_A) (fun x =>
                       eq_rect _ (fun prd => FP.instr (TF_B prd))
                                 (sf_spec (s_g (TF.v_val x) (TF.v_sel x)))
-                                _ (PRD (TF.v_val x) (TF.v_sel x)))
+                                _ (PRD (TF.v_val x) (TF.v_sel x))))
             )),
     Bind_Spec ctx {|
       sf_csm  := csm;
@@ -984,7 +984,7 @@ Section Bind.
     - clear PRE.
       intro x; unfold sf_post; simpl.
       apply SP.ExistsE; intro sels0.
-      apply SP.PureE; simpl; intro PRE.
+      apply SP.PureE; simpl; rewrite Tuple.arrow_to_of; intro PRE.
       destruct (PRD x sels0); simpl in PRE.
       eapply SP.Cons.
         { apply s_g_sound, PRE. }
@@ -1037,7 +1037,7 @@ Section Bind.
         let TF_A := sf_rvar s_f in
         let TF_B (prd : B -> VpropList.t) :=
           TF.mk_p B (fun y : B => VpropList.sel (prd y)) in
-        FP.BindA (sf_spec s_f)
+        FP.Bind (sf_spec s_f)
            (TF.arrow_of_fun (fun x =>
               eq_rect (sf_prd (TF.arrow_to_fun s_g x))
                 (fun prd0 : B -> VpropList.t => _Abbrev.FP.instr (TF_B prd0))
@@ -1067,7 +1067,7 @@ Section Bind.
     - unfold FP.eqv; subst spec; simpl; intro.
       clear CSM S_F S_G0.
       apply FP.Spec.wp_morph. apply FP.wlp_monotone.
-      intros [val sel]; rewrite TF.arrow_to_of; simpl in *.
+      intros [val sel]; rewrite !TF.arrow_to_of; simpl in *.
       revert post.
 
       set (x_PRD := Tuple.arrow_to_fun (PRD val) sel).
@@ -1112,11 +1112,11 @@ Section Call.
     forall
     (sf : FP.instr TF_B)
     (SF : sf =
-      FP.BindA
+      FP.Bind
         (@FP.Call TF_A {|
             FP.Spec.pre  := Spec.req (s sel0);
-            FP.Spec.post := fun (r : TF.t TF_A) =>
-              Spec.ens (s sel0 (TF.v_val r) (TF.v_sel r));
+            FP.Spec.post := TF.arrow_of_fun (fun (r : TF.t TF_A) =>
+              Spec.ens (s sel0 (TF.v_val r) (TF.v_sel r)));
          |})
         (TF.arrow_of_fun (P := TF_A) (fun r =>
          FP.Ret (TF.mk_v TF_B (TF.v_val r)
@@ -1129,7 +1129,7 @@ Section Call.
       sf_spec := sf;
     |}.
 
-  Local Opaque TF.arrow_of_fun TF.all.
+  Local Opaque TF.arrow_of_fun.
 
   Program Definition Call : instr (f_ret_t sg) := {|
     i_impl := CP.Call f HSIG x;
@@ -1137,8 +1137,7 @@ Section Call.
   |}.
   Next Obligation.
     destruct SP; do 2 intro; subst sf; simpl in *.
-    rewrite TF.all_iff in PRE; case PRE as (REQ & POST).
-    setoid_rewrite TF.arrow_to_of in POST.
+    case PRE as (REQ & POST).
     eapply SP.CFrame with (fr := CTX.sl (CTX.sub ctx1 (Sub.neg csm_prs))). {
       ecase HSPC as (ss & LEss & Hss).
         { exists sel0; reflexivity. }
@@ -1154,8 +1153,10 @@ Section Call.
     - intro rx; unfold Expanded.tr_post; simpl; SLprop.normalize.
       apply SLprop.imp_exists_l; intro sel1.
       apply SLprop.imp_pure_l;   intro ENS.
+      specialize (POST (TF.mk _ rx sel1)).
+        rewrite !TF.arrow_to_of in POST; simpl in POST.
       eapply SLprop.imp_exists_r.
-      apply  SLprop.imp_pure_r. exact (POST (TF.mk _ rx sel1) ENS).
+      apply  SLprop.imp_pure_r. exact (POST ENS).
       clear post0 REQ ENS POST; subst TF_A TF_B; simpl.
       case (vpost_eq sel0 rx sel1); simpl.
       rewrite VpropList.inst_of_ctx, CTX.sl_app.
@@ -1470,6 +1471,6 @@ Module Tac.
     | shelve | (* EX_SEL1 *) cbn; repeat intro; simplify_ex_eq_tuple
     | (* rsel *) cbn; repeat intro; Tuple.build_shape
     | (* RSEL *) cbn; repeat intro; CTX.Inj.build
-    | (* WLP  *) ].
+    | (* WLP  *) cbn ].
 
 End Tac.
