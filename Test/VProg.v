@@ -109,6 +109,9 @@ Proof.
   tauto.
 Qed.
 
+Definition cp_0: f_impl _ vprog_0.
+Proof. Tac.extract_impl. Defined.
+
 Lemma imatch_1:
   f_body_match SPEC vprog_1 (m_spec spec_1).
 Proof.
@@ -151,6 +154,9 @@ Proof.
     FP.by_wlp.
     tauto.
 Qed.
+
+Definition cp_1: f_impl _ vprog_1.
+Proof. Tac.extract_impl. Defined.
 
 Lemma imatch_2:
   f_body_match SPEC vprog_2 (m_spec spec_2).
@@ -195,3 +201,89 @@ Proof.
     intuition.
     unfold data42; repeat constructor.
 Qed.
+
+Definition cp_2: f_impl _ vprog_2.
+Proof. Tac.extract_impl. Defined.
+
+
+Definition sig_a0 := mk_f_sig (ptr * ptr) unit.
+Definition spec_a0 : FSpec sig_a0 (fun ps =>
+  Spec.Expanded.mk_r0 (fun n =>
+  Spec.Expanded.mk_r1 [CTX.mka (SLprop.cell (fst ps), n)] [] True (fun _ =>
+  Spec.Expanded.mk_r2 (fun 'tt =>
+  Spec.Expanded.mk_r3 [] True)))).
+Proof. Tac.build_FSpec. Defined.
+
+Definition vprog_a0 : f_body SPEC sig_a0 := fun ps =>
+  Bind _ (let (p0, _) := ps in Read _ p0) (fun v0 =>
+  Ret _ tt (fun _ => [])).
+Lemma imatch_a0:
+  f_body_match SPEC vprog_a0 (m_spec spec_a0).
+Proof.
+  intro ps.
+  Tac.build_impl_match.
+  (*
+  refine (intro_impl_match1 _ _ _ _); cbn;
+  (* intro and destruct sel0 *)
+  intro;
+  repeat lazymatch goal with
+  |- Impl_Match _ _ (match ?x with _ => _ end) => destruct x
+  end.
+
+  simple refine (@Impl_MatchI _ _ _ _ _ _ _ _ _ _ _ _ _ _).
+  1,3,5:shelve.
+  - (* F0 *) cbn.
+    Tac.build_spec.
+    (*
+    Tac.build_Bind_init.
+    + (* S_F *)
+      Tac.build_spec.
+      (**)
+      hnf.
+      match goal with |- (let (a, _) := i_spec (match ?x with _ => _ end) _ in a) ?s =>
+        idtac x s;
+        simple refine (VProg.Tac.change_arg _ s _ _);
+        [ destruct x; [(* only one case *)]; shelve
+        | destruct x; cbn; Tac.build_spec
+        | simple refine (VProg.Tac.intro_i_spec_t_eq _ _);
+          [ shelve | shelve | (* sf_spec *) destruct x; shelve
+          | destruct x; cbn;
+            refine (conj eq_refl (exist _ eq_refl _));
+            cbn; reflexivity ] ]
+      end.
+      (**)
+    + (* F_PRD *) Tac.cbn_refl.
+    + (* S_G0  *) cbn; repeat intro; Tac.build_spec.
+    + (* S_G   *) Tac.cbn_refl.
+    + (* CSM   *) Tac.cbn_refl.
+    + (* PRD   *) Tac.cbn_refl.
+    + (* SPEC  *) Tac.cbn_refl.
+    *)
+  - (* F       *) Tac.cbn_refl.
+  - (* EX_SEL1 *) cbn; repeat intro; Tac.simplify_ex_eq_tuple.
+  - (* rsel *) cbn; repeat intro; Tuple.build_shape.
+  - (* RSEL *) cbn; repeat intro; CTX.Inj.build.
+  *)
+  - (* WLP *)
+    cbn.
+    FP.by_wlp.
+    (*
+    refine (FunProg.by_wlp_lem _ _).
+    + refine (FP.wlp_formula_Bind _ _). 2:cbn; repeat intro; FP.build_wlp_formula.
+      refine (FP.wlp_formula_Bind _ _). 2:cbn; repeat intro; FP.build_wlp_formula.
+      FP.build_wlp_formula.
+      (*
+      simple refine (FP.wlp_formula_imp _ _ _).
+      * destruct ps; shelve.
+      * destruct ps. FP.build_wlp_formula.
+      * intros post f.
+        case_eq ps.
+        exact f.
+      *)
+    *)
+    + cbn. tauto.
+Qed.
+
+Definition cp_a0: f_impl _ vprog_a0.
+Proof. Tac.extract_impl. Defined.
+

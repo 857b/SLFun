@@ -879,6 +879,9 @@ Definition f_body (sg : f_sig) : Type := f_arg_t sg -> instr (f_ret_t sg).
 Definition f_body_match [sg : f_sig] (impl : f_body sg) (spec : f_spec sg) : Prop :=
   forall x : f_arg_t sg, impl_match (impl x) (spec x).
 
+Definition f_impl [sig] (f : f_body sig) : Type :=
+  { i : @CP.f_impl SIG sig | forall x : f_arg_t sig, CP.extract (i_impl (f x)) (i x) }.
+
 (* Constructors *)
 
 Section Ret.
@@ -1345,6 +1348,28 @@ Module Tac.
       | shelve | (* S3      *) cbn; repeat intro; refine (Spec.Expanded.of_expanded3I _) ]
     | cbn; reflexivity ].
 
+  (* build_spec *)
+
+  Local Lemma change_arg [A : Type] [f : A -> Type] (x0 x1 : A)
+    (F : f x0)
+    (E : x0 = x1):
+    f x1.
+  Proof.
+    rewrite <- E; exact F.
+  Qed.
+
+  Local Lemma intro_i_spec_t_eq [A : Type] [ctx : CTX.t] [s0 : i_spec_t A ctx] [csm1 prd1] f1
+    (E : csm1 = sf_csm s0 /\
+         { E : prd1 = sf_prd s0
+             | f1 = eq_rect_r (fun prd => FP.instr (TF.mk_p A (fun x => VpropList.sel (prd x))))
+                              (sf_spec s0) E}):
+    s0 = mk_i_spec csm1 prd1 f1.
+  Proof.
+    destruct s0; cbn in *.
+    case E as [-> [E ->]].
+    destruct E.
+    reflexivity.
+  Qed.
 
   Ltac build_Ret :=
     simple refine (@Ret_SpecI _ _ _ _ _ _ _);
@@ -1357,7 +1382,7 @@ Module Tac.
 
   Ltac build_Bind build_f :=
     build_Bind_init;
-    [ (* S_F   *) hnf; build_f
+    [ (* S_F   *) build_f
     | (* F_PRD *) cbn_refl
     | (* S_G0  *) cbn; repeat intro; build_f
     | (* S_G   *) cbn_refl
@@ -1396,6 +1421,18 @@ Module Tac.
     simple refine (@Write_SpecI _ _ _ _ _ _);
     [ shelve | shelve | (* ij *) CTX.Inj.build ].
 
+  (* TODO? allow the produced vprops to depend on the matched term. ? ~returns clause *)
+  Ltac build_spec_case build_f x s :=
+    simple refine (change_arg _ s _ _);
+    (* destructive let *)
+    [ destruct x; [(* only one case *)]; shelve
+    | destruct x; cbn; build_f
+    | simple refine (VProg.Tac.intro_i_spec_t_eq _ _);
+      [ shelve | shelve | (* sf_spec *) destruct x; shelve
+      | destruct x; cbn;
+        refine (conj eq_refl (exist _ eq_refl _));
+        cbn; reflexivity ] ].
+
   Ltac build_spec :=
     let rec build_spec :=
     hnf;
@@ -1406,8 +1443,11 @@ Module Tac.
     | |- Assert_Spec   _ _ _ => build_Assert
     | |- Read_Spec     _ _ _ => build_Read
     | |- Write_Spec  _ _ _ _ => build_Write
+    | |- (let (a, _) := i_spec (match ?x with _ => _ end) _ in a) ?s =>
+        build_spec_case build_spec x s
     end
     in build_spec.
+
 
   Local Lemma elim_tuple_eq_conj [TS] [u v : Tuple.t TS] [P Q : Prop]
     (C : elim_and_list_f (List.rev_append (Tuple.eq_list u v) nil) Q):
@@ -1456,6 +1496,7 @@ Module Tac.
       | cbn; reflexivity ]
     ].
 
+
   (* change a goal [impl_match SPEC vprog spec] into a condition [req -> wlp f post] *)
   Ltac build_impl_match :=
     refine (intro_impl_match1 _ _ _ _); cbn;
@@ -1472,5 +1513,33 @@ Module Tac.
     | (* rsel *) cbn; repeat intro; Tuple.build_shape
     | (* RSEL *) cbn; repeat intro; CTX.Inj.build
     | (* WLP  *) cbn ].
+
+
+  (* solves a goal [CP.extract i0 ?i1] *)
+  Ltac extract_instr :=
+    let rec extract :=
+      cbn;
+      lazymatch goal with
+      | |- CP.extract (CP.Bind _ _) _ =>
+          refine (CP.EBind _ _);
+          [ extract | intro; extract ]
+      | |- CP.extract (i_impl ?v) ?i =>
+          match v with
+          | (match ?x with _ => _ end) =>
+              Tac.build_term i ltac:(destruct x; shelve);
+              destruct x
+          | _ =>
+              let v' := eval hnf in v in
+              change (CP.extract (i_impl v') i)
+          end;
+          extract_instr
+      | _ =>
+          refine (CP.ERefl _); exact Logic.I
+      end
+    in extract.
+
+  (* solves a goal [f_impl bd] *)
+  Ltac extract_impl :=
+    eexists; intro; extract_instr.
 
 End Tac.

@@ -159,6 +159,15 @@ Section WLP_Formula.
     case H; auto.
   Qed.
 
+  Lemma wlp_formula_imp [A i] f0 [f1 : _ -> Prop]
+    (F : wlp_formula i f0)
+    (M : forall post, f1 post -> f0 post):
+    @wlp_formula A i f1.
+  Proof.
+    constructor; intros.
+    apply F; auto.
+  Qed.
+
   Lemma wlp_formula_def [A] i:
     @wlp_formula A i (wlp i).
   Proof.
@@ -186,15 +195,27 @@ Section WLP_Formula.
   Qed.
 End WLP_Formula.
 
+Ltac build_wlp_formula_case build_f x :=
+  simple refine (wlp_formula_imp _ _ _);
+  [ destruct x; shelve
+  | destruct x; build_f
+  | intro (* post *);
+    let f := fresh "f" in intro f;
+    case_eq x;
+    exact f ].
+
 (* solves a goal [wlp_formula i ?f] *)
 Ltac build_wlp_formula :=
   let rec build :=
+  cbn;
   lazymatch goal with
   | |- wlp_formula (Bind _ _) _ =>
       refine (wlp_formula_Bind _ _);
       [ build | cbn; repeat intro; build ]
   | |- wlp_formula (Call _) _ =>
       refine (wlp_formula_Call _)
+  | |- wlp_formula (match ?x with _ => _ end) _ =>
+      build_wlp_formula_case build x
   | |- _ =>
       refine (wlp_formula_def _)
   end
@@ -210,5 +231,5 @@ Proof.
 Qed.
 
 Ltac by_wlp :=
-  refine (FunProg.by_wlp_lem _ _);
+  refine (by_wlp_lem _ _);
   [ build_wlp_formula | cbn].

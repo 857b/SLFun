@@ -270,6 +270,36 @@ Section WLP_Correct.
   Qed.
 End WLP_Correct.
 
+(* Extraction *)
+
+Inductive extract : forall [A : Type] (i0 i1 : instr A), Prop :=
+  | ERefl [A] [i : instr A]
+      (FREE : oracle_free i):
+      extract i i
+  | EBind [A B f f' g g']
+      (Ef : extract f f') (Eg : forall x : A, extract (g x) (g' x)):
+      extract (@Bind A B f g) (Bind f' g').
+
+Lemma extract_oracle_free A i0 i1
+  (E : @extract A i0 i1):
+  oracle_free i1.
+Proof.
+  induction E; auto.
+  - (* EBind *)
+    split; auto.
+Qed.
+
+Lemma extract_wlp SPEC A i0 i1
+  (E : @extract A i0 i1):
+  forall post m, wlp SPEC i0 post m -> wlp SPEC i1 post m.
+Proof.
+  induction E; auto.
+  - (* EBind *)
+    cbn; intros post m0 WLP.
+    eapply IHE, wlp_monotone, WLP.
+    auto.
+Qed.
+
 End Concrete.
 Global Arguments impl_context : clear implicits.
 Global Arguments spec_context : clear implicits.
