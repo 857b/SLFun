@@ -694,6 +694,17 @@ Record instr (A : Type) := mk_instr {
 }.
 Local Unset Implicit Arguments.
 
+Inductive HasSpec [A : Type] (i : instr A) (ctx : CTX.t) (s : i_spec_t A ctx) : Prop :=
+  HasSpecI (S : sound_spec (i_impl i) ctx s).
+
+Lemma HasSpec_ct [A i ctx s]
+  (C : proj1_sig (i_spec i ctx) s):
+  @HasSpec A i ctx s.
+Proof.
+  constructor.
+  apply (proj2_sig (i_spec i ctx) s), C.
+Qed.
+
 (* Transformation *)
 
 Section AddCsm.
@@ -812,7 +823,7 @@ Section FunImpl.
       (* functional representation of the implementation *)
       let ctx : CTX.t := Spec.pre s_1 ++ Spec.prs s_1 in
       forall
-      (f0 : i_spec_t A ctx) (F0 : proj1_sig (i_spec body ctx) f0)
+      (f0 : i_spec_t A ctx) (F0 : HasSpec body ctx f0)
       (f  : i_spec_t A ctx) (F  : add_csm f0 (Sub.const ctx true) = f),
       let f_post (r : TF.t (sf_rvar f)) :=
         VpropList.inst (sf_prd f (TF.v_val r)) (TF.v_sel r) in
@@ -856,7 +867,7 @@ Section FunImpl.
       intro; erewrite Vector.nth_map2, !Vector.const_nth by reflexivity.
       case Vector.nth in *; reflexivity.
     - rewrite <- F.
-      apply add_csm_sound, (proj2_sig (i_spec body ctx)), F0.
+      apply add_csm_sound, F0.
     - clear f0 F0 F; intro REQ.
       eapply FP.wlp_monotone, WLP, REQ.
       intro r; rewrite TF.arrow_to_of.
@@ -924,8 +935,7 @@ Section Bind.
   
   Inductive Bind_Spec (ctx : CTX.t) : i_spec_t B ctx -> Prop
     := Bind_SpecI : forall
-    (s_fp : {s_f : i_spec_t A ctx
-                 | proj1_sig (i_spec f ctx) s_f}),
+    (s_fp : {s_f : i_spec_t A ctx | HasSpec f ctx s_f}),
     let s_f := proj1_sig s_fp in
     let f_prd x sels :=
       Sub.app (Sub.const (VpropList.inst (sf_prd s_f x) sels) true)
@@ -933,8 +943,7 @@ Section Bind.
     in forall
     (s_gp : forall (x : A) (sels : VpropList.sel_t (sf_prd s_f x)),
             let ctx1 := sf_post_ctx s_f x sels in
-            {s_g : i_spec_t B ctx1
-                 | proj1_sig (i_spec (g x) ctx1) s_g}),
+            {s_g : i_spec_t B ctx1 | HasSpec (g x) ctx1 s_g}),
     let s_g := fun x sels => add_csm (proj1_sig (s_gp x sels)) (f_prd x sels)
     in forall
     (csm : Sub.t ctx)
@@ -968,7 +977,7 @@ Section Bind.
     destruct SP; do 2 intro.
     apply SPEC in PRE; clear SPEC.
     assert (s_g_sound : forall x sels, sound_spec (i_impl (g x)) _ (s_g x sels)).
-      { intros; apply add_csm_sound, (proj2_sig (i_spec (g x) _) _ (proj2_sig (s_gp x sels))). }
+      { intros; apply add_csm_sound, (proj2_sig (s_gp x sels)). }
     assert (s_g_csm : forall x sels, exists csm,
         sf_csm (s_g x sels) = Sub.app (Sub.const _ true) csm). {
       intros; exists (snd (Sub.split _ _ (sf_csm (proj1_sig (s_gp x sels))))).
@@ -982,7 +991,7 @@ Section Bind.
     }
     clearbody s_g; clear s_gp.
     eapply SP.Bind.
-    - apply (proj2_sig (i_spec f ctx) _ (proj2_sig s_fp)).
+    - apply (proj2_sig s_fp).
       simpl in PRE; apply PRE.
     - clear PRE.
       intro x; unfold sf_post; simpl.
@@ -1014,7 +1023,7 @@ Section Bind.
   Lemma Bind_SpecI1
     [ctx : CTX.t]
     [s_f : i_spec_t A ctx]
-    (S_F : proj1_sig (i_spec f ctx) s_f)
+    (S_F : HasSpec f ctx s_f)
     [f_prd : TF.arrow (sf_rvar s_f) (fun x => Sub.t (sf_post_ctx s_f (TF.v_val x) (TF.v_sel x)))]
     (F_PRD : TF.arrow (sf_rvar s_f) (fun x =>
               Sub.app (Sub.const (VpropList.inst (sf_prd s_f (TF.v_val x)) (TF.v_sel x)) true)
@@ -1022,7 +1031,7 @@ Section Bind.
               TF.arrow_to_fun f_prd x))
     [s_g0 : TF.arrow (sf_rvar s_f) (fun x => i_spec_t B (sf_post_ctx s_f (TF.v_val x) (TF.v_sel x)))]
     (S_G0 : TF.arrow (sf_rvar s_f) (fun x =>
-              proj1_sig (i_spec (g (TF.v_val x)) _) (TF.arrow_to_fun s_g0 x)))
+              HasSpec (g (TF.v_val x)) _ (TF.arrow_to_fun s_g0 x)))
     [s_g  : TF.arrow (sf_rvar s_f) (fun x => i_spec_t B (sf_post_ctx s_f (TF.v_val x) (TF.v_sel x)))]
     (S_G  : TF.arrow (sf_rvar s_f) (fun x =>
               add_csm (TF.arrow_to_fun s_g0 x) (TF.arrow_to_fun f_prd x) = TF.arrow_to_fun s_g x))
@@ -1348,7 +1357,7 @@ Module Tac.
       | shelve | (* S3      *) cbn; repeat intro; refine (Spec.Expanded.of_expanded3I _) ]
     | cbn; reflexivity ].
 
-  (* build_spec *)
+  (* build_HasSpec *)
 
   Local Lemma change_arg [A : Type] [f : A -> Type] (x0 x1 : A)
     (F : f x0)
@@ -1382,9 +1391,9 @@ Module Tac.
 
   Ltac build_Bind build_f :=
     build_Bind_init;
-    [ (* S_F   *) build_f
+    [ (* S_F   *) build_f tt
     | (* F_PRD *) cbn_refl
-    | (* S_G0  *) cbn; repeat intro; build_f
+    | (* S_G0  *) cbn; repeat intro; build_f tt
     | (* S_G   *) cbn_refl
     | (* CSM   *) cbn_refl
     | (* PRD   *) cbn_refl
@@ -1422,31 +1431,39 @@ Module Tac.
     [ shelve | shelve | (* ij *) CTX.Inj.build ].
 
   (* TODO? allow the produced vprops to depend on the matched term. ? ~returns clause *)
-  Ltac build_spec_case build_f x s :=
+  Ltac build_HasSpec_case build_f x s :=
     simple refine (change_arg _ s _ _);
     (* destructive let *)
     [ destruct x; [(* only one case *)]; shelve
-    | destruct x; cbn; build_f
-    | simple refine (VProg.Tac.intro_i_spec_t_eq _ _);
+    | destruct x; cbn; build_f tt
+    | simple refine (intro_i_spec_t_eq _ _);
       [ shelve | shelve | (* sf_spec *) destruct x; shelve
       | destruct x; cbn;
         refine (conj eq_refl (exist _ eq_refl _));
         cbn; reflexivity ] ].
 
-  Ltac build_spec :=
-    let rec build_spec :=
-    hnf;
-    lazymatch goal with
-    | |- Ret_Spec    _ _ _ _ => build_Ret
-    | |- Bind_Spec _ _ _ _ _ => build_Bind build_spec
-    | |- Call_Spec     _ _ _ => build_Call
-    | |- Assert_Spec   _ _ _ => build_Assert
-    | |- Read_Spec     _ _ _ => build_Read
-    | |- Write_Spec  _ _ _ _ => build_Write
-    | |- (let (a, _) := i_spec (match ?x with _ => _ end) _ in a) ?s =>
-        build_spec_case build_spec x s
-    end
-    in build_spec.
+  (* solves a goal [HasSpec i ctx ?s] *)
+  Ltac build_HasSpec :=
+    let rec build _ :=
+    lazymatch goal with |- @HasSpec ?SIG ?SPEC ?A ?i ?ctx ?s =>
+    let i' := eval hnf in i in
+    change (@HasSpec SIG SPEC A i' ctx s);
+    lazymatch i' with
+    | mk_instr _ =>
+        refine (HasSpec_ct _ _);
+        hnf;
+        lazymatch goal with
+        | |- Ret_Spec    _ _ _ _ => build_Ret
+        | |- Bind_Spec _ _ _ _ _ => build_Bind build
+        | |- Call_Spec     _ _ _ => build_Call
+        | |- Assert_Spec   _ _ _ => build_Assert
+        | |- Read_Spec     _ _ _ => build_Read
+        | |- Write_Spec  _ _ _ _ => build_Write
+        end
+    | (match ?x with _ => _ end) =>
+        build_HasSpec_case build x s
+    end end
+    in build tt.
 
 
   Local Lemma elim_tuple_eq_conj [TS] [u v : Tuple.t TS] [P Q : Prop]
@@ -1507,8 +1524,8 @@ Module Tac.
     end;
 
     simple refine (@Impl_MatchI _ _ _ _ _ _ _ _ _ _ _ _ _ _);
-    [ shelve | (* F0      *) cbn; Tac.build_spec
-    | shelve | (* F       *) Tac.cbn_refl
+    [ shelve | (* F0      *) cbn; build_HasSpec
+    | shelve | (* F       *) cbn_refl
     | shelve | (* EX_SEL1 *) cbn; repeat intro; simplify_ex_eq_tuple
     | (* rsel *) cbn; repeat intro; Tuple.build_shape
     | (* RSEL *) cbn; repeat intro; CTX.Inj.build

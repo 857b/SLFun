@@ -47,20 +47,6 @@ Definition spec_2 : FSpec sig_2 (fun '(p0, p1, p2) =>
   Spec.Expanded.mk_r3 [CTX.mka (SLprop.cell p, n); CTX.mka (SLprop.cell p1, n1')] (n1' > 0))))).
 Proof.
   Tac.build_FSpec.
-  (*
-  refine (VProg.Tac.mk_red_FSpec _ _); cbn.
-  intro ax. Tac.of_expanded_arg.
-  refine (Spec.Expanded.of_expandedI _ _ _); cbn.
-  intro sel0. Tac.of_expanded_arg.
-  refine (Spec.Expanded.of_expanded1I _ _ _); cbn.
-  intro rx.
-  simple refine (Spec.Expanded.of_expanded2I _ _ _ _ _ _).
-  1,2,3,4,6,8:shelve.
-  { (* sel1_TU_GOAL *) cbn; intro (* sel1 *); Tuple.build_type_iso_tu. }
-  { (* S_VPOST *) Tac.cbn_refl. }
-  { (* S3 *) cbn; repeat intro; refine (Spec.Expanded.of_expanded3I _). }
-  cbn. reflexivity.
-  *)
 Defined.
 
 Definition SPEC : CP.spec_context SIG :=
@@ -117,42 +103,8 @@ Lemma imatch_1:
 Proof.
   intros ((p0, p1), p2).
   Tac.build_impl_match.
-  (*
-  refine (intro_impl_match1 _ _ _ _); cbn;
-  (* intro and destruct sel0 *)
-  intro;
-  repeat lazymatch goal with
-  |- Impl_Match _ _ (match ?x with _ => _ end) => destruct x
-  end.
-
-  simple refine (@Impl_MatchI _ _ _ _ _ _ _ _ _ _ _ _ _ _).
-  1,3,5:shelve.
-  - (* F0      *) cbn.
-    Tac.build_spec.
-    (*
-    simple refine (Call_SpecI _ _ _ _ _ _ _ _ _).
-    1,2,4,6:shelve.
-    + (* ij_pre *)
-      cbn.
-      repeat lazymatch goal with |- CTX.Inj.ieq (Spec.pre ?x) _ _ =>
-        Tac.build_matched_shape x; cbn
-      end.
-      CTX.Inj.build.
-    + (* ij_prs *)
-      cbn.
-      CTX.Inj.build.
-    + (* SF *)
-      cbn.
-      reflexivity.
-    *)
-  - (* F       *) Tac.cbn_refl.
-  - (* EX_SEL1 *) cbn; repeat intro; Tac.simplify_ex_eq_tuple.
-  - (* rsel    *) cbn; repeat intro; Tuple.build_shape.
-  - (* RSEL    *) cbn; repeat intro; CTX.Inj.build.
-  *)
-  - (* WLP     *)
-    FP.by_wlp.
-    tauto.
+  FP.by_wlp.
+  tauto.
 Qed.
 
 Definition cp_1: f_impl _ vprog_1.
@@ -163,43 +115,9 @@ Lemma imatch_2:
 Proof.
   intros ((p0, p1), p2).
   Tac.build_impl_match.
-  (*
-  apply intro_impl_match1.
-  cbn.
-  intros ((n0, n1), n2).
-  (* apply Impl_MatchI. (* Coq 8.15.2 BUG: Anomaly "in retyping: unbound local variable." *) *)
-  simple refine (@Impl_MatchI _ _ _ _ _ _ _ _ _ _ _ _ _ _).
-  1,3,5:shelve.
-  - (* F0      *) cbn. Tac.build_spec.
-  - (* F       *) Tac.cbn_refl.
-  - (* EX_SEL1 *)
-    cbn; repeat intro.
-    Tac.simplify_ex_eq_tuple.
-    (*
-    etransitivity.
-    + etransitivity.
-      refine (exists_eq_const _ _ (fun x => _)).
-        refine (ex_ind (fun x => _)).
-        refine (VProg.Tac.elim_tuple_eq_conj _).
-        cbn; repeat intro; eassumption.
-      refine (exists_eq_const _ _ (fun x => _)).
-        refine (VProg.Tac.elim_tuple_eq_conj _).
-        cbn; repeat intro; eassumption.
-    + refine (VProg.Tac.simpl_tuple_eq_conj _ _).
-      * cbn.
-        refine (simpl_and_list_r1 eq_refl _).
-        refine (simpl_and_list_r1 eq_refl _).
-        refine (simpl_and_list_e1 _).
-        exact simpl_and_list_0.
-      * cbn; reflexivity.
-    *)
-  - (* rsel    *) cbn; repeat intro. Tuple.build_shape.
-  - (* RSEL    *) cbn; repeat intro. CTX.Inj.build.
-  *)
-  - (* WLP *)
-    FP.by_wlp.
-    intuition.
-    unfold data42; repeat constructor.
+  FP.by_wlp.
+  intuition.
+  unfold data42; repeat constructor.
 Qed.
 
 Definition cp_2: f_impl _ vprog_2.
@@ -222,66 +140,8 @@ Lemma imatch_a0:
 Proof.
   intro ps.
   Tac.build_impl_match.
-  (*
-  refine (intro_impl_match1 _ _ _ _); cbn;
-  (* intro and destruct sel0 *)
-  intro;
-  repeat lazymatch goal with
-  |- Impl_Match _ _ (match ?x with _ => _ end) => destruct x
-  end.
-
-  simple refine (@Impl_MatchI _ _ _ _ _ _ _ _ _ _ _ _ _ _).
-  1,3,5:shelve.
-  - (* F0 *) cbn.
-    Tac.build_spec.
-    (*
-    Tac.build_Bind_init.
-    + (* S_F *)
-      Tac.build_spec.
-      (**)
-      hnf.
-      match goal with |- (let (a, _) := i_spec (match ?x with _ => _ end) _ in a) ?s =>
-        idtac x s;
-        simple refine (VProg.Tac.change_arg _ s _ _);
-        [ destruct x; [(* only one case *)]; shelve
-        | destruct x; cbn; Tac.build_spec
-        | simple refine (VProg.Tac.intro_i_spec_t_eq _ _);
-          [ shelve | shelve | (* sf_spec *) destruct x; shelve
-          | destruct x; cbn;
-            refine (conj eq_refl (exist _ eq_refl _));
-            cbn; reflexivity ] ]
-      end.
-      (**)
-    + (* F_PRD *) Tac.cbn_refl.
-    + (* S_G0  *) cbn; repeat intro; Tac.build_spec.
-    + (* S_G   *) Tac.cbn_refl.
-    + (* CSM   *) Tac.cbn_refl.
-    + (* PRD   *) Tac.cbn_refl.
-    + (* SPEC  *) Tac.cbn_refl.
-    *)
-  - (* F       *) Tac.cbn_refl.
-  - (* EX_SEL1 *) cbn; repeat intro; Tac.simplify_ex_eq_tuple.
-  - (* rsel *) cbn; repeat intro; Tuple.build_shape.
-  - (* RSEL *) cbn; repeat intro; CTX.Inj.build.
-  *)
-  - (* WLP *)
-    cbn.
-    FP.by_wlp.
-    (*
-    refine (FunProg.by_wlp_lem _ _).
-    + refine (FP.wlp_formula_Bind _ _). 2:cbn; repeat intro; FP.build_wlp_formula.
-      refine (FP.wlp_formula_Bind _ _). 2:cbn; repeat intro; FP.build_wlp_formula.
-      FP.build_wlp_formula.
-      (*
-      simple refine (FP.wlp_formula_imp _ _ _).
-      * destruct ps; shelve.
-      * destruct ps. FP.build_wlp_formula.
-      * intros post f.
-        case_eq ps.
-        exact f.
-      *)
-    *)
-    + cbn. tauto.
+  FP.by_wlp.
+  cbn. tauto.
 Qed.
 
 Definition cp_a0: f_impl _ vprog_a0.
