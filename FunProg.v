@@ -195,31 +195,70 @@ Section WLP_Formula.
   Qed.
 End WLP_Formula.
 
-Ltac build_wlp_formula_case build_f x :=
+(* build a formula [match x with ... end] *)
+Ltac build_wlp_formula_match build_f x :=
+  lazymatch goal with |- wlp_formula _ ?f =>
+  Tac.build_term f ltac:(fun _ => intro (* post *); destruct x; try clear x; shelve);
+  destruct x; build_f
+  end.
+
+(* destructive let *)
+Ltac build_wlp_formula_dlet build_f x :=
   simple refine (wlp_formula_imp _ _ _);
-  [ destruct x; shelve
-  | destruct x; build_f
-  | intro (* post *);
+  [ (* f0 *) destruct x; shelve
+  | (* F  *) destruct x; build_f
+  | (* M  *)
+    intro (* post *);
     let f := fresh "f" in intro f;
     case_eq x;
     exact f ].
 
+(* changes an hypothesis [H : H0 /\ ... /\ H9 /\ L] into [H : L] *)
+Ltac conj_proj_last H :=
+  repeat lazymatch goal with
+  | H : _ /\ _ |- _ => apply proj2 in H
+  end.
+
+Ltac build_wlp_formula_branch build_f x :=
+  simple refine (wlp_formula_imp _ _ _);
+  [ (* f0 *) destruct x; try clear x; shelve
+  | (* F  *) destruct x; build_f
+  | (* M  *)
+    cbn;
+    intro (* post *);
+    let f := fresh "f" in intro f;
+    case_eq x;
+    [ (cbn in f; conj_proj_last f; eapply proj1 in f; exact f) ..
+    | cbn in f; conj_proj_last f; exact f] ].
+
 (* solves a goal [wlp_formula i ?f] *)
-Ltac build_wlp_formula :=
+Ltac build_wlp_formula_ dmatch :=
   let rec build :=
   cbn;
   lazymatch goal with
+  | |- wlp_formula (Ret _) _ =>
+      refine (wlp_formula_def _)
   | |- wlp_formula (Bind _ _) _ =>
       refine (wlp_formula_Bind _ _);
       [ build | cbn; repeat intro; build ]
   | |- wlp_formula (Call _) _ =>
       refine (wlp_formula_Call _)
-  | |- wlp_formula (match ?x with _ => _ end) _ =>
-      build_wlp_formula_case build x
-  | |- _ =>
+  | |- wlp_formula (Assert _) _ =>
       refine (wlp_formula_def _)
+  | |- wlp_formula (match ?x with _ => _ end) _ =>
+      lazymatch dmatch with
+      | true =>
+          tryif (try (case x; [ (* one case *) ]; fail 1))
+          then build_wlp_formula_branch build x
+          else build_wlp_formula_dlet   build x
+      | false =>
+          build_wlp_formula_match build x
+      end
+  | |- ?g => fail "build_wlp_formula: " g
   end
   in build.
+
+Ltac build_wlp_formula := build_wlp_formula_ true.
 
 Local Lemma by_wlp_lem [pre : Prop] [A] [i : instr A] [post f]
   (F : wlp_formula i f)
@@ -230,6 +269,8 @@ Proof.
   apply F, C, P.
 Qed.
 
-Ltac by_wlp :=
+Ltac by_wlp_ dmatch :=
   refine (by_wlp_lem _ _);
-  [ build_wlp_formula | cbn].
+  [ build_wlp_formula_ dmatch | cbn].
+
+Ltac by_wlp := by_wlp_ true.

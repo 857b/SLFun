@@ -7,7 +7,6 @@ Import SLNotations.
 Import ListNotations.
 Import VProg._Abbrev.
 
-
 Definition f_0 : fid := 0.
 Definition f_1 : fid := 0.
 Definition f_2 : fid := 2.
@@ -147,3 +146,138 @@ Qed.
 Definition cp_a0: f_impl _ vprog_a0.
 Proof. Tac.extract_impl. Defined.
 
+
+Definition sig_a1a := mk_f_sig (bool * ptr * ptr * ptr) unit.
+Definition spec_a1a : FSpec sig_a1a (fun '(b, p0, p1, p2) =>
+  Spec.Expanded.mk_r0 (fun '(n0, n1, n2) =>
+  Spec.Expanded.mk_r1 [CTX.mka (SLprop.cell p0, n0)] [CTX.mka (SLprop.cell p1, n1); CTX.mka (SLprop.cell p2, n2)]
+    True (fun _ =>
+  Spec.Expanded.mk_r2 (fun '(n1', n2') =>
+  Spec.Expanded.mk_r3 [CTX.mka (SLprop.cell p1, n1'); CTX.mka (SLprop.cell p2, n2')]
+    (b = true -> n1' = 0))))).
+Proof. Tac.build_FSpec. Defined.
+
+Definition vprog_a1a : f_body SPEC sig_a1a := fun '(b, p0, p1, p2) =>
+  if b
+  then Write _ p1 0
+  else Write _ p2 1.
+Lemma imatch_a1a:
+  f_body_match SPEC vprog_a1a (m_spec spec_a1a).
+Proof.
+  intros (((b, p0), p1), p2).
+  Tac.build_impl_match.
+  (*
+  Tac.build_impl_match_init.
+  refine (transform_spec _ _ _).
+  - Tac.build_HasSpec_branch ltac:(fun _ => Tac.build_HasSpec) b.
+    (*
+    refine (transform_spec _ _ _).
+    + (* For each branch a specification where [sf_csm] and [sf_prd] do not depend on the
+         arguments of the matched value. *)
+      lazymatch goal with |- HasSpec _ _ _ ?s =>
+        Tac.build_term s ltac:(fun _ =>
+          simple refine (mk_i_spec _ _ _);
+          [ (* sf_csm  *) cbn; Tac.const_case b; clear
+          | (* sf_prd  *) cbn; Tac.const_case b; clear b
+          | (* sf_spec *) case b; clear b ];
+          shelve)
+      end;
+      cbn.
+      case b;
+      (simple refine (VProg.Tac.change_arg _ _ _ _);
+       [ shelve | Tac.build_HasSpec | Tac.build_i_spec_t_eq ]).
+    + cbn.
+      simple refine (intro_TrSpec_branch _ _ _ _ _).
+      1,2:clear; shelve.
+      1:shelve.
+      { (* f1 *) Tac.nondep_case b; clear b; shelve. }
+      { (* C  *)
+        case b;
+        match goal with |- branch_collect_csm ?c ?cs =>
+          Tac.elist_add cs c; constructor
+        end.
+      }
+      { (* E *)
+        match goal with |- _ = List.fold_left _ ?cs _ =>
+          Tac.elist_end cs
+        end.
+        cbn. reflexivity.
+      }
+      cbn.
+      case b.
+      * refine (TrSpec_branch_0 _ _); Tac.build_i_spec_t_eq.
+      * Tac.build_Tr_change_exact.
+    *)
+  - Tac.build_Tr_change_exact.
+  *)
+  - (* WLP     *)
+    cbn.
+    FP.by_wlp.
+    (*
+    refine (FunProg.by_wlp_lem _ _). {
+      refine (FP.wlp_formula_Bind _ _). 2:cbn; repeat intro; FP.build_wlp_formula.
+      refine (FP.wlp_formula_Bind _ _). 2:cbn; repeat intro; FP.build_wlp_formula.
+      simple refine (FP.wlp_formula_imp _ _ _).
+      - (* f0 *) Tac.const_case b; clear b; shelve.
+      - (* F  *) destruct b; FP.build_wlp_formula.
+      - cbn; intros post f.
+        case_eq b.
+        + eapply proj1 in f. exact f.
+        + apply proj2 in f; exact f.
+    }
+    cbn.
+    *)
+    intuition congruence.
+Qed.
+
+Definition cp_a1a: f_impl _ vprog_a1a.
+Proof. Tac.extract_impl. Defined.
+
+
+Inductive bool3 : Set := B0 | B1 | B2.
+
+Definition sig_a1b := mk_f_sig (bool3 * ptr) unit.
+Definition spec_a1b : FSpec sig_a1b (fun '(b, p) =>
+  Spec.Expanded.mk_r0 (fun n =>
+  Spec.Expanded.mk_r1 [] [CTX.mka (SLprop.cell p, n)] (b <> B2) (fun _ =>
+  Spec.Expanded.mk_r2 (fun n' =>
+  Spec.Expanded.mk_r3 [CTX.mka (SLprop.cell p, n')] (b <> B1 -> n' = 0))))).
+Proof. Tac.build_FSpec. Defined.
+
+Definition vprog_a1b : f_body SPEC sig_a1b := fun '(b, p) =>
+  match b with
+  | B0 => Write _ p 0
+  | B1 | B2 => Ret _ tt (fun _ => [])
+  end.
+Lemma imatch_a1b:
+  f_body_match SPEC vprog_a1b (m_spec spec_a1b).
+Proof.
+  intros (b, p).
+  Tac.build_impl_match.
+  FP.by_wlp.
+  intuition congruence.
+Qed.
+
+
+Definition sig_a1c := mk_f_sig (option nat * ptr) unit.
+Definition spec_a1c : FSpec sig_a1c (fun '(o, p) =>
+  Spec.Expanded.mk_r0 (fun n =>
+  Spec.Expanded.mk_r1 [] [CTX.mka (SLprop.cell p, n)]
+    (n > 0 /\ match o with Some n' => n' > 0 | None => True end) (fun _ =>
+  Spec.Expanded.mk_r2 (fun n' =>
+  Spec.Expanded.mk_r3 [CTX.mka (SLprop.cell p, n')] (n' > 0))))).
+Proof. Tac.build_FSpec. Defined.
+
+Definition vprog_a1c : f_body SPEC sig_a1c := fun '(o, p) =>
+  match o with
+  | Some n => Write _ p n
+  | None   => Ret _ tt (fun _ => [])
+  end.
+Lemma imatch_a1c:
+  f_body_match SPEC vprog_a1c (m_spec spec_a1c).
+Proof.
+  intros (o, p).
+  Tac.build_impl_match.
+  FP.by_wlp_ false.
+  destruct o; tauto.
+Qed.

@@ -3,6 +3,59 @@ Require Coq.Vectors.Vector.
 
 Import ListNotations.
 
+(* Tactics *)
+
+Module Tac.
+  Module Notations.
+    Global Tactic Notation "dummy_goal" uconstr(G) :=
+      let D := fresh "Dummy" in
+      unshelve eassert G as D;
+      [..|clear D].
+  End Notations.
+  Export Notations.
+
+  Ltac cbn_refl := cbn; repeat intro; reflexivity.
+
+  Ltac build_term t build :=
+    dummy_goal (t = _);
+    [ build tt | reflexivity | ].
+  
+  Ltac nondep_case t :=
+    lazymatch goal with |- ?g =>
+    let gl := fresh "GOAL" in
+    set (gl := g);
+    case t;
+    unfold gl; clear gl
+    end.
+
+  Ltac const_case t :=
+    lazymatch goal with |- ?g =>
+    let gl := fresh "GOAL" in
+    set (gl := g);
+    case t;
+    repeat match goal with |- forall _, _ => intros _ end;
+    unfold gl; clear gl
+    end.
+
+  (* given [u := x0 :: ... :: x9 :: tail], call [f tail] *)
+  Ltac elist_tail u f :=
+    let rec iter u :=
+      lazymatch u with
+      | cons _ ?u => iter u
+      | _         => f u
+      end
+    in iter u.
+
+  (* given [u := x0 :: ... :: x9 :: ?tail], instantiate [?tail] to [x :: ?tail'] *)
+  Ltac elist_add u x :=
+    elist_tail u ltac:(fun tail =>
+    build_term tail ltac:(fun _ => refine (cons x _); shelve)).
+
+  (* given [u := x0 :: ... :: x9 :: ?tail], instantiate [?tail] to [nil] *)
+  Ltac elist_end u :=
+    elist_tail u ltac:(fun tail =>
+    build_term tail ltac:(fun _ => refine nil)).
+End Tac.
 
 (* Relation classes *)
 
@@ -122,7 +175,7 @@ Module ListTransp.
   Defined.
 End ListTransp.
 
-(* propostions *)
+(* propositions *)
 
 Lemma exists_eq_const [A : Type] (P : A -> Prop) (x0 : A)
   (C : forall x, P x -> x = x0):
