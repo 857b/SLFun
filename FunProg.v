@@ -3,81 +3,6 @@ Require Import SLFun.Util.
 Require Import Coq.Setoids.Setoid.
 
 
-(* Type family *)
-Module TF.
-  Record p := mk_p {
-    p_val : Type;
-    p_sel : p_val -> list Type;
-  }.
-
-  Section Values.
-    Context [P : TF.p].
-
-    Record t := mk_v {
-      v_val : p_val P;
-      v_sel : Tuple.t (p_sel P v_val);
-    }.
-
-    Definition arrow (TRG : t -> Type) : Type :=
-      forall (val : p_val P), Tuple.arrow (p_sel P val) (fun sel => TRG (mk_v val sel)).
-
-    Definition arrow_of_fun [TRG : t -> Type] (f : forall x : t, TRG x) : arrow TRG :=
-      fun val => Tuple.arrow_of_fun (fun sel => f (mk_v val sel)).
-
-    Definition arrow_to_fun [TRG : t -> Type] (f : arrow TRG) (x : t): TRG x.
-    Proof.
-      case x as [val sel].
-      exact (Tuple.arrow_to_fun (f val) sel).
-    Defined.
-
-    Lemma arrow_to_of [TRG : t -> Type] (f : forall x : t, TRG x) (x : t):
-      arrow_to_fun (arrow_of_fun f) x = f x.
-    Proof.
-      case x as []; refine (Tuple.arrow_to_of _ _).
-    Qed.
-
-    Definition all (f : t -> Prop) :=
-      forall (v : p_val P), Tuple.all (p_sel P v) (fun sels => f (mk_v v sels)).
-
-    Lemma all_iff f:
-      all f <-> forall x : t, f x.
-    Proof.
-      unfold all; setoid_rewrite Tuple.all_iff.
-      split; auto.
-      intros H []; apply H.
-    Qed.
-
-    Definition ex (f : t -> Prop) :=
-      exists (v : p_val P), Tuple.ex (p_sel P v) (fun sels => f (mk_v v sels)).
-
-    Lemma ex_iff f:
-      ex f <-> exists x : t, f x.
-    Proof.
-      unfold ex; setoid_rewrite Tuple.ex_iff.
-      split; intro H; repeat destruct H; eauto.
-      destruct x; eauto.
-    Qed.
-  End Values.
-  Global Arguments t : clear implicits.
-  Global Arguments mk_v : clear implicits.
-  Global Arguments arrow : clear implicits.
-  Global Arguments all : clear implicits.
-  Global Arguments ex : clear implicits.
-  
-  Global Arguments arrow !P _/.
-  Global Arguments arrow_of_fun !P _ _/.
-  Global Arguments all !P _/.
-  Global Arguments ex  !P _/.
-
-
-  Definition mk [p_val] (p_sel : p_val -> list Type)
-    (v_val : p_val) (v_sel : Tuple.t (p_sel v_val)) : t (mk_p p_val p_sel)
-    := mk_v (mk_p p_val p_sel) v_val v_sel.
-  
-  Definition unit : p := mk_p unit (fun _ => nil).
-  Definition tt : t unit := mk_v unit tt tt.
-End TF.
-
 Module Spec.
   Local Set Implicit Arguments.
   Section WLP.
@@ -106,20 +31,20 @@ Module Spec.
     Qed.
   End WLP.
 
-  Record t (A : TF.p) := {
+  Record t (A : DTuple.p) := {
     pre  : Prop;
-    post : TF.arrow A (fun _ => Prop);
+    post : DTuple.arrow A (fun _ => Prop);
   }.
 End Spec.
 
 
-Definition instr (A : TF.p) : Type := {wp : Spec.wp_t (TF.t A) | Spec.monotone wp}.
-Definition wlp [A : TF.p] (i : instr A) : Spec.wp_t (TF.t A)
+Definition instr (A : DTuple.p) : Type := {wp : Spec.wp_t (DTuple.t A) | Spec.monotone wp}.
+Definition wlp [A : DTuple.p] (i : instr A) : Spec.wp_t (DTuple.t A)
   := proj1_sig i.
-Definition wlp_monotone [A : TF.p] (i : instr A) : Spec.monotone (wlp i)
+Definition wlp_monotone [A : DTuple.p] (i : instr A) : Spec.monotone (wlp i)
   := proj2_sig i.
 
-Definition eqv [A : TF.p] (p0 p1 : instr A) : Prop :=
+Definition eqv [A : DTuple.p] (p0 p1 : instr A) : Prop :=
   Spec.wp_eq (wlp p0) (wlp p1).
 
 Global Instance eqv_Equivalence A : Equivalence (@eqv A).
@@ -127,30 +52,30 @@ Proof.
   Rel.by_expr (Rel.pull (@wlp A) (@Spec.wp_eq _)).
 Qed.
 
-Inductive wlpA [A : TF.p] (i : instr A) (post : TF.arrow A (fun _ => Prop)) : Prop :=
-  wlpA_I (P : wlp i (TF.arrow_to_fun post)).
+Inductive wlpA [A : DTuple.p] (i : instr A) (post : DTuple.arrow A (fun _ => Prop)) : Prop :=
+  wlpA_I (P : wlp i (DTuple.to_fun post)).
 
 
 Section Instr.
   Local Obligation Tactic := cbn; intros; do 3 intro; try solve [intuition auto].
 
-  Program Definition Ret [A : TF.p] (x : TF.t A) : instr A
+  Program Definition Ret [A : DTuple.p] (x : DTuple.t A) : instr A
     := fun post => post x.
 
-  Program Definition Bind [A B : TF.p] (f : instr A) (g : TF.arrow A (fun _ => instr B)) : instr B
-    := fun post => wlp f (fun x => wlp (TF.arrow_to_fun g x) post).
+  Program Definition Bind [A B : DTuple.p] (f : instr A) (g : DTuple.arrow A (fun _ => instr B)) : instr B
+    := fun post => wlp f (fun x => wlp (DTuple.to_fun g x) post).
   Next Obligation.
     apply wlp_monotone; intro; apply wlp_monotone, LE.
   Qed.
 
-  Program Definition Call [A : TF.p] (s : Spec.t A) : instr A
-    := fun post => Spec.pre s /\ forall x : TF.t A, TF.arrow_to_fun (Spec.post s) x -> post x.
+  Program Definition Call [A : DTuple.p] (s : Spec.t A) : instr A
+    := fun post => Spec.pre s /\ forall x : DTuple.t A, DTuple.to_fun (Spec.post s) x -> post x.
 
-  Program Definition Assert (P : Prop) : instr TF.unit
-    := fun post => P /\ post TF.tt.
+  Program Definition Assert (P : Prop) : instr DTuple.unit
+    := fun post => P /\ post DTuple.tt.
 End Instr.
 
-Inductive wlp_formula [A : TF.p] (i : instr A) (f : forall post : TF.t A -> Prop, Prop) : Prop :=
+Inductive wlp_formula [A : DTuple.p] (i : instr A) (f : forall post : DTuple.t A -> Prop, Prop) : Prop :=
   wlp_formulaI (F : forall post, f post -> wlp i post).
 
 Section WLP_Formula.
@@ -176,22 +101,22 @@ Section WLP_Formula.
 
   Lemma wlp_formula_Bind [A B f g ff fg]
     (Ff : wlp_formula f ff)
-    (Fg : TF.arrow A (fun x => wlp_formula (TF.arrow_to_fun g x) (TF.arrow_to_fun fg x))):
+    (Fg : DTuple.arrow A (fun x => wlp_formula (DTuple.to_fun g x) (DTuple.to_fun fg x))):
     wlp_formula (@Bind A B f g)
-      (fun post => ff (fun x => TF.arrow_to_fun fg x post)).
+      (fun post => ff (fun x => DTuple.to_fun fg x post)).
   Proof.
     constructor.
     intros post HF%(wlp_formulaE Ff); simpl.
     eapply wlp_monotone, HF; simpl.
-    intros x HG%(wlp_formulaE (TF.arrow_to_fun Fg x)).
+    intros x HG%(wlp_formulaE (DTuple.to_fun Fg x)).
     exact HG.
   Qed.
 
   Lemma wlp_formula_Call [A] s:
     wlp_formula (@Call A s)
-      (fun post => Spec.pre s /\ TF.all A (fun x => TF.arrow_to_fun (Spec.post s) x -> post x)).
+      (fun post => Spec.pre s /\ DTuple.all A (fun x => DTuple.to_fun (Spec.post s) x -> post x)).
   Proof.
-    constructor; setoid_rewrite TF.all_iff; auto.
+    constructor; setoid_rewrite DTuple.all_iff; auto.
   Qed.
 End WLP_Formula.
 
@@ -262,7 +187,7 @@ Ltac build_wlp_formula := build_wlp_formula_ true.
 
 Local Lemma by_wlp_lem [pre : Prop] [A] [i : instr A] [post f]
   (F : wlp_formula i f)
-  (C : pre -> f (TF.arrow_to_fun post))
+  (C : pre -> f (DTuple.to_fun post))
   (P : pre): wlpA i post.
 Proof.
   constructor; case F as [F].

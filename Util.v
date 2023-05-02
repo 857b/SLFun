@@ -263,23 +263,23 @@ Module Tuple.
     | cons T TS => fun TRG => forall (x : T), arrow TS (fun xs => TRG (x, xs))
     end.
 
-  Fixpoint arrow_of_fun [TS : list Type] {struct TS}:
+  Fixpoint of_fun [TS : list Type] {struct TS}:
     forall [TRG : t TS -> Type] (f : forall x : t TS, TRG x), arrow TS TRG :=
     match TS as TS return forall (TRG : t TS -> Type) (f : forall x : t TS, TRG x), arrow TS TRG with
     | nil       => fun TRG f => f tt
-    | cons T TS => fun TRG f x => arrow_of_fun (fun xs => f (x, xs))
+    | cons T TS => fun TRG f x => of_fun (fun xs => f (x, xs))
     end.
 
-  Fixpoint arrow_to_fun [TS : list Type] {struct TS}:
+  Fixpoint to_fun [TS : list Type] {struct TS}:
     forall [TRG : t TS -> Type] (f : arrow TS TRG) (x : t TS), TRG x.
   Proof.
     case TS as [|T TS].
     - intros TRG f [].      exact f.
-    - intros TRG f (x, xs). exact (arrow_to_fun TS (fun xs => TRG (x, xs)) (f x) xs).
+    - intros TRG f (x, xs). exact (to_fun TS (fun xs => TRG (x, xs)) (f x) xs).
   Defined.
 
-  Lemma arrow_to_of [TS : list Type] [TRG : t TS -> Type] (f : forall x : t TS, TRG x) (x : t TS):
-    arrow_to_fun (arrow_of_fun f) x = f x.
+  Lemma to_of_fun [TS : list Type] [TRG : t TS -> Type] (f : forall x : t TS, TRG x) (x : t TS):
+    to_fun (of_fun f) x = f x.
   Proof.
     induction TS; destruct x; simpl; auto.
     apply (IHTS (fun xs => TRG (a0, xs))).
@@ -477,7 +477,127 @@ Module Tuple.
       reflexivity.
     Qed.
   End Test.
+
+  (* unit *)
+  Definition unit : list Type := nil.
+  Definition tt : t unit := Datatypes.tt.
 End Tuple.
+
+(* dependent tuple *)
+
+Module DTuple.
+  Inductive p : Type :=
+    | Pnil
+    | Pcons (T : Type) (TS : T -> p).
+
+  Fixpoint t (T : p) : Type :=
+    match T with
+    | Pnil       => Datatypes.unit
+    | Pcons T TS => {x : T & t (TS x)}
+    end.
+
+  Definition pair [T : Type] [TS : T -> p]
+    : forall (x : T) (xs : t (TS x)), {x : T & t (TS x)}
+    := existT (fun x => t (TS x)).
+  Global Arguments pair _ _ _ _/.
+
+  (* arrow *)
+
+  Fixpoint arrow (T : p) : forall (TRG : t T -> Type), Type :=
+    match T with
+    | Pnil       => fun TRG =>
+        TRG tt
+    | Pcons T TS => fun TRG =>
+        forall x : T, arrow (TS x) (fun xs => TRG (pair x xs))
+    end.
+
+  Fixpoint of_fun [T : p] {struct T}:
+    forall [TRG : t T -> Type] (f : forall x : t T, TRG x), arrow T TRG.
+  Proof.
+    case T as [|T TS]; cbn; intros TRG f.
+    - exact (f tt).
+    - exact (fun x => of_fun _ _ (fun xs => f (pair x xs))).
+  Defined.
+
+  Fixpoint to_fun [T : p] {struct T}:
+    forall [TRG : t T -> Type] (f : arrow T TRG) (x : t T), TRG x.
+  Proof.
+    case T as [|T TS]; cbn; intros TRG f.
+    - exact (fun 'tt => f).
+    - exact (fun '(existT _ x xs) =>
+        to_fun (TS x) (fun xs => TRG (pair x xs)) (f x) xs).
+  Defined.
+
+  Lemma to_of_fun [T : p] [TRG : t T -> Type] (f : forall x : t T, TRG x) (x : t T):
+    to_fun (of_fun f) x = f x.
+  Proof.
+    induction T as [|T TS IH]; destruct x; simpl; auto.
+    apply (IH _ (fun xs => TRG (pair x xs))).
+  Qed.
+
+  (* forall *)
+
+  Fixpoint all (T : p) : (t T -> Prop) -> Prop :=
+    match T with
+    | Pnil       => fun TRG =>
+        TRG tt
+    | Pcons T TS => fun TRG =>
+        forall x : T, all (TS x) (fun xs => TRG (pair x xs))
+    end.
+
+  Lemma all_iff T P:
+    all T P <-> forall xs : t T, P xs.
+  Proof.
+    induction T as [|T TS IH]; simpl; [|setoid_rewrite IH];
+      (split; [intros H []; apply H | auto]).
+  Qed.
+
+  (* exists *)
+  
+  Fixpoint ex (T : p) : (t T -> Prop) -> Prop :=
+    match T as T' return (t T' -> Prop) -> Prop with
+    | Pnil       => fun P => P tt
+    | Pcons T TS => fun P => exists x : T, ex (TS x) (fun xs => P (pair x xs))
+    end.
+  
+  Lemma ex_iff T P:
+    ex T P <-> exists xs : t T, P xs.
+  Proof.
+    induction T as [|T TS IH]; simpl; [|setoid_rewrite IH];
+      (split; intro H; [decompose record H|case H as [[]]]; eauto).
+  Qed.
+
+  (* of tuple *)
+
+  Fixpoint p_tu (TS : list Type) {struct TS} : p :=
+    match TS with
+    | nil     => Pnil
+    | T :: TS => Pcons T (fun _ => p_tu TS)
+    end.
+
+  Fixpoint of_tu [TS : list Type] {struct TS} : Tuple.t TS -> t (p_tu TS) :=
+    match TS with
+    | nil     => fun _        => tt
+    | T :: TS => fun '(x, xs) => pair x (of_tu xs)
+    end.
+
+  Fixpoint to_tu [TS : list Type] {struct TS} : t (p_tu TS) -> Tuple.t TS :=
+    match TS with
+    | nil     => fun _                => tt
+    | T :: TS => fun '(existT _ x xs) => (x, to_tu xs)
+    end.
+
+  Lemma iso_tu (TS : list Type):
+    type_iso (Tuple.t TS) (t (p_tu TS)) (@of_tu TS) (@to_tu TS).
+  Proof.
+    split; induction TS; cbn; intros []; f_equal; auto.
+  Qed.
+  Definition to_of_tu TS := proj1 (iso_tu TS).
+
+  (* unit *)
+  Definition unit : p := Pnil.
+  Definition tt : t unit := Datatypes.tt.
+End DTuple.
 
 (* Extension of the Coq.Vector library *)
 

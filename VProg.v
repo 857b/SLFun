@@ -450,10 +450,32 @@ Module _Abbrev.
   Module CP  := SLFun.ConcreteProg.
   Module SP  := SLFun.SLProg.
   Module FP  := SLFun.FunProg.
-  Module TF  := FP.TF.
   Module Sub := CTX.Sub.
 End _Abbrev.
 Import _Abbrev.
+
+(* Type family *)
+Module TF.
+  Include DTuple.
+
+  Definition mk_p (p_val : Type) (p_sel : p_val -> list Type) : p :=
+    Pcons p_val (fun x => p_tu (p_sel x)).
+
+  Definition mk [p_val : Type] (p_sel : p_val -> list Type)
+    (v_val : p_val) (v_sel : Tuple.t (p_sel v_val)) : t (mk_p p_val p_sel)
+    := pair v_val (of_tu v_sel).
+  Global Arguments mk _ _ _ _/.
+
+  Definition v_val [p_val p_sel] (v : t (mk_p p_val p_sel)) : p_val :=
+    let '(existT _ x _) := v in x.
+
+  Definition v_sel [p_val p_sel] (v : t (mk_p p_val p_sel)) : Tuple.t (p_sel (v_val v)) :=
+    let '(existT _ _ s) := v in to_tu s.
+
+  Lemma v_sel_mk [p_val p_sel] v s:
+    v_sel (@mk p_val p_sel v s) = s.
+  Proof. apply to_of_tu. Qed.
+End TF.
 
 Module Spec.
 Section Spec.
@@ -471,7 +493,7 @@ Section Spec.
     f_r3 : Tuple.arrow sel1_t (fun _ => t_r3 vpost);
   }.
   Definition f_r3_f (s : t_r2) : forall (sel1 : Tuple.t (sel1_t s)), t_r3 (vpost s) :=
-    Tuple.arrow_to_fun (f_r3 s).
+    Tuple.to_fun (f_r3 s).
   Coercion f_r3_f : t_r2 >-> Funclass.
 
   Record t_r1 : Type := mk_r1 {
@@ -566,8 +588,8 @@ Module Expanded. Section Expanded.
     (S3 : Tuple.arrow sel1_tu (fun sel1' =>
       let sel1 : sel1_t e := sel1_tu_g sel1' in
       of_expanded3 (e sel1)
-        (eq_rect_r Spec.t_r3 (Tuple.arrow_to_fun s3 sel1')
-                   (Tuple.arrow_to_fun VPOST sel1')))):
+        (eq_rect_r Spec.t_r3 (Tuple.to_fun s3 sel1')
+                   (Tuple.to_fun VPOST sel1')))):
     of_expanded2 e (@Spec.mk_r2 sel1_tu vpost s3).
 
   Inductive of_expanded1 (e : Expanded.t_r1) : Spec.t_r1 A -> Prop
@@ -598,10 +620,10 @@ Module Expanded. Section Expanded.
         rewrite C, (proj1 sel1_TU). reflexivity.
     - intro sel1'.
       apply R_refl. reflexivity.
-      set (x_S3 := Tuple.arrow_to_fun S3 sel1'); clearbody x_S3; clear S3.
-      set (x_s3 := Tuple.arrow_to_fun s3 sel1') in *.
+      set (x_S3 := Tuple.to_fun S3 sel1'); clearbody x_S3; clear S3.
+      set (x_s3 := Tuple.to_fun s3 sel1') in *.
         simpl in x_s3, x_S3; fold x_s3 in x_S3; clearbody x_s3; clear s3.
-      set (x_VPOST := Tuple.arrow_to_fun VPOST sel1') in *; clearbody x_VPOST; clear VPOST.
+      set (x_VPOST := Tuple.to_fun VPOST sel1') in *; clearbody x_VPOST; clear VPOST.
       destruct x_VPOST; cbn in *.
       case x_S3; cbn.
       rewrite VpropList.inst_of_ctx.
@@ -666,7 +688,7 @@ Local Set Implicit Arguments.
 Record i_spec_t (A : Type) (ctx : CTX.t) := mk_i_spec {
   sf_csm  : Sub.t ctx;
   sf_prd  : A -> VpropList.t;
-  sf_spec : FP.instr (FP.TF.mk_p A (fun x => VpropList.sel (sf_prd x)));
+  sf_spec : FP.instr (TF.mk_p A (fun x => VpropList.sel (sf_prd x)));
 }.
 Local Unset Implicit Arguments.
 
@@ -682,13 +704,13 @@ Section GETTERS.
   Definition sf_rvar_t : Type :=
     TF.t sf_rvar.
 
-  Definition sf_prd_ctx (r : TF.t sf_rvar) : CTX.t :=
+  Definition sf_prd_ctx (r : sf_rvar_t) : CTX.t :=
     VpropList.inst (sf_prd s (TF.v_val r)) (TF.v_sel r).
 
-  Definition sf_post_ctx (r : TF.t sf_rvar) : CTX.t :=
+  Definition sf_post_ctx (r : sf_rvar_t) : CTX.t :=
     sf_prd_ctx r ++ CTX.sub ctx (Sub.neg (sf_csm s)).
 
-  Definition sf_post (post : TF.t sf_rvar -> Prop) (x : A) : SLprop.t :=
+  Definition sf_post (post : sf_rvar_t -> Prop) (x : A) : SLprop.t :=
     SLprop.ex (VpropList.sel_t (sf_prd s x)) (fun sels =>
       let r := TF.mk sf_rsel x sels in
       SLprop.pure (post r) **
@@ -763,25 +785,28 @@ Section AddCsm.
     {|
       sf_csm  := Sub.or (sf_csm s) csm;
       sf_prd  := fun x => sf_prd s x ++ VpropList.of_ctx acsm;
-      sf_spec := FP.Bind (sf_spec s) (TF.arrow_of_fun (P:=sf_rvar s) (fun x =>
+      sf_spec := FP.Bind (sf_spec s) (TF.of_fun (T:=sf_rvar s) (fun x =>
                    FP.Ret (TF.mk _ (TF.v_val x) (VpropList.app_sel (TF.v_sel x) (VpropList.sel_of_ctx acsm)))
                  ))
     |}.
 
-  Local Opaque TF.arrow_to_fun TF.arrow_of_fun.
+  Local Opaque TF.to_fun TF.of_fun.
 
   Lemma Tr_add_csm:
     TrSpec s add_csm.
   Proof.
     constructor.
     intros i S0 post PRE; simpl in PRE.
+    simpl in PRE.
     eapply SP.Cons.
-    apply S0, PRE.
+      { apply S0, PRE. }
+    clear S0 PRE.
     split; simpl. reflexivity.
-    intro x; unfold add_csm, sf_post, sf_post_ctx, sf_rsel; cbn.
+    intro x; unfold add_csm, sf_post, sf_post_ctx, sf_prd_ctx, sf_rsel; cbn.
     apply SLprop.imp_exists_l; intro sel0.
     apply SLprop.imp_exists_r with (wit := VpropList.app_sel sel0 (VpropList.sel_of_ctx acsm)).
-    rewrite TF.arrow_to_of.
+    rewrite TF.to_of_fun; cbn.
+    rewrite !TF.to_of_tu.
     apply SLprop.star_morph_imp. reflexivity.
     rewrite VpropList.inst_app, !CTX.sl_app; SLprop.normalize.
     apply SLprop.star_morph_imp. reflexivity.
@@ -812,12 +837,12 @@ Section ChangePrd.
     {|
       sf_csm  := sf_csm s;
       sf_prd  := prd;
-      sf_spec := FP.Bind (sf_spec s) (TF.arrow_of_fun (P:=sf_rvar s) (fun r =>
+      sf_spec := FP.Bind (sf_spec s) (TF.of_fun (T:=sf_rvar s) (fun r =>
                    FP.Ret (TF.mk _ (TF.v_val r) (rsel r))
                  ))
     |}.
 
-  Local Opaque TF.arrow_to_fun TF.arrow_of_fun.
+  Local Opaque TF.to_fun TF.of_fun.
 
   Lemma Tr_change_prd:
     TrSpec s change_prd.
@@ -832,9 +857,9 @@ Section ChangePrd.
     intro x.
     apply SLprop.imp_exists_l; intro sel.
     apply SLprop.imp_exists_r with (wit := rsel (TF.mk _ x sel)).
-    rewrite TF.arrow_to_of.
+    rewrite TF.to_of_fun.
     cbn; rewrite !CTX.sl_app.
-    rewrite (CTX.Inj.beqE (RSEL (TF.mk _ x sel))).
+    rewrite (CTX.Inj.beqE (RSEL (TF.mk _ x sel))), !TF.to_of_tu.
     reflexivity.
   Qed.
 End ChangePrd.
@@ -845,9 +870,9 @@ Lemma Tr_change_exact [A ctx s s1 csm1 prd1] [f1 : FP.instr (TF.mk_p A (fun x =>
   (S1   : s1 = add_csm s csm1)
   (rsel : TF.arrow (sf_rvar s1) (fun r => VpropList.sel_t (prd1 (TF.v_val r))))
   (RSEL : TF.arrow (sf_rvar s1) (fun r =>
-          CTX.Inj.beq (VpropList.inst (prd1 (TF.v_val r)) (TF.arrow_to_fun rsel r))
+          CTX.Inj.beq (VpropList.inst (prd1 (TF.v_val r)) (TF.to_fun rsel r))
                       (sf_prd_ctx s1 r)))
-  (F1   : f1 = sf_spec (change_prd s1 prd1 (TF.arrow_to_fun rsel))):
+  (F1   : f1 = sf_spec (change_prd s1 prd1 (TF.to_fun rsel))):
   @TrSpec A ctx s (mk_i_spec csm1 prd1 f1).
 Proof.
   transitivity s1.
@@ -856,7 +881,7 @@ Proof.
   - replace csm1 with (sf_csm s1)
       by (rewrite CSM, S1; reflexivity).
     rewrite F1.
-    apply Tr_change_prd, (TF.arrow_to_fun RSEL).
+    apply Tr_change_prd, (TF.to_fun RSEL).
 Qed.
 
 
@@ -943,12 +968,12 @@ Section FunImpl.
               Tuple.ex (sel1_t (s_1 x)) (fun sel1 =>
               Tuple.typed_eq (VpropList.sel_of_ctx (s_post x sel1))
                              (eq_rect_r VpropList.sel_t rsel (s_vpost_eq x sel1)) /\
-              P sel1) <-> Tuple.arrow_to_fun (ex_sel1 x P) rsel))
+              P sel1) <-> Tuple.to_fun (ex_sel1 x P) rsel))
       (* VC *)
       (WLP : forall REQ : Spec.req s_1,
-             FP.wlpA f (TF.arrow_of_fun (P := rvar) (fun r =>
+             FP.wlpA f (TF.of_fun (T := rvar) (fun r =>
                let x := TF.v_val r in
-               Tuple.arrow_to_fun (ex_sel1 x (fun sel1 => Spec.ens (s_1 x sel1))) (TF.v_sel r)))),
+               Tuple.to_fun (ex_sel1 x (fun sel1 => Spec.ens (s_1 x sel1))) (TF.v_sel r)))),
       Impl_Match.
   End Impl_Match.
 
@@ -964,15 +989,15 @@ Section FunImpl.
     - reflexivity.
     - clear F; intro REQ.
       eapply FP.wlp_monotone, WLP, REQ.
-      intro r; rewrite TF.arrow_to_of.
+      intro r; rewrite TF.to_of_fun.
       clear WLP REQ; simpl.
-      intros (sel1 & [SEQ] & ENS)%(proj2 (Tuple.arrow_to_fun (EX_SEL1 _ _) _))%Tuple.ex_iff.
+      intros (sel1 & [SEQ] & ENS)%(proj2 (Tuple.to_fun (EX_SEL1 _ _) _))%Tuple.ex_iff.
       clear ex_sel1 EX_SEL1.
       exists sel1.
       split. 2:exact ENS.
       destruct r as [x sel]; cbn in *.
       set (x_VPOST := s_vpost_eq _ _ _) in SEQ; clearbody x_VPOST.
-      destruct x_VPOST; cbn in *; subst sel.
+      destruct x_VPOST; cbn in *; rewrite <- SEQ.
       rewrite VpropList.inst_of_ctx.
       apply CTX.Inj.beq_iff.
       reflexivity.
@@ -1020,7 +1045,8 @@ Section Ret.
         unfold sf_post; cbn.
         apply SLprop.imp_exists_r with (wit := sels).
         apply SLprop.imp_pure_r. assumption.
-        rewrite CTX.sl_app. reflexivity.
+        rewrite CTX.sl_app, TF.to_of_tu.
+        reflexivity.
   Qed.
 End Ret.
 Section Bind.
@@ -1051,7 +1077,7 @@ Section Bind.
                 let TF_B prd := TF.mk_p B (fun y => VpropList.sel (prd y)) in
                 @FP.Bind TF_A (TF_B prd)
                     (sf_spec s_f)
-                    (TF.arrow_of_fun (P := TF_A) (fun r =>
+                    (TF.of_fun (T := TF_A) (fun r =>
                       eq_rect _ (fun prd => FP.instr (TF_B prd))
                         (sf_spec (s_g r)) _ (PRD r)))
             )),
@@ -1088,8 +1114,8 @@ Section Bind.
     - clear PRE.
       intro x; unfold sf_post; simpl.
       apply SP.ExistsE; intro sels0.
-      apply SP.PureE; simpl; rewrite Tuple.arrow_to_of.
-      set (r := TF.mk_v _ _ _).
+      apply SP.PureE; simpl; rewrite TF.to_of_fun.
+      set (r := existT _ x _).
       intro PRE.
       destruct (PRD r); simpl in PRE.
       eapply SP.Cons.
@@ -1112,7 +1138,7 @@ Section Bind.
       rewrite !Sub.sub_const_false; simpl; SLprop.normalize; reflexivity.
   Qed.
 
-  Local Arguments TF.arrow_of_fun : simpl never.
+  Local Opaque TF.of_fun TF.to_fun.
 
   Lemma Bind_SpecI1
     [ctx : CTX.t]
@@ -1122,33 +1148,33 @@ Section Bind.
     (F_PRD : TF.arrow (sf_rvar s_f) (fun r =>
               Sub.app (Sub.const (sf_prd_ctx s_f r) true)
                       (Sub.const (CTX.sub ctx (Sub.neg (sf_csm s_f))) false) =
-              TF.arrow_to_fun f_prd r))
+              TF.to_fun f_prd r))
     [s_g0 : TF.arrow (sf_rvar s_f) (fun r => i_spec_t B (sf_post_ctx s_f r))]
     (S_G0 : TF.arrow (sf_rvar s_f) (fun r =>
-              HasSpec (g (TF.v_val r)) _ (TF.arrow_to_fun s_g0 r)))
+              HasSpec (g (TF.v_val r)) _ (TF.to_fun s_g0 r)))
     [s_g  : TF.arrow (sf_rvar s_f) (fun r => i_spec_t B (sf_post_ctx s_f r))]
     (S_G  : TF.arrow (sf_rvar s_f) (fun r =>
-              add_csm (TF.arrow_to_fun s_g0 r) (TF.arrow_to_fun f_prd r) = TF.arrow_to_fun s_g r))
+              add_csm (TF.to_fun s_g0 r) (TF.to_fun f_prd r) = TF.to_fun s_g r))
     [csm  : Sub.t ctx]
     (CSM  : TF.arrow (sf_rvar s_f) (fun x =>
               Sub.pull (sf_csm s_f)
                 (Sub.const (Sub.sub ctx (sf_csm s_f)) true)
                 (snd (Sub.split (VpropList.inst (sf_prd s_f (TF.v_val x)) (TF.v_sel x))
                                 (CTX.sub ctx (Sub.neg (sf_csm s_f))) 
-                                (sf_csm (TF.arrow_to_fun s_g x)))) = csm))
+                                (sf_csm (TF.to_fun s_g x)))) = csm))
     [prd : B -> VpropList.t]
-    (PRD : TF.arrow (sf_rvar s_f) (fun x => sf_prd (TF.arrow_to_fun s_g x) = prd))
+    (PRD : TF.arrow (sf_rvar s_f) (fun x => sf_prd (TF.to_fun s_g x) = prd))
     [spec : FP.instr (TF.mk_p B (fun y => VpropList.sel (prd y)))]
     (SPEC : spec = 
         let TF_A := sf_rvar s_f in
         let TF_B (prd : B -> VpropList.t) :=
           TF.mk_p B (fun y : B => VpropList.sel (prd y)) in
         FP.Bind (sf_spec s_f)
-           (TF.arrow_of_fun (fun x =>
-              eq_rect (sf_prd (TF.arrow_to_fun s_g x))
+           (TF.of_fun (fun x =>
+              eq_rect (sf_prd (TF.to_fun s_g x))
                 (fun prd0 : B -> VpropList.t => _Abbrev.FP.instr (TF_B prd0))
-                (sf_spec (TF.arrow_to_fun s_g x)) prd
-                (TF.arrow_to_fun PRD x)))):
+                (sf_spec (TF.to_fun s_g x)) prd
+                (TF.to_fun PRD x)))):
     Bind_Spec ctx {|
       sf_csm  := csm;
       sf_prd  := prd;
@@ -1157,34 +1183,34 @@ Section Bind.
   Proof.
     unshelve refine (Bind_SpecI ctx (exist _ s_f S_F) _ csm _ prd _ spec _).
     - intro r.
-      exists (TF.arrow_to_fun s_g0 r).
-      exact  (TF.arrow_to_fun S_G0 r).
+      exists (TF.to_fun s_g0 r).
+      exact  (TF.to_fun S_G0 r).
     - intro r; simpl.
-      apply TF.arrow_to_fun with (x := r) in CSM as <-.
-      rewrite <- (TF.arrow_to_fun PRD   r),
-              <- (TF.arrow_to_fun S_G   r),
-              <- (TF.arrow_to_fun F_PRD r).
+      apply TF.to_fun with (x := r) in CSM as <-.
+      rewrite <- (TF.to_fun PRD   r),
+              <- (TF.to_fun S_G   r),
+              <- (TF.to_fun F_PRD r).
       reflexivity.
     - intro r; simpl.
-      apply TF.arrow_to_fun with (x := r) in CSM as <-.
-      rewrite <- (TF.arrow_to_fun S_G   r),
-              <- (TF.arrow_to_fun F_PRD r).
+      apply TF.to_fun with (x := r) in CSM as <-.
+      rewrite <- (TF.to_fun S_G   r),
+              <- (TF.to_fun F_PRD r).
       reflexivity.
     - unfold FP.eqv; subst spec; simpl; intro.
       clear CSM S_F S_G0.
       apply FP.Spec.wp_morph. apply FP.wlp_monotone.
-      intro r; rewrite !TF.arrow_to_of; simpl in *.
+      intro r; rewrite !TF.to_of_fun; simpl in *.
       revert post.
 
-      set (x_PRD := TF.arrow_to_fun (P := sf_rvar s_f) PRD r).
+      set (x_PRD := TF.to_fun (T := sf_rvar s_f) PRD r).
       clearbody x_PRD; clear PRD.
       case x_PRD; simpl; clear x_PRD.
 
-      set (x_S_G := TF.arrow_to_fun (P := sf_rvar s_f) S_G r).
+      set (x_S_G := TF.to_fun (T := sf_rvar s_f) S_G r).
       clearbody x_S_G; clear S_G.
       case x_S_G; clear x_S_G s_g.
 
-      set (x_F_PRD := TF.arrow_to_fun (P := sf_rvar s_f) F_PRD r).
+      set (x_F_PRD := TF.to_fun (T := sf_rvar s_f) F_PRD r).
       clearbody x_F_PRD; clear F_PRD.
       case x_F_PRD; clear x_F_PRD f_prd; simpl.
 
@@ -1239,11 +1265,11 @@ Section Call.
       FP.Bind
         (@FP.Call TF_A {|
             FP.Spec.pre  := Spec.req (s sel0);
-            FP.Spec.post := TF.arrow_of_fun (fun (r : TF.t TF_A) =>
+            FP.Spec.post := TF.of_fun (fun (r : TF.t TF_A) =>
               Spec.ens (s sel0 (TF.v_val r) (TF.v_sel r)));
          |})
-        (TF.arrow_of_fun (P := TF_A) (fun r =>
-         FP.Ret (TF.mk_v TF_B (TF.v_val r)
+        (TF.of_fun (T := TF_A) (fun r =>
+         FP.Ret (TF.mk _ (TF.v_val r)
           (eq_rect _ VpropList.sel_t
                    (VpropList.sel_of_ctx (Spec.post (s sel0 (TF.v_val r) (TF.v_sel r))))
                    _ (vpost_eq sel0 (TF.v_val r) (TF.v_sel r))))))),
@@ -1253,7 +1279,7 @@ Section Call.
       sf_spec := sf;
     |}.
 
-  Local Opaque TF.arrow_of_fun.
+  Local Opaque TF.of_fun TF.to_fun.
 
   Program Definition Call : instr (f_ret_t sg) := {|
     i_impl := CP.Call f HSIG x;
@@ -1278,12 +1304,12 @@ Section Call.
       apply SLprop.imp_exists_l; intro sel1.
       apply SLprop.imp_pure_l;   intro ENS.
       specialize (POST (TF.mk _ rx sel1)).
-        rewrite !TF.arrow_to_of in POST; simpl in POST.
+        rewrite !TF.to_of_fun in POST; simpl in POST; rewrite TF.to_of_tu in POST.
       eapply SLprop.imp_exists_r.
       apply  SLprop.imp_pure_r. exact (POST ENS).
       clear post0 REQ ENS POST; subst TF_A TF_B; simpl.
       case (vpost_eq sel0 rx sel1); simpl.
-      rewrite VpropList.inst_of_ctx, CTX.sl_app.
+      rewrite TF.to_of_tu, VpropList.inst_of_ctx, CTX.sl_app.
       fold ctx1.
       rewrite (CTX.sl_split ctx1 csm_prs), (CTX.Inj.ieqE ij_prs).
       reflexivity.
@@ -1300,7 +1326,8 @@ Section Assert.
     Assert_Spec ctx {|
       sf_csm  := Sub.const ctx false;
       sf_prd  := fun _ => nil;
-      sf_spec := FP.Assert (snd (P p))
+      sf_spec := FP.Bind (FP.Assert (snd (P p)))
+                         (TF.of_fun (fun _ => FP.Ret (TF.mk _ tt Tuple.tt)))
     |}.
   
   Program Definition Assert : instr unit := {|
@@ -1341,7 +1368,7 @@ Section Read.
     Read_Spec ctx {|
       sf_csm  := Sub.const ctx false;
       sf_prd  := fun _ => nil;
-      sf_spec := FP.Ret (TF.mk (fun _ => nil) d tt);
+      sf_spec := FP.Ret (TF.mk _ d Tuple.tt);
     |}.
 
   Program Definition Read : instr memdata := {|
