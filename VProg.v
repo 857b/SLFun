@@ -1651,9 +1651,9 @@ Module Tac.
         | |- ?g => fail "HasSpec::ct" g
         end
     | (match ?x with _ => _ end) =>
-        tryif (try (case x; [ (* one case *) ]; fail 1))
-        then build_HasSpec_branch build x   (* multiple branches *)
-        else build_HasSpec_dlet   build x s (* destructive let *)
+        tryif is_single_case x
+        then build_HasSpec_dlet   build x s (* destructive let *)
+        else build_HasSpec_branch build x   (* multiple branches *)
     | ?g => fail "HasSpec" g
     end end
     in build tt.

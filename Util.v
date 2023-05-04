@@ -19,7 +19,18 @@ Module Tac.
   Ltac build_term t build :=
     dummy_goal (t = _);
     [ build tt | reflexivity | ].
-  
+
+  (* fails iff [f] succeeds (or fail with level > 0) *)
+  Ltac inv_fail f :=
+    try (f; gfail 1).
+
+  (* executes [f] and reverts its effects, keeping its failure *)
+  Ltac revert_exec f :=
+   inv_fail ltac:(inv_fail f).
+
+  Ltac is_single_case x :=
+    revert_exec ltac:(assert (x = x); [clear; case x; [ ]; constructor|]).
+
   Ltac nondep_case t :=
     lazymatch goal with |- ?g =>
     let gl := fresh "GOAL" in
@@ -485,6 +496,9 @@ End Tuple.
 
 (* dependent tuple *)
 
+Declare Scope dtuple_scope.
+Delimit Scope dtuple_scope with dtuple.
+
 Module DTuple.
   Inductive p : Type :=
     | Pnil
@@ -594,9 +608,52 @@ Module DTuple.
   Qed.
   Definition to_of_tu TS := proj1 (iso_tu TS).
 
+  (* append *)
+
+  Fixpoint p_app (T0 : p) {struct T0} : (t T0 -> p) -> p :=
+    match T0 with
+    | Pnil       => fun T1 => T1 tt
+    | Pcons T TS => fun T1 => Pcons T (fun x => p_app (TS x) (fun xs => T1 (pair x xs)))
+    end.
+
+  Fixpoint to_app [T0 : p] {struct T0}:
+    forall [T1 : t T0 -> p], {x0 : t T0 & t (T1 x0)} -> t (p_app T0 T1).
+  Proof.
+    case T0 as [|T TS]; cbn; intros T1 [[] x1].
+    - exact x1.
+    - refine (pair x (to_app (TS x) (fun xs => T1 (pair x xs)) (existT _ t0 x1))).
+  Defined.
+
+  Fixpoint of_app [T0 : p] {struct T0}:
+    forall [T1 : t T0 -> p], t (p_app T0 T1) -> {x0 : t T0 & t (T1 x0)}.
+  Proof.
+    case T0 as [|T TS]; cbn; intros T1.
+    - exact (fun x1 => existT _ tt x1).
+    - intros [x xs].
+      case (of_app (TS x) (fun xs => T1 (pair x xs)) xs) as [x0 x1].
+      exists (existT _ x x0).
+      exact x1.
+  Defined.
+
+  Lemma iso_app (T0 : p) (T1 : t T0 -> p):
+    type_iso {x0 : t T0 & t (T1 x0)} (t (p_app T0 T1)) (@to_app T0 T1) (@of_app T0 T1).
+  Proof.
+    split; induction T0 as [|T TS IH]; cbn.
+    - intros [[] ?]; reflexivity.
+    - intros [[] ?]; rewrite IH; reflexivity.
+    - reflexivity.
+    - intros [x xs].
+      specialize (IH x _ xs); destruct (of_app xs); rewrite IH.
+      reflexivity.
+  Qed.
+
   (* unit *)
   Definition unit : p := Pnil.
   Definition tt : t unit := Datatypes.tt.
+
+  Module Notations.
+    Notation "(| x , .. , y |)" := (existT _ x .. (existT _ y Datatypes.tt) .. ) : dtuple_scope.
+  End Notations.
 End DTuple.
 
 (* Extension of the Coq.Vector library *)

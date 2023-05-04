@@ -5,6 +5,7 @@ Require Import Coq.Lists.List.
 
 Import SLNotations.
 Import ListNotations.
+Import DTuple.Notations.
 Import VProg._Abbrev.
 
 Definition f_0 : fid := 0.
@@ -90,6 +91,7 @@ Lemma imatch_0:
 Proof.
   intros (p0, p1).
   Tac.build_impl_match.
+  FP.simpl_prog.
   FP.by_wlp.
   tauto.
 Qed.
@@ -97,11 +99,13 @@ Qed.
 Definition cp_0: f_impl _ vprog_0.
 Proof. Tac.extract_impl. Defined.
 
+
 Lemma imatch_1:
   f_body_match SPEC vprog_1 (m_spec spec_1).
 Proof.
   intros ((p0, p1), p2).
   Tac.build_impl_match.
+  FP.simpl_prog.
   FP.by_wlp.
   tauto.
 Qed.
@@ -114,6 +118,7 @@ Lemma imatch_2:
 Proof.
   intros ((p0, p1), p2).
   Tac.build_impl_match.
+  FP.simpl_prog.
   FP.by_wlp.
   intuition.
   unfold data42; repeat constructor.
@@ -139,6 +144,7 @@ Lemma imatch_a0:
 Proof.
   intro ps.
   Tac.build_impl_match.
+  FP.simpl_prog.
   FP.by_wlp.
   cbn. tauto.
 Qed.
@@ -212,21 +218,8 @@ Proof.
   *)
   - (* WLP     *)
     cbn.
+    FP.simpl_prog.
     FP.by_wlp.
-    (*
-    refine (FunProg.by_wlp_lem _ _). {
-      refine (FP.wlp_formula_Bind _ _). 2:cbn; repeat intro; FP.build_wlp_formula.
-      refine (FP.wlp_formula_Bind _ _). 2:cbn; repeat intro; FP.build_wlp_formula.
-      simple refine (FP.wlp_formula_imp _ _ _).
-      - (* f0 *) Tac.const_case b; clear b; shelve.
-      - (* F  *) destruct b; FP.build_wlp_formula.
-      - cbn; intros post f.
-        case_eq b.
-        + eapply proj1 in f. exact f.
-        + apply proj2 in f; exact f.
-    }
-    cbn.
-    *)
     intuition congruence.
 Qed.
 
@@ -254,6 +247,7 @@ Lemma imatch_a1b:
 Proof.
   intros (b, p).
   Tac.build_impl_match.
+  FP.simpl_prog.
   FP.by_wlp.
   intuition congruence.
 Qed.
@@ -278,6 +272,7 @@ Lemma imatch_a1c:
 Proof.
   intros (o, p).
   Tac.build_impl_match.
+  FP.simpl_prog.
   FP.by_wlp_ false.
   destruct o; tauto.
 Qed.
