@@ -1,8 +1,13 @@
+Require Import SLFun.Util.
 Require Export SLFun.Values.
 
 Require Import Coq.Relations.Relations.
 Require Import Coq.Setoids.Setoid.
 
+(* sig ghost *)
+Inductive sigG (A : Type) (P : A -> Type) : Type :=
+  existG (x : A) (y : P x).
+Global Arguments existG [_] P.
 
 Module Spec. Section Spec.
   Local Set Implicit Arguments.
@@ -13,6 +18,14 @@ Module Spec. Section Spec.
   Definition monotone (wp : wp_t) : Prop :=
     forall (post0 post1 : A -> mem -> Prop) (LE : forall x m, post0 x m -> post1 x m) m,
     wp post0 m -> wp post1 m.
+
+  Definition wp_le (wp0 wp1 : wp_t) : Prop :=
+    forall post m0, wp0 post m0 -> wp1 post m0.
+
+  Global Instance wp_le_PreOrder : PreOrder wp_le.
+  Proof.
+    Rel.by_expr (Rel.point (A -> mem -> Prop) (Rel.point mem (Basics.impl))).
+  Qed.
   
   Record t := mk {
     pre  : mem -> Prop;
@@ -270,37 +283,153 @@ Section WLP_Correct.
   Qed.
 End WLP_Correct.
 
-(* Extraction *)
+Section Extraction.
+  Inductive k_opt (A : Type) : forall B : Type, Type :=
+    | KNone : k_opt A A
+    | KDrop : k_opt A unit
+    | KFun [B] (f : A -> B) : k_opt A B.
+  Global Arguments KNone {_}.
+  Global Arguments KDrop {_}.
+  Global Arguments KFun [_ _].
 
-Inductive extract : forall [A : Type] (i0 i1 : instr A), Prop :=
-  | ERefl [A] [i : instr A]
-      (FREE : oracle_free i):
-      extract i i
-  | EBind [A B f f' g g']
-      (Ef : extract f f') (Eg : forall x : A, extract (g x) (g' x)):
-      extract (@Bind A B f g) (Bind f' g').
+  Definition k_apply [A B] (i : instr A) (k : k_opt A B) : instr B :=
+    match k with
+    | KNone  => i
+    | KDrop  => Bind i (fun _ => Ret tt)
+    | KFun f => Bind i (fun x => Ret (f x))
+    end.
 
-Lemma extract_oracle_free A i0 i1
-  (E : @extract A i0 i1):
-  oracle_free i1.
-Proof.
-  induction E; auto.
-  - (* EBind *)
-    split; auto.
-Qed.
+  Inductive extract_cont [A B] (i : instr A) (k : k_opt A B) (r : instr B) : Prop :=
+    extract_contI (E : forall SPEC, Spec.wp_le (wlp SPEC (k_apply i k)) (wlp SPEC r)).
 
-Lemma extract_wlp SPEC A i0 i1
-  (E : @extract A i0 i1):
-  forall post m, wlp SPEC i0 post m -> wlp SPEC i1 post m.
-Proof.
-  induction E; auto.
-  - (* EBind *)
-    cbn; intros post m0 WLP.
-    eapply IHE, wlp_monotone, WLP.
-    auto.
-Qed.
+  Record extract [A] (i0 i1 : instr A) := {
+    extract_wlp : forall SPEC, Spec.wp_le (wlp SPEC i0) (wlp SPEC i1);
+    extract_oracle_free : oracle_free i1;
+  }.
+
+  Lemma extract_by_cont [A i0 i1 i2]
+    (E : @extract_cont A A i0 KNone i1)
+    (R : i2 = i1)
+    (F : oracle_free i2):
+    extract i0 i2.
+  Proof.
+    subst i2.
+    split. apply E. apply F.
+  Qed.
+
+  Lemma ERefl [A B] [i : instr A] (k : k_opt A B):
+    extract_cont i k (k_apply i k).
+  Proof.
+    constructor. reflexivity.
+  Qed.
+
+  Inductive edroppable {A : Type}: instr A -> Prop :=
+    | EDrRet  x : edroppable (Ret x)
+    | EDrOracle : edroppable (Oracle A).
+
+  Lemma EDrop [A i]
+    (D : @edroppable A i):
+    @extract_cont A unit i KDrop (Ret tt).
+  Proof.
+    constructor; intros SPEC post m0; destruct D; cbn; auto.
+    intros [? ?]; auto.
+  Qed.
+
+  Lemma EDropAssert [B P] k:
+    @extract_cont unit B (Assert P) k (k_apply (Ret tt) k).
+  Proof.
+    constructor; intros SPEC post m0; cbn.
+    destruct k; cbn; tauto.
+  Qed.
+
+  Lemma ECompRet [A B] x f:
+    @extract_cont A B (Ret x) (KFun f) (Ret (f x)).
+  Proof.
+    constructor; do 3 intro; cbn. auto.
+  Qed.
+
+  Inductive ebind:
+    forall [A B : Type] (g : A -> instr B) (A' : Type) (k : k_opt A A') (g' : A' -> instr B), Prop :=
+    | EBind_Refl [A B]   g : @ebind A B g A KNone g
+    | EBind_Drop [A B]   g : @ebind A B (fun _ => g) unit KDrop (fun _ => g)
+    | EBind_SigG [A P B] g g'
+        (G : forall x y, g (existG _ x y) = g' x)
+        : @ebind (sigG A P) B g A (KFun (fun '(existG _ x _) => x)) g'.
+
+  Lemma EBind [A0 A1 B C] [f0 f1 g0 g1 g2] [kg kf]
+    (Eg : forall x : A0, @extract_cont B C (g0 x) kg (g1 x))
+    (Eb : @ebind A0 C g1 A1 kf g2)
+    (Ef : @extract_cont A0 A1 f0 kf f1):
+    @extract_cont B C (Bind f0 g0) kg (Bind f1 g2).
+  Proof.
+    constructor.
+    intros SPEC post m0; cbn.
+    intro W0.
+    apply Ef.
+    assert (W1 : wlp SPEC (Bind f0 g1) post m0). {
+      cbn; destruct kg; cbn in W0; eapply wlp_monotone, W0;
+      cbn; intros x m1; apply Eg.
+    }
+    destruct Eb; cbn in *; try solve [apply W1].
+    - (* EBind_SigG *)
+      eapply wlp_monotone, W1; cbn.
+      intros [x y] m1.
+      rewrite G; auto.
+    Qed.
+End Extraction.
 
 End Concrete.
 Global Arguments impl_context : clear implicits.
 Global Arguments spec_context : clear implicits.
 
+
+(* solves a goal [ebind g ?A' ?k ?g'] *)
+Ltac build_ebind :=
+  tryif refine (EBind_SigG _ _ _)
+  then cbn; reflexivity
+  else first [exact (EBind_Drop _) | exact (EBind_Refl _)].
+
+(* solves a goal [extract_cont i k ?r].
+   [redh] is called at each step to reduce [i] to a constructor of [instr]. *)
+Ltac build_extract_cont redh :=
+  redh;
+  lazymatch goal with
+  |- @extract_cont ?SG ?A ?B ?i0 ?k ?i1 =>
+      let i0' := eval hnf in i0 in
+      change (@extract_cont SG A B i0' k i1);
+      lazymatch i0' with
+      | Assert _ =>
+          exact (EDropAssert _)
+      | Oracle _ =>
+          try exact (EDrop (@EDrOracle _ _));
+          lazymatch goal with |- ?g => fail "drop oracle" g end
+      | Ret _ =>
+          first [ exact (EDrop (EDrRet _))
+                | exact (ECompRet _ _)
+                | exact (ERefl _) ]
+      | Bind _ _ =>
+          refine (EBind _ _ _);
+          [ intro; build_extract_cont redh
+          | cbn; build_ebind
+          | build_extract_cont redh ]
+      | _ =>
+          exact (ERefl _)
+      end
+  end.
+
+Ltac build_oracle_free_aux :=
+  cbn;
+  lazymatch goal with
+  | |- @oracle_free ?SG ?A ?i =>
+      lazymatch i with
+      | (match ?x with _ => _ end) =>
+          destruct x
+      | _ =>
+          let i' := eval hnf in i in
+          change (@oracle_free SG A i')
+      end
+  | _ => first [intro | constructor]
+  end.
+
+(* solves a goal [oracle_free i] *)
+Ltac build_oracle_free := repeat build_oracle_free_aux.

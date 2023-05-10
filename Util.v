@@ -136,7 +136,7 @@ Module Rel.
       - symmetry; auto.
       - etransitivity; eauto.
     Qed.
-    
+
     Global Instance pull_PreOrder {E : PreOrder R}: PreOrder pull.
     Proof.
       unfold pull; constructor; repeat intro.
@@ -147,7 +147,10 @@ Module Rel.
 
   Global Ltac by_expr E :=
     match goal with
-    | |- _ ?R => change R with E; auto using Build_PreOrder with typeclass_instances
+    | |- _ ?R =>
+        change R with E;
+        auto  using Build_PreOrder with typeclass_instances;
+        eauto using Build_PreOrder with typeclass_instances
     end.
 End Rel.
 

@@ -9,9 +9,11 @@ Import ListNotations.
 
 
 Module Vprop.
+  Definition p (ty : Type) := ty -> SLprop.t.
+
   Record t := mk {
     ty : Type;
-    sl : ty -> SLprop.t;
+    sl : p ty;
   }.
   Global Arguments mk [ty].
 End Vprop.
@@ -19,7 +21,7 @@ End Vprop.
 Module CTX.
   Definition atom := {v : Vprop.t & Vprop.ty v}.
 
-  Definition mka [A : Type] (arg : (A -> SLprop.t) * A) : atom :=
+  Definition mka [A : Type] (arg : Vprop.p A * A) : atom :=
     let (sl, x) := arg in
     existT Vprop.ty (Vprop.mk sl) x.
 
@@ -1315,6 +1317,44 @@ Section Call.
       reflexivity.
   Qed.
 End Call.
+Section GGet.
+  Context [A : Type] (v : Vprop.p A).
+
+  Inductive GGet_Spec (ctx : CTX.t) : i_spec_t A ctx -> Prop
+    := GGet_SpecI
+    (a : A) (csm : Sub.t ctx)
+    (ij : CTX.Inj.ieq [CTX.mka (v, a)] ctx csm):
+    GGet_Spec ctx {|
+      sf_csm  := Sub.const ctx false;
+      sf_prd  := fun _ => nil;
+      sf_spec := FP.Ret (TF.mk _ a Tuple.tt)
+    |}.
+
+  Program Definition GGet : instr A := {|
+    i_impl := CP.Oracle A;
+    i_spec := fun ctx => GGet_Spec ctx;
+  |}.
+  Next Obligation.
+    destruct SP; do 2 intro; cbn in *.
+    eapply SP.Cons.
+      { apply SP.Oracle with (x := a) (sp := fun x =>
+          (SLprop.pure (x = a) ** v x ** CTX.sl (CTX.sub ctx (Sub.neg csm)))%slprop). }
+    eenough (SLprop.eq (CTX.sl ctx) _) as Eqv.
+    split; cbn.
+    - apply SLprop.imp_pure_r. reflexivity.
+      rewrite Eqv; reflexivity.
+    - intro x.
+      apply SLprop.imp_pure_l.  intros ->.
+      apply SLprop.imp_exists_r with (wit := tt).
+      apply SLprop.imp_pure_r.  exact PRE.
+      unfold Sub.neg, Sub.const; rewrite Vector.map_const; cbn.
+      rewrite Sub.sub_const_true.
+      rewrite Eqv; reflexivity.
+    - rewrite CTX.sl_split with (s := csm), (CTX.Inj.ieqE ij).
+      cbn; SLprop.normalize.
+      reflexivity.
+  Qed.
+End GGet.
 Section Assert.
   Context [A : Type] (P : A -> CTX.t * Prop).
 
@@ -1557,6 +1597,10 @@ Module Tac.
     | shelve | (* ij_prs *) cbn; CTX.Inj.build
     | shelve | (* SF     *) cbn_refl ].
 
+  Ltac build_GGet :=
+    simple refine (GGet_SpecI _ _ _ _ _);
+    [ shelve | shelve | CTX.Inj.build ].
+
   Ltac build_Assert :=
     simple refine (@Assert_SpecI _ _ _ _ _ _);
     [ shelve | shelve |
@@ -1645,6 +1689,7 @@ Module Tac.
         | |- Ret_Spec    _ _ _ _ => build_Ret
         | |- Bind_Spec _ _ _ _ _ => build_Bind build
         | |- Call_Spec     _ _ _ => build_Call
+        | |- GGet_Spec     _ _ _ => build_GGet
         | |- Assert_Spec   _ _ _ => build_Assert
         | |- Read_Spec     _ _ _ => build_Read
         | |- Write_Spec  _ _ _ _ => build_Write
@@ -1733,31 +1778,26 @@ Module Tac.
     | (* WLP *) cbn ].
 
 
-  (* solves a goal [CP.extract i0 ?i1] *)
-  Ltac extract_instr :=
-    let rec extract :=
-      cbn;
-      lazymatch goal with
-      | |- CP.extract (CP.Bind _ _) _ =>
-          refine (CP.EBind _ _);
-          [ extract | intro; extract ]
-      | |- CP.extract (i_impl ?v) ?i =>
-          match v with
-          | (match ?x with _ => _ end) =>
-              Tac.build_term i ltac:(fun _ => destruct x; shelve);
-              destruct x
-          | _ =>
-              let v' := eval hnf in v in
-              change (CP.extract (i_impl v') i)
-          end;
-          extract_instr
-      | _ =>
-          refine (CP.ERefl _); exact Logic.I
-      end
-    in extract.
+  Ltac redh_extract_cont :=
+    cbn;
+    repeat lazymatch goal with
+    | |- @CP.extract_cont ?SG ?A ?B (i_impl ?v) ?k ?i =>
+        lazymatch v with
+        | (match ?x with _ => _ end) =>
+            build_term i ltac:(fun _ => destruct x; shelve);
+            destruct x
+        | _ =>
+            let v' := eval hnf in v in
+            change (@CP.extract_cont SG A B (i_impl v') k i)
+        end
+    end.
 
   (* solves a goal [f_impl bd] *)
   Ltac extract_impl :=
-    eexists; intro; extract_instr.
+    eexists; intro;
+    refine (CP.extract_by_cont _ _ _);
+    [ CP.build_extract_cont redh_extract_cont
+    | Tac.cbn_refl
+    | try solve [ CP.build_oracle_free ] ].
 
 End Tac.

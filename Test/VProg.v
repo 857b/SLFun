@@ -276,3 +276,48 @@ Proof.
   FP.by_wlp_ false.
   destruct o; tauto.
 Qed.
+
+
+Definition sig_a2a := mk_f_sig (ptr * ptr) unit.
+Definition spec_a2a : FSpec sig_a2a (fun '(p0, p1) =>
+  Spec.Expanded.mk_r0 (fun '(n0, n1) =>
+  Spec.Expanded.mk_r1 [CTX.mka (SLprop.cell p0, n0)] [CTX.mka (SLprop.cell p1, n1)]
+    (n0 <= n1) (fun _ =>
+  Spec.Expanded.mk_r2 (fun n1' =>
+  Spec.Expanded.mk_r3 [CTX.mka (SLprop.cell p1, n1')] (n0 <= n1'))))).
+Proof. Tac.build_FSpec. Defined.
+
+Definition vprog_a2a : f_body SPEC sig_a2a := fun '(p0, p1) =>
+  Bind _ (Read _ p1) (fun v1 =>
+  Bind _ (GGet _ (SLprop.cell p0)) (fun v0 =>
+  Bind _ (Assert _ (fun 'tt => ([], v0 <= v1))) (fun _ =>
+          Write _ p1 (S v1)))).
+Lemma imatch_a2a:
+  f_body_match SPEC vprog_a2a (m_spec spec_a2a).
+Proof.
+  intros (p0, p1).
+  Tac.build_impl_match.
+  FP.simpl_prog.
+  FP.by_wlp.
+  intuition.
+Qed.
+Definition cp_a2a: f_impl _ vprog_a2a.
+Proof. Tac.extract_impl. Defined.
+
+Definition vprog_a2b : f_body SPEC sig_a2a := fun '(p0, p1) =>
+  Bind _ (Bind _ (Read _ p1) (fun v1 =>
+          Bind _ (GGet _ (SLprop.cell p0)) (fun v0 =>
+          Ret _ (CP.existG _ v1 v0) (fun _ => [])))) (fun '(CP.existG _ v1 v0) =>
+  Bind _ (Assert _ (fun 'tt => ([], v0 <= v1))) (fun _ =>
+          Write _ p1 (S v1))).
+Lemma imatch_a2b:
+  f_body_match SPEC vprog_a2b (m_spec spec_a2a).
+Proof.
+  intros (p0, p1).
+  Tac.build_impl_match.
+  FP.simpl_prog.
+  FP.by_wlp.
+  intuition.
+Qed.
+Definition cp_a2b: f_impl _ vprog_a2b.
+Proof. Tac.extract_impl. Defined.

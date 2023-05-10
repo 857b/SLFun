@@ -205,6 +205,14 @@ Section SLS.
       exact (SLE _ M0).
     Qed.
   End Call.
+  Section Oracle.
+    Context [A : Type] (x : A) (sp : A -> SLprop.t).
+
+    Lemma Oracle : sls (CP.Oracle A) (Spec.mk (sp x) sp).
+    Proof.
+      exists x; auto.
+    Qed.
+  End Oracle.
   Section Assert.
     Variable (P : SLprop.t).
 
