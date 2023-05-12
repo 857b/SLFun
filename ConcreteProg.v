@@ -9,6 +9,11 @@ Inductive sigG (A : Type) (P : A -> Type) : Type :=
   existG (x : A) (y : P x).
 Global Arguments existG [_] P.
 
+Definition projG1 [A P] (x : sigG A P) : A :=
+  let '(existG _ x _) := x in x.
+Definition projG2 [A P] (x : sigG A P) : P (projG1 x) :=
+  let '(existG _ _ y) := x in y.
+
 Module Spec. Section Spec.
   Local Set Implicit Arguments.
   Variable A : Type.
@@ -67,10 +72,7 @@ Inductive instr : Type -> Type :=
 Definition f_impl (sig : f_sig) := f_arg_t sig -> instr (f_ret_t sig).
 
 Definition opt_type [A] (f : A -> Type) (o : option A) : Type :=
-  match o with
-  | Some x => f x
-  | None   => unit
-  end.
+  OptTy.t (option_map f o).
 
 Definition impl_context := forall f : fid, opt_type f_impl (SG f).
 
@@ -386,13 +388,15 @@ Global Arguments spec_context : clear implicits.
 (* solves a goal [ebind g ?A' ?k ?g'] *)
 Ltac build_ebind :=
   tryif refine (EBind_SigG _ _ _)
-  then cbn; reflexivity
+  then cbn; try reflexivity;
+       match goal with |- ?g => fail "EBind_SigG" g end
   else first [exact (EBind_Drop _) | exact (EBind_Refl _)].
 
 (* solves a goal [extract_cont i k ?r].
-   [redh] is called at each step to reduce [i] to a constructor of [instr]. *)
-Ltac build_extract_cont redh :=
-  redh;
+   The head of [i] must be a constructor of [instr].
+   [ktac] is a tactic that solves [extract_cont i k ?r] for a more general form of [i],
+   defined latter using [build_extract_cont_k] *)
+Ltac build_extract_cont_k ktac :=
   lazymatch goal with
   |- @extract_cont ?SG ?A ?B ?i0 ?k ?i1 =>
       let i0' := eval hnf in i0 in
@@ -409,9 +413,9 @@ Ltac build_extract_cont redh :=
                 | exact (ERefl _) ]
       | Bind _ _ =>
           refine (EBind _ _ _);
-          [ intro; build_extract_cont redh
+          [ intro; ktac
           | cbn; build_ebind
-          | build_extract_cont redh ]
+          | ktac ]
       | _ =>
           exact (ERefl _)
       end

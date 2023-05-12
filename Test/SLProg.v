@@ -60,7 +60,7 @@ Proof.
   eapply Bind. eapply Read. intro n'; normalize.
   apply PureE; intros ->.
   eapply Bind. eapply Write. intro _u.
-  eapply Ret with (sp := fun r => SLprop.cell p (n + r)).
+  eapply Ret_SL with (sp := fun r => SLprop.cell p (n + r)).
 Qed.
 
 Definition impl_main (ps : ptr * ptr) : @CP.instr SIG unit :=

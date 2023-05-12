@@ -160,20 +160,79 @@ Section SLS.
   Qed.
 
   (* Constructors *)
+  
+  (** Proof *)
+
+  Section ProofRules.
+    Context [A : Type] (f : @CP.instr SG A).
+
+    Lemma Cons [s0 s1 : Spec.t A] (Sf : sls f s0) (LE : Spec.le s0 s1):
+      sls f s1.
+    Proof.
+      eapply sls_morph_imp; eauto.
+    Qed.
+
+    Lemma Frame [s : Spec.t A] (Sf : sls f s) (fr : SLprop.t):
+      sls f (Spec.frame s fr).
+    Proof.
+      intros fr' m0; simpl.
+      setoid_rewrite SLprop.star_assoc at 1.
+      intros M0; eapply CP.wlp_monotone, Sf with (fr := (fr ** fr')); auto.
+      simpl; setoid_rewrite SLprop.star_assoc; auto.
+    Qed.
+
+    Lemma CFrame [s0 s1 : Spec.t A] (Sf : sls f s0) (fr : SLprop.t) (LE : Spec.le (Spec.frame s0 fr) s1):
+      sls f s1.
+    Proof.
+      eapply Cons, LE.
+      eapply Frame, Sf.
+    Qed.
+
+    Lemma PureE (P : Prop) (pre : SLprop.t) (post : A -> SLprop.t)
+      (Sf : P -> sls f (Spec.mk pre post)):
+      sls f (Spec.mk (SLprop.pure P ** pre) post).
+    Proof.
+      intros fr m0; simpl; intros (fm0 & FM0 & H0).
+      erewrite SLprop.sl_pred_eq in H0 by SLprop.normalize.
+      apply SLprop.star_pure in H0 as (HP & H0).
+      apply (Sf HP).
+      exists fm0; eauto.
+    Qed.
+
+    Lemma ExistsE [X : Type] (pre : X -> SLprop.t) (post : A -> SLprop.t)
+      (Sf : forall x : X, sls f (Spec.mk (pre x) post)):
+      sls f (Spec.mk (SLprop.ex X pre) post).
+    Proof.
+      intros fr m0; simpl; intros (fm0 & FM0 & H0).
+      erewrite SLprop.sl_pred_eq in H0 by SLprop.normalize.
+      case H0 as (x & H0).
+      apply (Sf x).
+      exists fm0; eauto.
+    Qed.
+  End ProofRules.
 
   (** Instructions *)
 
   Section Ret.
-    Context [A : Type] (x : A) (sp : A -> SLprop.t).
+    Context [A : Type] (x : A).
 
-    Definition ret_spec : Spec.t A := {|
-      Spec.pre  := sp x;
-      Spec.post := sp;
-    |}.
-    
-    Lemma Ret : sls (CP.Ret x) ret_spec.
+    Lemma Ret_SL (sp : A -> SLprop.t) : sls (CP.Ret x) (Spec.mk (sp x) sp).
     Proof.
       intros fr m0; simpl; auto.
+    Qed.
+
+    Lemma CRet (pre : SLprop.t) (post : A -> SLprop.t)
+      (C : SLprop.imp pre (post x)):
+      sls (CP.Ret x) (Spec.mk pre post).
+    Proof.
+      eapply Cons.
+      apply (Ret_SL post).
+      split. apply C. reflexivity.
+    Qed.
+
+    Lemma Ret (fr : SLprop.t) : sls (CP.Ret x) (Spec.mk fr (fun x' => SLprop.pure (x' = x) ** fr)).
+    Proof.
+      apply CRet, SLprop.imp_pure_r; reflexivity.
     Qed.
   End Ret. 
   Section Bind.
@@ -206,11 +265,25 @@ Section SLS.
     Qed.
   End Call.
   Section Oracle.
-    Context [A : Type] (x : A) (sp : A -> SLprop.t).
+    Context [A : Type] (x : A).
 
-    Lemma Oracle : sls (CP.Oracle A) (Spec.mk (sp x) sp).
+    Lemma Oracle_SL (sp : A -> SLprop.t) : sls (CP.Oracle A) (Spec.mk (sp x) sp).
     Proof.
       exists x; auto.
+    Qed.
+
+    Lemma COracle (pre : SLprop.t) (post : A -> SLprop.t)
+      (C : SLprop.imp pre (post x)):
+      sls (CP.Oracle A) (Spec.mk pre post).
+    Proof.
+      eapply Cons.
+      apply (Oracle_SL post).
+      split. apply C. reflexivity.
+    Qed.
+
+    Lemma Oracle (fr : SLprop.t) : sls (CP.Oracle A) (Spec.mk fr (fun x' => SLprop.pure (x' = x) ** fr)).
+    Proof.
+      apply COracle, SLprop.imp_pure_r; reflexivity.
     Qed.
   End Oracle.
   Section Assert.
@@ -284,55 +357,6 @@ Section SLS.
     Qed.
   End Write.
 
-  (** Proof *)
-
-  Section ProofRules.
-    Context [A : Type] (f : @CP.instr SG A).
-
-    Lemma Cons [s0 s1 : Spec.t A] (Sf : sls f s0) (LE : Spec.le s0 s1):
-      sls f s1.
-    Proof.
-      eapply sls_morph_imp; eauto.
-    Qed.
-
-    Lemma Frame [s : Spec.t A] (Sf : sls f s) (fr : SLprop.t):
-      sls f (Spec.frame s fr).
-    Proof.
-      intros fr' m0; simpl.
-      setoid_rewrite SLprop.star_assoc at 1.
-      intros M0; eapply CP.wlp_monotone, Sf with (fr := (fr ** fr')); auto.
-      simpl; setoid_rewrite SLprop.star_assoc; auto.
-    Qed.
-
-    Lemma CFrame [s0 s1 : Spec.t A] (Sf : sls f s0) (fr : SLprop.t) (LE : Spec.le (Spec.frame s0 fr) s1):
-      sls f s1.
-    Proof.
-      eapply Cons, LE.
-      eapply Frame, Sf.
-    Qed.
-
-    Lemma PureE (P : Prop) (pre : SLprop.t) (post : A -> SLprop.t)
-      (Sf : P -> sls f (Spec.mk pre post)):
-      sls f (Spec.mk (SLprop.pure P ** pre) post).
-    Proof.
-      intros fr m0; simpl; intros (fm0 & FM0 & H0).
-      erewrite SLprop.sl_pred_eq in H0 by SLprop.normalize.
-      apply SLprop.star_pure in H0 as (HP & H0).
-      apply (Sf HP).
-      exists fm0; eauto.
-    Qed.
-
-    Lemma ExistsE [X : Type] (pre : X -> SLprop.t) (post : A -> SLprop.t)
-      (Sf : forall x : X, sls f (Spec.mk (pre x) post)):
-      sls f (Spec.mk (SLprop.ex X pre) post).
-    Proof.
-      intros fr m0; simpl; intros (fm0 & FM0 & H0).
-      erewrite SLprop.sl_pred_eq in H0 by SLprop.normalize.
-      case H0 as (x & H0).
-      apply (Sf x).
-      exists fm0; eauto.
-    Qed.
-  End ProofRules.
 End SLS.
 
 Ltac normalize :=

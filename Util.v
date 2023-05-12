@@ -28,8 +28,13 @@ Module Tac.
   Ltac revert_exec f :=
    inv_fail ltac:(inv_fail f).
 
+  (* detects inductive terms whith only one case *)
   Ltac is_single_case x :=
     revert_exec ltac:(assert (x = x); [clear; case x; [ ]; constructor|]).
+
+  (* detects inductive terms whith only one case and no arguments *)
+  Ltac is_unit_case x :=
+    Tac.revert_exec ltac:(assert (x = x); [clear; case x; [ ]; Tac.inv_fail intro; constructor|]).
 
   Ltac nondep_case t :=
     lazymatch goal with |- ?g =>
@@ -256,6 +261,42 @@ Lemma simpl_and_list_e1 [x : Prop] [xs ys]
 Proof.
   apply simpl_and_list_m1; tauto.
 Qed.
+
+(* optional type *)
+
+Module OptTy.
+  Definition p := option Type.
+
+  Definition t (P : p) : Type :=
+    match P with
+    | Some T => T
+    | None   => unit
+    end.
+
+  Definition arrow (P : p) : forall (TRG : t P -> Type), Type :=
+    match P with
+    | Some T => fun TRG => forall x : T, TRG x
+    | None   => fun TRG => TRG tt
+    end.
+
+  Definition of_fun [P] : forall [TRG : t P -> Type] (f : forall x : t P, TRG x), arrow P TRG :=
+    match P with
+    | Some T => fun TRG f x => f x
+    | None   => fun TRG f   => f tt
+    end.
+  
+  Definition to_fun [P] : forall [TRG : t P -> Type] (f : arrow P TRG) (x : t P), TRG x :=
+    match P with
+    | Some T => fun TRG f  x  => f x
+    | None   => fun TRG f 'tt => f
+    end.
+
+  Lemma to_of_fun [P TRG] (f : forall x : t P, TRG x) (x : t P):
+    to_fun (of_fun f) x = f x.
+  Proof.
+    destruct P; cbn; [|destruct x]; reflexivity.
+  Qed.
+End OptTy.
 
 (* heterogeneous tuple *)
 
