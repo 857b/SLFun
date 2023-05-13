@@ -5,6 +5,11 @@ Import ListNotations.
 
 (* Tactics *)
 
+Global Create HintDb deriveDB discriminated.
+Global Hint Constants Opaque : deriveDB.
+Global Hint Variables Opaque : deriveDB.
+Ltac derive := solve [auto 1 with deriveDB nocore].
+
 Module Tac.
   Module Notations.
     Global Tactic Notation "dummy_goal" uconstr(G) :=
@@ -72,6 +77,11 @@ Module Tac.
     elist_tail u ltac:(fun tail =>
     build_term tail ltac:(fun _ => refine nil)).
 End Tac.
+
+(* Optional argument *)
+
+Class opt_arg (A : Type) (def : A) := get_opt_arg : A.
+Global Instance opt_arg_def {A def} : opt_arg A def := def.
 
 (* Relation classes *)
 
@@ -289,6 +299,12 @@ Module OptTy.
     match P with
     | Some T => fun TRG f  x  => f x
     | None   => fun TRG f 'tt => f
+    end.
+
+  Definition to_fun' [P TRG] : forall (f : arrow P (fun _ => TRG)) (x : t P), TRG :=
+    match P with
+    | Some T => fun f x => f x
+    | None   => fun f _ => f
     end.
 
   Lemma to_of_fun [P TRG] (f : forall x : t P, TRG x) (x : t P):

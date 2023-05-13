@@ -646,7 +646,7 @@ Module Expanded. Section Expanded.
     of_expanded1 e (@Spec.mk_r1 A GO (prs e) (pre e) (req e) s2).
 
   Inductive of_expanded0 (e : Expanded.t_r0) : Spec.t_r0 GO -> Prop
-    := of_expandedI
+    := of_expanded0I
     (s1 : sel0_t e -> Spec.t_r1 GO)
     (S1 : forall sel0 : sel0_t e, of_expanded1 (e sel0) (s1 sel0)):
     of_expanded0 e (@Spec.mk_r0 A GO (sel0_t e) s1).
@@ -726,8 +726,7 @@ Section F_SPEC.
     forall x, sigh_spec_t x.
   
   Definition f_spec_exp :=
-    forall (x : f_arg_t sg),
-    OptTy.arrow (f_ghin_t_x x) (fun _ => Spec.Expanded.t_r0 (f_ghout_t sgh)).
+    forall (x : f_arg_t sg), Spec.Expanded.t (f_ghin_t_x x) (f_ret_t sg) (f_ghout_t sgh).
 
   Definition match_f_spec (vs : f_spec) (ss : SP.f_spec sg) : Prop :=
     forall x, Spec.spec_match (vs x) (ss x).
@@ -748,7 +747,43 @@ Section F_SPEC.
 
   Record FSpec (e : f_spec_exp) := mk_FSpec {
     m_spec  : f_spec;
-    m_equiv : forall x : f_arg_t sg, Spec.Expanded.of_expanded (OptTy.to_fun (e x)) (m_spec x);
+    m_equiv : forall x : f_arg_t sg, Spec.Expanded.of_expanded (e x) (m_spec x);
+  }.
+
+  Context [SIG : sig_context] (SPC : CP.spec_context SIG).
+
+  Definition fun_has_spec (f : fid) (HSIG : SIG f = Some sg)
+      (x : f_arg_t sg) (s : sigh_spec_t x) : Prop :=
+    Spec.spec_match s (SP.fun_has_spec SPC f x HSIG).
+  
+  Lemma cp_has_spec (f : fid)
+    (HSIG : SIG f = Some sg)
+    [s : f_spec] (HSPC : CP.fun_has_spec SPC f HSIG = cp_f_spec s):
+    forall x, fun_has_spec HSIG (s x).
+  Proof.
+    intros x ss TR.
+    do 2 esplit. reflexivity.
+    unfold SP.fun_has_spec; rewrite HSPC.
+    apply (SP.tr_f_spec_match _), TR.
+  Qed.
+  
+  Record f_declared (f : fid) (s : f_spec) : Prop := {
+    fd_Hsig  : SIG f = Some sg;
+    fd_Hspec : forall x, fun_has_spec fd_Hsig (s x);
+  }.
+
+  Lemma cp_is_declared (f : fid) (s : f_spec)
+    (HSIG : SIG f = Some sg)
+    (HSPC : CP.fun_has_spec SPC f HSIG = cp_f_spec s):
+    f_declared f s.
+  Proof.
+    exists HSIG.
+    apply cp_has_spec, HSPC.
+  Qed.
+
+  Record f_decl (s : f_spec) : Type := {
+    fd_id : fid;
+    fd_H  : f_declared fd_id s;
   }.
 End F_SPEC.
 Global Arguments FSpec [sg] sgh e.
@@ -978,7 +1013,7 @@ Section FunImpl.
 
   Definition impl_match :=
     forall (gi : ghin_t GI) (sel0 : sel0_t (spec gi)),
-    SP.sls SPC (i_impl (OptTy.to_fun body gi))
+    SP.sls SPC (i_impl (OptTy.to_fun' body gi))
       (Spec.Expanded.tr_1
         (fun pt xG => pt xG)
         (Spec.Expanded.f_r1 (Spec.Expanded.to_expanded spec gi) sel0)).
@@ -988,7 +1023,7 @@ Section FunImpl.
          let ctx : CTX.t := Spec.pre (spec gi sel0) ++ Spec.prs (spec gi sel0) in
          exists f : i_spec_t AG ctx,
          sf_csm f = Sub.const ctx true /\
-         sound_spec (i_impl (OptTy.to_fun body gi)) ctx f /\
+         sound_spec (i_impl (OptTy.to_fun' body gi)) ctx f /\
          forall REQ : Spec.req (spec gi sel0),
          FP.wlp (sf_spec f) (fun r =>
            let xG     := TF.v_val r in
@@ -1065,7 +1100,7 @@ Section FunImpl.
   End Impl_Match.
 
   Lemma intro_impl_match1
-    (H : forall gi sel0, Impl_Match (OptTy.to_fun body gi) (spec gi sel0)):
+    (H : forall gi sel0, Impl_Match (OptTy.to_fun' body gi) (spec gi sel0)):
     impl_match.
   Proof.
     apply intro_impl_match.
@@ -1165,19 +1200,19 @@ Section FunImplBody.
     eapply SP.Cons; eassumption.
   Qed.
 
-  Definition f_impl : Type :=
+  Definition f_extract : Type :=
     { i : @CP.f_impl SIG sg | forall x : f_arg_t sg, CP.extract (f_ebody x) (i x) }.
 
-  Variable (i : f_impl).
+  Variable (i : f_extract).
 
-  Lemma f_impl_match_spec:
+  Lemma f_extract_match_spec:
     CP.f_match_spec SPC (proj1_sig i) (cp_f_spec spec).
   Proof.
     intros arg s S m0 PRE.
     apply (proj2_sig i arg), f_ebody_match_spec; assumption.
   Qed.
 
-  Lemma f_impl_oracle_free:
+  Lemma f_extract_oracle_free:
     forall x : f_arg_t sg, CP.oracle_free (proj1_sig i x).
   Proof.
     intro; apply (proj2_sig i x).
@@ -1187,20 +1222,20 @@ End FunImplBody.
 (* Constructors *)
 
 Section Ret.
-  Context [A : Type] (x : A) (sp : A -> list Vprop.t).
+  Context [A : Type] (x : A) (pt : A -> list Vprop.t).
 
   Inductive Ret_Spec (ctx : CTX.t) : i_spec_t A ctx -> Prop
     := Ret_SpecI
-    (sels : Tuple.t (map Vprop.ty (sp x)))
+    (sels : Tuple.t (map Vprop.ty (pt x)))
     (csm : Sub.t ctx)
-    (ij : CTX.Inj.ieq (VpropList.inst (sp x) sels) ctx csm) :
+    (ij : CTX.Inj.ieq (VpropList.inst (pt x) sels) ctx csm) :
     Ret_Spec ctx {|
       sf_csm  := csm;
-      sf_prd  := sp;
-      sf_spec := FP.Ret (TF.mk (fun x => VpropList.sel (sp x)) x sels);
+      sf_prd  := pt;
+      sf_spec := FP.Ret (TF.mk (fun x => VpropList.sel (pt x)) x sels);
     |}.
 
-  Program Definition Ret : instr A := {|
+  Program Definition Ret0 : instr A := {|
     i_impl := CP.Ret x;
     i_spec := fun ctx => Ret_Spec ctx;
   |}.
@@ -1214,6 +1249,16 @@ Section Ret.
     reflexivity.
   Qed.
 End Ret.
+
+Definition Ret [A : Type] (x : A) {pt : opt_arg (A -> list Vprop.t) (fun _ => [])}
+  : instr A
+  := Ret0 x pt.
+
+Definition RetG [A : Type] [P : A -> Type] (x : A) (y : P x)
+    {pt : opt_arg (forall x : A, P x -> list Vprop.t) (fun _ _ => [])}
+  : instr (CP.sigG A P)
+  := Ret0 (CP.existG P x y) (CP.split_sigG pt).
+
 Section Bind.
   Context [A B : Type] (f : instr A) (g : A -> instr B).
   
@@ -1417,11 +1462,8 @@ Section Call.
     - exact (CP.Call f HSIG x).
   Defined.
 
-  Variables (gi : OptTy.t (option_map (fun g => g x) (f_ghin_t sgh))) (s : sigh_spec_t sgh x).
-
-  Definition fun_has_spec : Prop :=
-    Spec.spec_match s (SP.fun_has_spec SPC f x HSIG).
-  Hypothesis (HSPC : fun_has_spec).
+  Variables (gi : OptTy.t (f_ghin_t_x sgh x)) (s : sigh_spec_t sgh x).
+  Hypothesis (HSPC : fun_has_spec SPC f HSIG s).
 
   Lemma Call_impl_sls sel0:
     SP.sls SPC Call_impl
@@ -1517,6 +1559,15 @@ Section Call.
       reflexivity.
   Qed.
 End Call.
+
+Definition Call_f_decl [sg sgh s] (fd : @f_decl sg sgh SIG SPC s)
+  (x : f_arg_t sg)
+  : OptTy.arrow (f_ghin_t_x sgh x)
+                (fun _ => instr (Spec.opt_sigG (f_ghout_t sgh)))
+  :=
+  OptTy.of_fun (fun gi =>
+    Call (fd_id fd) (fd_Hsig (fd_H fd)) sgh x gi (s x) (fd_Hspec (fd_H fd) x)).
+
 Section GGet.
   Context [A : Type] (v : Vprop.p A).
 
@@ -1661,18 +1712,68 @@ Section Write.
   Qed.
 End Write.
 
-Lemma cp_has_spec (f : fid)
-  [sg : f_sig] (HSIG : SIG f = Some sg)
-  [sgh : f_sigh sg] [s : f_spec sgh] (HSPC : CP.fun_has_spec SPC f HSIG = cp_f_spec s):
-  forall x, fun_has_spec f HSIG sgh x (s x).
-Proof.
-  intros x ss TR.
-  do 2 esplit. reflexivity.
-  unfold SP.fun_has_spec; rewrite HSPC.
-  apply (SP.tr_f_spec_match _), TR.
-Qed.
-
 End VProg.
+
+Global Arguments Ret [_ _ _] _ {pt}.
+Global Arguments RetG [_ _ _ _] _ _ {pt}.
+Global Arguments Bind [_ _ _ _] _ _.
+Global Arguments Call [_ _ _ _ _] _ _ _ [_] _.
+Global Arguments Call_f_decl [_ _ _ _ _] _ _.
+Global Arguments GGet [_ _ _] _.
+Global Arguments Assert [_ _ _].
+Global Arguments Read [_ _] _.
+Global Arguments Write [_ _] _ _.
+
+
+Module NotationsDef.
+  (* types notation *)
+
+  Record FDecl (arg_t : Type) (ghin_t  : option (arg_t -> Type))
+               (ret_t : Type) (ghout_t : option (ret_t -> Type))
+               (e : f_spec_exp (mk_f_sigh (mk_f_sig arg_t ret_t) ghin_t ghout_t))
+    : Type := mk_FDecl {
+    fd_FSpec : FSpec _ e
+  }.
+  Global Arguments fd_FSpec [_ _ _ _ _].
+
+  Definition fd_sig
+    [arg_t ghin_t ret_t ghout_t e] (F : @FDecl arg_t ghin_t ret_t ghout_t e)
+    : f_sig := mk_f_sig arg_t ret_t.
+
+  Definition fd_cp
+    [arg_t ghin_t ret_t ghout_t e] (F : @FDecl arg_t ghin_t ret_t ghout_t e)
+    : CP.f_spec (fd_sig F) := cp_f_spec (m_spec (fd_FSpec F)).
+
+  Definition to_f_decl
+    [arg_t ghin_t ret_t ghout_t e] (F : @FDecl arg_t ghin_t ret_t ghout_t e)
+    [SIG : sig_context] (SPC : CP.spec_context SIG)
+    : Type := f_decl SPC (m_spec (fd_FSpec F)).
+
+  Definition fd_mk (f : fid)
+    [arg_t ghin_t ret_t ghout_t e] (F : @FDecl arg_t ghin_t ret_t ghout_t e)
+    [SIG : sig_context] (SPC : CP.spec_context SIG)
+    (HSIG : SIG f = Some (fd_sig F))
+    (HSPS : CP.fun_has_spec SPC f HSIG = fd_cp F):
+    to_f_decl F SPC.
+  Proof.
+    exists f. unshelve eapply cp_is_declared; assumption.
+  Defined.
+
+  Definition Call_to_f_decl
+    [arg_t ghin_t ret_t ghout_t e F SIG SPC] (fd : @to_f_decl arg_t ghin_t ret_t ghout_t e F SIG SPC)
+    (x : arg_t) : OptTy.arrow (option_map (fun gi => gi x) ghin_t) (fun _ => instr SPC (Spec.opt_sigG ghout_t))
+    := Call_f_decl fd x.
+
+  Coercion to_f_decl      : FDecl     >-> Funclass.
+  Coercion Call_to_f_decl : to_f_decl >-> Funclass.
+
+
+  Definition FImpl [SIG SPC sg sgh s] (fd : @f_decl sg sgh SIG SPC s) : Type
+    := f_body SPC sgh.
+
+  Definition FCorrect [SIG SPC sg sgh s fd] (fi : @FImpl SIG SPC sg sgh s fd) : Prop
+    := f_body_match fi s.
+End NotationsDef.
 
 Module Tac.
   Export Util.Tac.
@@ -1695,7 +1796,7 @@ Module Tac.
 
   Local Lemma mk_red_FSpec [sg : f_sig] [sgh : f_sigh sg] [e : f_spec_exp sgh]
     [s0 s1 : f_spec sgh]
-    (E : forall x : f_arg_t sg, Spec.Expanded.of_expanded (OptTy.to_fun (e x)) (s0 x))
+    (E : forall x : f_arg_t sg, Spec.Expanded.of_expanded (e x) (s0 x))
     (R : s1 = s0):
     FSpec sgh e.
   Proof.
@@ -1708,7 +1809,7 @@ Module Tac.
     refine (mk_red_FSpec _ _);
     [ cbn;
       do 2 intro (* arg, gi *); of_expanded_arg;
-      refine (Spec.Expanded.of_expandedI _ _ _); cbn;
+      refine (Spec.Expanded.of_expanded0I _ _ _); cbn;
       intro (* sel0 *); of_expanded_arg;
       refine (Spec.Expanded.of_expanded1I _ _ _); cbn;
       intro (* ret *); (* TODO? of_expanded_arg *)
@@ -1718,6 +1819,11 @@ Module Tac.
       | shelve | (* S_VPOST *) Tac.cbn_refl
       | shelve | (* S3      *) cbn; repeat intro; refine (Spec.Expanded.of_expanded3I _) ]
     | cbn; reflexivity ].
+
+  (* solves a goal [FDecl arg_t ghin_t ret_t ghout_t espec] *)
+  Ltac build_FDecl :=
+    constructor; Tac.build_FSpec.
+
 
   (* build_HasSpec *)
 
@@ -2005,7 +2111,7 @@ Module Tac.
     | _ => CP.build_extract_cont_k build_extract_cont
     end.
 
-  (* solves a goal [f_impl bd] *)
+  (* solves a goal [f_extract bd] *)
   Ltac extract_impl :=
     eexists; intro;
     refine (CP.extract_by_cont _ _ _);
@@ -2014,3 +2120,103 @@ Module Tac.
     | try solve [ CP.build_oracle_free ] ].
 
 End Tac.
+
+(* Exported tactics *)
+Module Tactics.
+  #[export] Hint Extern 1 (NotationsDef.FDecl _ _ _ _ _) => Tac.build_FDecl : deriveDB.
+  #[export] Hint Extern 1 (f_extract _) => Tac.extract_impl : deriveDB.
+
+  (* Changes a goal [f_body_match impl spec] into a goal [pre -> FP.wlpa f post]
+     where [f : FP.instr _] is a functionnal program. *)
+  Ltac build_fun_spec :=
+    intro (* arg *);
+    Tac.build_impl_match;
+    FP.simpl_prog.
+
+  (* Changes a goal [f_body_match impl spec] into a WLP and starts solving it using tactic [tc] *)
+  Local Ltac by_wlp_with tc :=
+    build_fun_spec;
+    FP.by_wlp_ false;
+    FP.solve_wlp;
+    tc.
+
+  Tactic Notation "by_wlp" :=
+    by_wlp_with ltac:(eauto).
+  Tactic Notation "by_wlp" tactic(tc) :=
+    by_wlp_with ltac:(tc).
+End Tactics.
+
+Module Notations.
+  Export NotationsDef Tactics.
+
+
+  (* vprop notation *)
+
+  Notation "x ~> v" := (CTX.mka (x, v)) (at level 100).
+  Definition vptr := SLprop.cell.
+  Global Arguments vptr/.
+
+  (* instruction notation *)
+
+  Notation "' x <- f ; g" := (Bind f (fun x => g))
+    (at level 200, x pattern at level 0, only parsing).
+  Notation "' x y <- f ; g" := (Bind f (fun '(CP.existG _ x y) => g))
+    (at level 200, x pattern at level 0, y pattern at level 0, only parsing).
+  Notation "f ;; g" := (Bind f (fun _ => g))
+    (at level 199, right associativity, only parsing).
+
+  (* specification notation *)
+
+  Declare Scope vprog_spec_scope.
+  Delimit Scope vprog_spec_scope with vprog_spec.
+  Global Arguments FSpec [sg] sgh e%vprog_spec.
+  Global Arguments FDecl (_ _ _ _)%type e%vprog_spec.
+
+  Definition mk_f_r0_None [arg_t res_t ghout_t]
+    (f : arg_t -> @Spec.Expanded.t_r0 res_t ghout_t):
+    f_spec_exp (mk_f_sigh (mk_f_sig arg_t res_t) None ghout_t)
+    := fun arg _ => f arg.
+  Definition mk_f_r0_Some [arg_t ghin_t res_t ghout_t]
+    (f : forall (x : arg_t) (y : ghin_t x), @Spec.Expanded.t_r0 res_t ghout_t):
+    f_spec_exp (mk_f_sigh (mk_f_sig arg_t res_t) (Some ghin_t) ghout_t)
+    := fun arg gi => f arg gi.
+
+  Definition mk_f_r2_None [A : Type] (f : A -> Spec.Expanded.t_r2)
+    (x : @Spec.opt_sigG A None) : Spec.Expanded.t_r2 :=
+    f x.
+  Definition mk_f_r2_Some [A : Type] [GO : A -> Type] (f : forall (x : A) (y : GO x), Spec.Expanded.t_r2)
+    (x : @Spec.opt_sigG A (Some GO)) : Spec.Expanded.t_r2 :=
+    CP.split_sigG f x.
+
+  Global Arguments mk_f_r0_None/.
+  Global Arguments mk_f_r0_Some/.
+  Global Arguments mk_f_r2_None/.
+  Global Arguments mk_f_r2_Some/.
+
+  Declare Custom Entry vprog_spec_0.
+  Declare Custom Entry vprog_spec_1.
+  Declare Custom Entry vprog_spec_2.
+  Notation ": arg s" := (mk_f_r0_None (fun arg => s))
+    (at level 0, arg pattern at level 0, s custom vprog_spec_0 at level 0) : vprog_spec_scope.
+  Notation ": arg & gi s" := (mk_f_r0_Some (fun arg gi => s))
+    (at level 0, arg pattern at level 0, gi pattern at level 0, s custom vprog_spec_0 at level 0) : vprog_spec_scope.
+  Notation "'FOR' sel0 prs pre req s" :=
+    (Spec.Expanded.mk_r0 (fun sel0 =>
+     Spec.Expanded.mk_r1 prs pre req s))
+    (in custom vprog_spec_0 at level 0,
+     sel0 pattern at level 0, prs constr at level 0, pre constr at level 0, req constr at level 0,
+     s custom vprog_spec_1 at level 0).
+  Notation "'RET' res s" := (mk_f_r2_None (fun res => s))
+    (in custom vprog_spec_1 at level 0,
+     res pattern at level 0,
+     s custom vprog_spec_2 at level 0).
+  Notation "'RET' res & go s" := (mk_f_r2_Some (fun res go => s))
+    (in custom vprog_spec_1 at level 0,
+     res pattern at level 0, go pattern at level 0,
+     s custom vprog_spec_2 at level 0).
+  Notation "'FOR' sel1 post ens" :=
+    (Spec.Expanded.mk_r2 (fun sel1 =>
+     Spec.Expanded.mk_r3 post ens))
+    (in custom vprog_spec_2 at level 0,
+     sel1 pattern at level 0, post constr at level 0, ens constr at level 0).
+End Notations.

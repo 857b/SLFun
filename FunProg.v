@@ -237,6 +237,24 @@ Ltac by_wlp_ dmatch :=
 
 Ltac by_wlp := by_wlp_ true.
 
+(* decompose a generated wlp *)
+Ltac solve_wlp :=
+  lazymatch goal with
+  | |- ?A /\ ?B =>
+      split; solve_wlp
+  | |- ?A -> ?B =>
+      lazymatch A with
+      | context[match ?x with _ => _ end] =>
+          destruct x
+      | _ =>
+          let H := fresh "H" in intro H; decompose [Logic.ex Logic.and] H; subst
+      end;
+      solve_wlp
+  | |- context[match ?x with _ => _ end] =>
+      destruct x; solve_wlp 
+  | _ => idtac
+  end.
+
 (* Program simplification *)
 
 Section SimplCont.

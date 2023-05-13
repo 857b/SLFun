@@ -13,6 +13,9 @@ Definition projG1 [A P] (x : sigG A P) : A :=
   let '(existG _ x _) := x in x.
 Definition projG2 [A P] (x : sigG A P) : P (projG1 x) :=
   let '(existG _ _ y) := x in y.
+Definition split_sigG [A P B] (f : forall (x : A) (y : P x), B) (x : sigG A P) : B :=
+  f (projG1 x) (projG2 x).
+
 
 Module Spec. Section Spec.
   Local Set Implicit Arguments.
