@@ -96,13 +96,7 @@ Definition vprog_4 : FImpl f_4 := fun '(p0, p1) =>
   'p0' p1' <- f_3 p0 p1;
   RetG p0' p1' (pt := fun p0 p1 => [Vprop.mk (vptr p0); Vprop.mk (vptr p1)]).
 Lemma correct_4: FCorrect vprog_4.
-Proof.
-  intro.
-  Tac.build_impl_match.
-  FP.simpl_prog.
-  FP.by_wlp. (* FP.by_wlp_ false. TODO FIXME*)
-  tauto.
-Qed.
+Proof. by_wlp. Qed.
 Definition cp_4: f_extract vprog_4.
 Proof. derive. Defined.
 
@@ -186,13 +180,7 @@ Definition vprog_a0 : f_body SPEC sigh_a0 := fun ps =>
   Ret tt.
 Lemma imatch_a0:
   f_body_match vprog_a0 (m_spec spec_a0).
-Proof.
-  intro ps.
-  Tac.build_impl_match.
-  FP.simpl_prog.
-  FP.by_wlp.
-  cbn. tauto.
-Qed.
+Proof. by_wlp. Qed.
 
 Definition cp_a0: f_extract vprog_a0.
 Proof. Tac.extract_impl. Defined.
@@ -211,13 +199,7 @@ Definition vprog_a1a : f_body SPEC sigh_a1a := fun '(b, p0, p1, p2) =>
   else Write p2 1.
 Lemma imatch_a1a:
   f_body_match vprog_a1a (m_spec spec_a1a).
-Proof.
-  intros (((b, p0), p1), p2).
-  Tac.build_impl_match.
-  FP.simpl_prog.
-  FP.by_wlp.
-  intuition congruence.
-Qed.
+Proof. by_wlp; congruence. Qed.
 
 Definition cp_a1a: f_extract vprog_a1a.
 Proof. Tac.extract_impl. Defined.
@@ -239,13 +221,7 @@ Definition vprog_a1b : f_body SPEC sigh_a1b := fun '(b, p) =>
   end.
 Lemma imatch_a1b:
   f_body_match vprog_a1b (m_spec spec_a1b).
-Proof.
-  intros (b, p).
-  Tac.build_impl_match.
-  FP.simpl_prog.
-  FP.by_wlp.
-  intuition congruence.
-Qed.
+Proof. by_wlp; congruence. Qed.
 
 
 Definition sigh_a1c := mk_f_sig1 (option nat * ptr) None unit None.
@@ -262,13 +238,7 @@ Definition vprog_a1c : f_body SPEC sigh_a1c := fun '(o, p) =>
   end.
 Lemma imatch_a1c:
   f_body_match vprog_a1c (m_spec spec_a1c).
-Proof.
-  intros (o, p).
-  Tac.build_impl_match.
-  FP.simpl_prog.
-  FP.by_wlp_ false.
-  destruct o; tauto.
-Qed.
+Proof. by_wlp. Qed.
 
 
 Definition sigh_a2a := mk_f_sig1 (ptr * ptr) None unit None.
@@ -285,13 +255,7 @@ Definition vprog_a2a : f_body SPEC sigh_a2a := fun '(p0, p1) =>
   Write p1 (S v1).
 Lemma imatch_a2a:
   f_body_match vprog_a2a (m_spec spec_a2a).
-Proof.
-  intros (p0, p1).
-  Tac.build_impl_match.
-  FP.simpl_prog.
-  FP.by_wlp.
-  intuition.
-Qed.
+Proof. by_wlp. Qed.
 Definition cp_a2a: f_extract vprog_a2a.
 Proof. Tac.extract_impl. Defined.
 
@@ -304,13 +268,7 @@ Definition vprog_a2b : f_body SPEC sigh_a2a := fun '(p0, p1) =>
   Write p1 (S v1).
 Lemma imatch_a2b:
   f_body_match vprog_a2b (m_spec spec_a2a).
-Proof.
-  intros (p0, p1).
-  Tac.build_impl_match.
-  FP.simpl_prog.
-  FP.by_wlp.
-  intuition.
-Qed.
+Proof. by_wlp. Qed.
 Definition cp_a2b: f_extract vprog_a2b.
 Proof. Tac.extract_impl. Defined.
 
@@ -326,13 +284,7 @@ Definition vprog_a3 : f_body SPEC sigh_a3 := fun _ '(n0, n1) =>
   RetG tt (n0 + n1).
 Lemma imatch_a3:
   f_body_match vprog_a3 (m_spec spec_a3).
-Proof.
-  intros _arg.
-  Tac.build_impl_match.
-  FP.simpl_prog.
-  FP.by_wlp.
-  tauto.
-Qed.
+Proof. by_wlp. Qed.
 Definition cp_a3: f_extract vprog_a3.
 Proof. Tac.extract_impl. Defined.
 End Other.

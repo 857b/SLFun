@@ -2133,22 +2133,16 @@ Module Tactics.
     Tac.build_impl_match;
     FP.simpl_prog.
 
-  (* Changes a goal [f_body_match impl spec] into a WLP and starts solving it using tactic [tc] *)
-  Local Ltac by_wlp_with tc :=
+  (* Changes a goal [f_body_match impl spec] into a WLP and starts solving it *)
+  Ltac by_wlp :=
     build_fun_spec;
     FP.by_wlp_ false;
     FP.solve_wlp;
-    tc.
-
-  Tactic Notation "by_wlp" :=
-    by_wlp_with ltac:(eauto).
-  Tactic Notation "by_wlp" tactic(tc) :=
-    by_wlp_with ltac:(tc).
+    eauto.
 End Tactics.
 
 Module Notations.
   Export NotationsDef Tactics.
-
 
   (* vprop notation *)
 

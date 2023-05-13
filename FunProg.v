@@ -160,7 +160,7 @@ End WLP_Formula.
 (* build a formula [match x with ... end] *)
 Ltac build_wlp_formula_match build_f x :=
   lazymatch goal with |- wlp_formula _ ?f =>
-  Tac.build_term f ltac:(fun _ => intro (* post *); destruct x; try clear x; shelve);
+  Tac.build_term f ltac:(fun _ => intro (* post *); destruct x; shelve);
   destruct x; build_f
   end.
 
@@ -183,7 +183,7 @@ Ltac conj_proj_last H :=
 
 Ltac build_wlp_formula_branch build_f x :=
   simple refine (wlp_formula_imp _ _ _);
-  [ (* f0 *) destruct x; try clear x; shelve
+  [ (* f0 *) destruct x; shelve
   | (* F  *) destruct x; build_f
   | (* M  *)
     cbn;
@@ -237,19 +237,38 @@ Ltac by_wlp_ dmatch :=
 
 Ltac by_wlp := by_wlp_ true.
 
+Ltac decompose' H :=
+  lazymatch goal with | H : ?T |- _ =>
+  lazymatch T with
+  | exists _, _ =>
+      let H0 := fresh "H" in
+      destruct H as [? H0]; decompose' H0
+  | _ /\ _ =>
+      let H0 := fresh "H" in
+      let H1 := fresh "H" in
+      destruct H as [H0 H1];
+      decompose' H0;
+      decompose' H1
+  | True  => destruct H
+  | False => destruct H
+  | unit  => destruct H
+  | _ = _ => subst
+  | context[match ?x with _ => _ end] =>
+      destruct x; decompose' H
+  | _ => idtac
+  end end.
+
 (* decompose a generated wlp *)
 Ltac solve_wlp :=
   lazymatch goal with
   | |- ?A /\ ?B =>
       split; solve_wlp
-  | |- ?A -> ?B =>
-      lazymatch A with
-      | context[match ?x with _ => _ end] =>
-          destruct x
-      | _ =>
-          let H := fresh "H" in intro H; decompose [Logic.ex Logic.and] H; subst
-      end;
-      solve_wlp
+  | |- _ -> _ =>
+      let H := fresh "H" in intro H; decompose' H; solve_wlp
+  | |- forall _, _ =>
+      let H := fresh "H" in intro H; decompose' H; solve_wlp
+  | |- _ = _ => try reflexivity
+  | |- True  => exact Logic.I
   | |- context[match ?x with _ => _ end] =>
       destruct x; solve_wlp 
   | _ => idtac
