@@ -28,11 +28,11 @@ Module Spec. Section Spec.
     wp post0 m -> wp post1 m.
 
   Definition wp_le (wp0 wp1 : wp_t) : Prop :=
-    forall post m0, wp0 post m0 -> wp1 post m0.
+    forall post m0, wp1 post m0 -> wp0 post m0.
 
   Global Instance wp_le_PreOrder : PreOrder wp_le.
   Proof.
-    Rel.by_expr (Rel.point (A -> mem -> Prop) (Rel.point mem (Basics.impl))).
+    Rel.by_expr (Rel.point (A -> mem -> Prop) (Rel.point mem (Basics.flip (Basics.impl)))).
   Qed.
   
   Record t := mk {
@@ -304,11 +304,31 @@ Section Extraction.
     | KFun f => Bind i (fun x => Ret (f x))
     end.
 
+  Lemma k_apply_morph [A B] (i0 i1 : instr A) (k : k_opt A B) SPEC
+    (LE : Spec.wp_le (wlp SPEC i0) (wlp SPEC i1)):
+    Spec.wp_le (wlp SPEC (k_apply i0 k)) (wlp SPEC (k_apply i1 k)).
+  Proof.
+    destruct k; cbn; do 2 intro; apply LE.
+  Qed.
+
+  Definition k_apply_Ret [A B] (x : A) (k : k_opt A B) : instr B :=
+    match k with
+    | KNone  => Ret x
+    | KDrop  => Ret tt
+    | KFun f => Ret (f x)
+    end.
+
+  Lemma k_apply_Ret_le [A B] x k SPEC:
+    Spec.wp_le (wlp SPEC (@k_apply_Ret A B x k)) (wlp SPEC (k_apply (Ret x) k)).
+  Proof.
+    destruct k; intro; cbn; auto.
+  Qed.
+
   Inductive extract_cont [A B] (i : instr A) (k : k_opt A B) (r : instr B) : Prop :=
-    extract_contI (E : forall SPEC, Spec.wp_le (wlp SPEC (k_apply i k)) (wlp SPEC r)).
+    extract_contI (E : forall SPEC, Spec.wp_le (wlp SPEC r) (wlp SPEC (k_apply i k))).
 
   Record extract [A] (i0 i1 : instr A) := {
-    extract_wlp : forall SPEC, Spec.wp_le (wlp SPEC i0) (wlp SPEC i1);
+    extract_wlp : forall SPEC, Spec.wp_le (wlp SPEC i1) (wlp SPEC i0);
     extract_oracle_free : oracle_free i1;
   }.
 
@@ -340,8 +360,18 @@ Section Extraction.
     intros [? ?]; auto.
   Qed.
 
+  Lemma EDropUnit [B i k]
+    (D : @edroppable unit i):
+    @extract_cont unit B i k (k_apply_Ret tt k).
+  Proof.
+    constructor; intros SPEC post m0 W; destruct D; cbn;
+    apply k_apply_Ret_le.
+    - destruct x; auto.
+    - eapply k_apply_morph, W; intros ? ? [[] H]; exact H.
+  Qed.
+
   Lemma EDropAssert [B P] k:
-    @extract_cont unit B (Assert P) k (k_apply (Ret tt) k).
+    @extract_cont unit B (Assert P) k (k_apply_Ret tt k).
   Proof.
     constructor; intros SPEC post m0; cbn.
     destruct k; cbn; tauto.
@@ -408,10 +438,12 @@ Ltac build_extract_cont_k ktac :=
       | Assert _ =>
           exact (EDropAssert _)
       | Oracle _ =>
-          try exact (EDrop (@EDrOracle _ _));
+          try first [ exact (EDrop (@EDrOracle _ _))
+                    | exact (EDropUnit (@EDrOracle _ _)) ];
           lazymatch goal with |- ?g => fail "drop oracle" g end
       | Ret _ =>
           first [ exact (EDrop (EDrRet _))
+                | exact (EDropUnit (EDrRet _))
                 | exact (ECompRet _ _)
                 | exact (ERefl _) ]
       | Bind _ _ =>

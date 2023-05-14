@@ -5,10 +5,57 @@ Import ListNotations.
 
 (* Tactics *)
 
-Global Create HintDb deriveDB discriminated.
-Global Hint Constants Opaque : deriveDB.
-Global Hint Variables Opaque : deriveDB.
-Ltac derive := solve [auto 1 with deriveDB nocore].
+Global Create HintDb DeriveDB discriminated.
+Global Hint Constants Opaque : DeriveDB.
+Global Hint Variables Opaque : DeriveDB.
+Ltac Derive := solve [auto 1 with DeriveDB nocore].
+
+Inductive Change_Goal (goal0 : Type) (goal1 : Type) :=
+  Change_GoalI (H : goal1 -> goal0).
+Global Arguments Change_GoalI [_ _].
+
+Local Lemma by_Change_Goal [goal0 goal1]
+  (S : @Change_Goal goal0 goal1)
+  (C : goal1):
+  goal0.
+Proof. apply S, C. Defined.
+
+(* DB for [Intro].
+   Should solves goals [Change_Goal goal0 ?goal1] and instantiate [?goal1] to [forall _, _] *)
+Global Create HintDb IntroDB discriminated.
+Global Hint Constants Opaque : IntroDB.
+Global Hint Variables Opaque : IntroDB.
+
+Ltac Intro_core :=
+  refine (by_Change_Goal _ _); [ solve [eauto 1 with IntroDB nocore] |].
+
+Global Tactic Notation "Intro" :=
+  Intro_core; intro.
+
+Global Tactic Notation "Intro" simple_intropattern(x) :=
+  Intro_core; intros x.
+
+(* DB for [Apply].
+   Should solves goals [Change_Goal goal0 ?goal1] and instantiate [?goal1] to [{_ & _}] *)
+Global Create HintDb ApplyDB discriminated.
+Global Hint Constants Opaque : ApplyDB.
+Global Hint Variables Opaque : ApplyDB.
+
+Ltac Apply_core := 
+  refine (by_Change_Goal _ _); [ solve [eauto 1 with ApplyDB nocore] |].
+
+Global Tactic Notation "Apply" :=
+  Apply_core; unshelve eexists.
+
+Global Tactic Notation "Apply" uconstr(x) :=
+  Apply_core; exists x.
+
+Global Tactic Notation "EApply" :=
+  Apply_core; eexists.
+
+Global Tactic Notation "EApply" uconstr(x) :=
+  Apply_core; eexists x.
+
 
 Module Tac.
   Module Notations.

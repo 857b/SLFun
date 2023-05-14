@@ -3,7 +3,7 @@ Require Import SLFun.VProg.
 
 Require Import Coq.Lists.List.
 
-Import SLNotations.
+Import SLNotations SL.Tactics.
 Import ListNotations.
 Import DTuple.Notations.
 Import VProg._Abbrev.
@@ -17,7 +17,7 @@ Definition spec_0 : FDecl (ptr * ptr) _ unit _
   : (p0, p1)
     FOR (n0, n1) [] [vptr p0 ~> n0; vptr p1 ~> n1] True
     RET ( _ ) FOR tt [vptr p0 ~> n1; vptr p1 ~> n0] True.
-Proof. derive. Defined.
+Proof. Derive. Defined.
 Variable f_0 : spec_0 _ SPEC.
 
 Definition vprog_0 : FImpl f_0 := fun '(p0, p1) =>
@@ -28,14 +28,14 @@ Definition vprog_0 : FImpl f_0 := fun '(p0, p1) =>
 Lemma correct_0 : FCorrect vprog_0.
 Proof. by_wlp. Qed.
 Definition cp_0: f_extract vprog_0.
-Proof. derive. Defined.
+Proof. Derive. Defined.
 
 
 Definition spec_1 : FDecl (ptr * ptr * ptr) _ unit _
   : (p0, p1, p2)
     FOR (n0, n1, n2) [vptr p2 ~> n2] [vptr p0 ~> n0; vptr p1 ~> n1] True
     RET _ FOR tt [vptr p0 ~> n1; vptr p1 ~> n0] True.
-Proof. derive. Defined.
+Proof. Derive. Defined.
 Variable f_1 : spec_1 _ SPEC.
 
 Definition vprog_1 : FImpl f_1 := fun '(p0, p1, p2) =>
@@ -43,7 +43,7 @@ Definition vprog_1 : FImpl f_1 := fun '(p0, p1, p2) =>
 Lemma correct_1 : FCorrect vprog_1.
 Proof. by_wlp. Qed.
 Definition cp_1: f_extract vprog_1.
-Proof. derive. Defined.
+Proof. Derive. Defined.
 
 
 Definition data42 : nat := 42.
@@ -52,7 +52,7 @@ Definition spec_2 : FDecl (ptr * ptr * ptr) _ ptr _
   : (p0, p1, p2)
     FOR (n0, n1, n2) [vptr p2 ~> n2] [vptr p0 ~> n0; vptr p1 ~> n1] True
     RET p FOR (n, n1') [vptr p ~> n; vptr p1 ~> n1'] (n1' > 0).
-Proof. derive. Defined.
+Proof. Derive. Defined.
 Variable f_2 : spec_2 _ SPEC.
 
 Definition vprog_2 : FImpl f_2 := fun '(p0, p1, p2) =>
@@ -60,45 +60,97 @@ Definition vprog_2 : FImpl f_2 := fun '(p0, p1, p2) =>
   Write p1 data42;;
   Assert (fun '(v0', v1') =>
     ([vptr p0 ~> v0'; vptr p1 ~> v1'], v0' = v0));;
-  Ret p0 (pt := fun p => [Vprop.mk (vptr p)]).
+  Ret p0 (pt := fun p => [vptr p ~>]).
 Lemma correct_2: FCorrect vprog_2.
 Proof.
   by_wlp.
   unfold data42; repeat constructor.
 Qed.
 Definition cp_2: f_extract vprog_2.
-Proof. derive. Defined.
+Proof. Derive. Defined.
 
 
 Definition spec_3 : FDecl ptr (Some (fun _ => ptr)) ptr (Some (fun _ => ptr))
   : p0 & p1
     FOR (n0, n1) [] [vptr p0 ~> n0; vptr p1 ~> n1] True
     RET p0' & p1' FOR (n0', n1') [vptr p0' ~> n0'; vptr p1' ~> n1'] True.
-Proof. derive. Defined.
+Proof. Derive. Defined.
 Variable f_3 : spec_3 _ SPEC.
 
 Definition vprog_3 : FImpl f_3 := fun p0 p1 =>
-  RetG p0 p1 (pt := fun p0 p1 => [Vprop.mk (vptr p0); Vprop.mk (vptr p1)]).
+  RetG p0 p1 (pt := fun p0 p1 => [vptr p0 ~>; vptr p1 ~>]).
 Lemma correct_3: FCorrect vprog_3.
 Proof. by_wlp. Qed.
 Definition cp_3: f_extract vprog_3.
-Proof. derive. Defined.
+Proof. Derive. Defined.
 
 
 Definition spec_4 : FDecl (ptr * ptr) _ ptr (Some (fun _ => ptr))
   : (p0, p1)
     FOR (n0, n1) [] [vptr p0 ~> n0; vptr p1 ~> n1] True
     RET p0' & p1' FOR (n0', n1') [vptr p0' ~> n0'; vptr p1' ~> n1'] True.
-Proof. derive. Defined.
+Proof. Derive. Defined.
 Variable f_4 : spec_4 _ SPEC.
 
 Definition vprog_4 : FImpl f_4 := fun '(p0, p1) =>
   'p0' p1' <- f_3 p0 p1;
-  RetG p0' p1' (pt := fun p0 p1 => [Vprop.mk (vptr p0); Vprop.mk (vptr p1)]).
+  RetG p0' p1' (pt := fun p0 p1 => [vptr p0 ~>; vptr p1 ~>]).
 Lemma correct_4: FCorrect vprog_4.
 Proof. by_wlp. Qed.
 Definition cp_4: f_extract vprog_4.
-Proof. derive. Defined.
+Proof. Derive. Defined.
+
+
+Definition cell2 (p : ptr) '(v0, v1) : SLprop.t :=
+  (SLprop.cell p v0 ** SLprop.cell (S p) v1)%slprop.
+
+Definition elim_cell2_spec : LDecl ptr unit
+  : p FOR n01 [] [cell2 p ~> n01] True
+    RET _ FOR tt [vptr p ~> (fst n01); vptr (S p) ~> (snd n01)] True.
+Proof. Derive. Defined.
+Lemma elim_cell2 : elim_cell2_spec.
+Proof.
+  init_lemma.
+  intros p (n0, n1) _.
+  do 3 (Apply; [constructor|]); cbn.
+  SLprop.normalize.
+  reflexivity.
+Qed.
+
+Definition intro_cell2_spec : LDecl ptr unit
+  : p FOR (n0, n1) [] [vptr p ~> n0; vptr (S p) ~> n1] True
+    RET _ FOR tt [cell2 p ~> (n0, n1)] True.
+Proof. Derive. Defined.
+Lemma intro_cell2 : intro_cell2_spec.
+Proof.
+  init_lemma.
+  intros p (n0, n1) _; cbn.
+  do 3 (Apply; [constructor|]); cbn.
+  SLprop.normalize.
+  reflexivity.
+Qed.
+
+(*
+Global Opaque cell2.
+Global Arguments cell2 : simpl never.
+*)
+
+Definition spec_5 : FDecl ptr _ unit _
+  : p
+    FOR v [] [cell2 p ~> v] True
+    RET _ FOR v' [cell2 p ~> v'] (v' = let (n0, n1) := v in (S n0, n1)).
+Proof. Derive. Defined.
+Variable f_5 : spec_5 _ SPEC.
+
+Definition vprog_5 : FImpl f_5 := fun p =>
+  gLem elim_cell2 p;;
+  'n <- Read p;
+  Write p (S n);;
+  gLem intro_cell2 p.
+Lemma correct_5: FCorrect vprog_5.
+Proof. by_wlp. case sel0; reflexivity. Qed.
+Definition cp_5: f_extract vprog_5.
+Proof. Derive. Defined.
 
 End Program.
 
@@ -110,6 +162,7 @@ Section Extraction.
     | 2 => Some (fd_sig spec_2)
     | 3 => Some (fd_sig spec_3)
     | 4 => Some (fd_sig spec_4)
+    | 5 => Some (fd_sig spec_5)
     | _ => None
     end.
 
@@ -120,6 +173,7 @@ Section Extraction.
     | 2 => fd_cp spec_2
     | 3 => fd_cp spec_3
     | 4 => fd_cp spec_4
+    | 5 => fd_cp spec_5
     | _ => tt
     end.
 
@@ -128,6 +182,7 @@ Section Extraction.
   Definition H_f_2 := fd_mk 2 spec_2 SPEC eq_refl eq_refl.
   Definition H_f_3 := fd_mk 3 spec_3 SPEC eq_refl eq_refl.
   Definition H_f_4 := fd_mk 4 spec_4 SPEC eq_refl eq_refl.
+  Definition H_f_5 := fd_mk 5 spec_5 SPEC eq_refl eq_refl.
 
   Definition IMPL : CP.impl_context SIG :=
     fun f => match f with
@@ -136,6 +191,7 @@ Section Extraction.
     | 2 => proj1_sig (cp_2 _ _ H_f_2)
     | 3 => proj1_sig (cp_3 _ _ H_f_3)
     | 4 => proj1_sig (cp_4 _ _ H_f_3 H_f_4)
+    | 5 => proj1_sig (cp_5 _ _ H_f_5)
     | _ => tt
     end.
 
@@ -155,6 +211,7 @@ Section Extraction.
     - apply correct_2.
     - apply correct_3.
     - apply correct_4.
+    - apply correct_5.
   Qed.
 
   Lemma context_oracle_free:

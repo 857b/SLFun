@@ -636,6 +636,36 @@ Module SLprop.
 
 End SLprop.
 
+Module Tactics.
+  #[export] Hint Extern 1 (Change_Goal (SLprop.imp (SLprop.star (SLprop.pure _) _) _) _) =>
+     exact (Change_GoalI (SLprop.imp_pure_l _ _ _)) : IntroDB.
+
+  #[export] Hint Extern 1 (Change_Goal (SLprop.imp (SLprop.ex _ _) _) _) =>
+     exact (Change_GoalI (SLprop.imp_exists_l _ _ _)) : IntroDB.
+  
+  Local Lemma Apply_imp_pure P h0 h1:
+    Change_Goal (SLprop.imp h0 (SLprop.star (SLprop.pure P) h1))
+                ({_ : P & SLprop.imp h0 h1}).
+  Proof.
+    constructor; intros [H0 H1].
+    apply SLprop.imp_pure_r; assumption.
+  Qed.
+
+  Local Lemma Apply_imp_exists A h0 h1:
+    Change_Goal (SLprop.imp h0 (SLprop.ex A h1))
+                ({x : A & SLprop.imp h0 (h1 x)}).
+  Proof.
+    constructor; intros [x H].
+    apply SLprop.imp_exists_r with (wit := x); assumption.
+  Qed.
+  
+  #[export] Hint Extern 1 (Change_Goal (SLprop.imp _ (SLprop.star (SLprop.pure _) _)) _) =>
+     exact (Apply_imp_pure _ _ _) : ApplyDB.
+
+  #[export] Hint Extern 1 (Change_Goal (SLprop.imp _ (SLprop.ex _ _)) _) =>
+     exact (Apply_imp_exists _ _ _) : ApplyDB.
+End Tactics.
+
 Module SLNotations.
   Include SLprop.Notations.
   Bind Scope slprop_scope with SLprop.t.
