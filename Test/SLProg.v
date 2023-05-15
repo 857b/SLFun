@@ -2,7 +2,7 @@ Require Import SLFun.Util.
 Require Import SLFun.SLProg.
 Require Import SLFun.SL.
 
-Import SLNotations.
+Import SLNotations SLProg.Tactics.
 
 
 Definition f_aux  : fid := 0.
@@ -57,7 +57,7 @@ Definition impl_aux (p : ptr) : @CP.instr SIG nat :=
 
 Lemma sls_aux (p : ptr) (n : nat) : sls SPEC (impl_aux p) (spec_aux_n p n).
 Proof.
-  eapply Bind. eapply Read. intro n'; normalize.
+  eapply Bind. eapply Read. intro n'; SL.normalize.
   apply PureE; intros ->.
   eapply Bind. eapply Write. intro _u.
   eapply Ret_SL with (sp := fun r => SLprop.cell p (n + r)).

@@ -196,6 +196,62 @@ Module SLprop.
     - intros E m; split; apply E.
   Qed.
 
+  (* [impp] : implies pure *)
+
+  Definition impp (h : SLprop.t) (P : Prop) :=
+    forall m, h m -> P.
+
+  Global Add Morphism impp
+    with signature eq ==> iff ==> iff
+    as impp_morph.
+  Proof.
+    intros h0 h1 Eh P0 p1 EP.
+    unfold impp.
+    setoid_rewrite Eh.
+    setoid_rewrite EP.
+    reflexivity.
+  Qed.
+
+  Lemma impp_drop [h : SLprop.t] [P : Prop]
+    (C : P):
+    impp h P.
+  Proof.
+    intros ? ?; exact C.
+  Qed.
+
+  Lemma impp_True (h : SLprop.t):
+    impp h True.
+  Proof.
+    apply impp_drop; constructor.
+  Qed.
+
+  Lemma impp_cut [h : SLprop.t] [P Q : Prop]
+    (C0 : impp h P)
+    (C1 : P -> impp h Q):
+    impp h Q.
+  Proof.
+    intros m H.
+    exact (C1 (C0 m H) m H).
+  Qed.
+
+  Lemma impp_enough [h : SLprop.t] [P Q : Prop]
+    (C0 : impp h P)
+    (C1 : P -> Q):
+    impp h Q.
+  Proof.
+    apply (impp_cut C0).
+    intro H; apply impp_drop, C1, H.
+  Qed.
+
+  Lemma cut_pure [h0 h1 : SLprop.t] (P : Prop)
+    (C0 : impp h0 P)
+    (C1 : P -> SLprop.imp h0 h1):
+    SLprop.imp h0 h1.
+  Proof.
+    intros m H0.
+    apply (C1 (C0 m H0) m H0).
+  Qed.
+
   (* [emp] *)
 
   Program Definition emp : t :=
@@ -293,6 +349,15 @@ Module SLprop.
     rewrite star_comm.
     apply star_emp_l.
   Qed.
+
+  Lemma impp_star h0 h1 P0 P1
+    (H0 : impp h0 P0)
+    (H1 : impp h1 P1):
+    impp (h0 ** h1) (P0 /\ P1).
+  Proof.
+    intros ? (m0 & m1 & _ & M0 & M1).
+    split; [eapply H0|eapply H1]; eassumption.
+  Qed.
   
 
   (* [pure] *)
@@ -335,6 +400,14 @@ Module SLprop.
     intros m H%star_pure. case H as [].
     apply C; auto.
   Qed.
+  
+  Lemma imp_pure_l1 (P : Prop) (h : t)
+    (C : P -> imp emp h):
+    imp (pure P) h.
+  Proof.
+    rewrite <- star_emp_r.
+    apply imp_pure_l, C.
+  Qed.
 
   Lemma imp_pure_r (P : Prop) (h0 h1 : SLprop.t)
     (HP : P)
@@ -343,6 +416,52 @@ Module SLprop.
   Proof.
     intros m H0%C.
     apply star_pure; auto.
+  Qed.
+
+  Lemma imp_pure_r1 (P : Prop) (h : SLprop.t)
+    (HP : P)
+    (C : imp h emp):
+    imp h (pure P).
+  Proof.
+    setoid_rewrite <- star_emp_r at 2.
+    apply imp_pure_r; auto.
+  Qed.
+
+  Lemma impp_pure P:
+    impp (pure P) P.
+  Proof.
+    intros m H; apply H.
+  Qed.
+
+  Lemma impp_pure_l [P : Prop] [h Q]
+    (C : P -> impp h Q):
+    impp (pure P ** h) Q.
+  Proof.
+    eapply impp_cut.
+    - apply impp_star; [apply impp_pure|apply impp_True].
+    - intros (H & _).
+      eapply impp_enough.
+      apply impp_star; [apply impp_True|apply (C H)].
+      tauto.
+  Qed.
+  
+  Lemma impp_pure_l1 [P Q : Prop]
+    (C : P -> Q):
+    impp (pure P) Q.
+  Proof.
+    eapply impp_enough, C.
+    apply impp_pure.
+  Qed.
+
+  Lemma impp_eq [h P]
+    (H : impp h P):
+    eq h (pure P ** h).
+  Proof.
+    apply eq_iff_imp; split.
+    - intros m M.
+      apply star_pure.
+      exact (conj (H m M) M).
+    - apply imp_pure_l. reflexivity.
   Qed.
 
 
@@ -393,6 +512,14 @@ Module SLprop.
     rewrite <- imp_exists with (wit := wit); exact C.
   Qed.
 
+  Lemma impp_exists_l [A h Q]
+    (C : forall x : A, impp (h x) Q):
+    impp (ex A h) Q.
+  Proof.
+    intros m [x M]; exact (C x m M).
+  Qed.
+
+
   (* [wand] *)
 
   Program Definition wand (h0 h1 : t) : t :=
@@ -417,6 +544,7 @@ Module SLprop.
     eapply H; exists m0, m1; eauto.
   Qed.
 
+
   (* [cell] : points-to *)
 
   Program Definition cell (p : ptr) (d : memdata) : t :=
@@ -425,10 +553,18 @@ Module SLprop.
     rewrite <- MEQ; auto.
   Qed.
 
+  Lemma cell_non_null p v:
+    impp (SLprop.cell p v) (p <> NULL).
+  Proof.
+    intro; cbn; tauto.
+  Qed.
+
+
   (* True *)
 
   Program Definition True : t :=
     mk_sl_pred (fun _ => Logic.True) _.
+
 
   (* Normalisation tactic *)
 
@@ -452,30 +588,40 @@ Module SLprop.
     Inductive reifyI : reified -> t -> Prop :=
       | RIEmp    : reifyI REmp emp
       | RIPure P : reifyI (RPure P) (pure P)
+      | RIPureTrue :
+                   reifyI REmp (pure Logic.True)
       | RIStar r0 r1 h0 h1 (R0 : reifyI r0 h0) (R1 : reifyI r1 h1) :
                    reifyI (RStar r0 r1) (h0 ** h1)
       | RIEx   A r h (R : forall x : A, reifyI (r x) (h x)) :
                    reifyI (REx A r) (ex A h)
+      | RIExUnit r h (R : reifyI r (h tt)):
+                   reifyI r (ex unit h)
       | RIAtom h : reifyI (RAtom h) h.
 
     Lemma reifyI_reflect r h:
       reifyI r h -> eq (reflect r) h.
     Proof.
       induction 1; simpl; try reflexivity.
-      - rewrite IHreifyI1, IHreifyI2; reflexivity.
-      - setoid_rewrite H; reflexivity.
+      - (* RIPureTrue *) intro; cbn; tauto.
+      - (* RIStar     *) rewrite IHreifyI1, IHreifyI2; reflexivity.
+      - (* RIEx       *) setoid_rewrite H; reflexivity.
+      - (* RIExUnit   *)
+        rewrite IHreifyI; intro; cbn.
+        split; [exists tt | intros [[]]]; auto.
     Qed.
 
     (* solves a goal [reifyI ?R h] *)
     Ltac reify_core :=
       match goal with |- reifyI _ ?h =>
       match h with
-      | emp          => apply RIEmp
-      | pure ?P      => apply RIPure
-      | star ?h0 ?h1 => apply RIStar; [reify_core h0 | reify_core h1]
-      | ex   ?A ?h   => apply RIEx;
-                        let x := fresh "x" in intro x; cbn beta; reify_core
-      | ?h           => apply RIAtom
+      | emp             => apply RIEmp
+      | pure Logic.True => apply RIPureTrue
+      | pure ?P         => apply RIPure
+      | star ?h0 ?h1    => apply RIStar; [reify_core h0 | reify_core h1]
+      | ex   unit ?h    => apply RIExUnit; cbn beta iota delta; reify_core
+      | ex   ?A ?h      => apply RIEx;
+                           let x := fresh "x" in intro x; cbn beta; reify_core
+      | ?h              => apply RIAtom
       end end.
     
     (* adds an hypothesis [reifyI r h] to the goal *)
@@ -575,8 +721,8 @@ Module SLprop.
 
     (* Solve a goal [h = ?h] *)
     Ltac normalize_core :=
-      match goal with
-      | |- eq ?h _ =>
+      cbn;
+      lazymatch goal with |- eq ?h _ =>
           let R := fresh "R" in
           reify h; intro R;
           apply normalize_r_eq in R; cbn in R;
@@ -584,7 +730,7 @@ Module SLprop.
       end.
 
     Ltac normalize :=
-      match goal with
+      lazymatch goal with
       | |- eq ?h0 ?h1 =>
           first [
             is_evar h0; is_evar h1; reflexivity
@@ -598,47 +744,56 @@ Module SLprop.
       | |- _ = _ => reflexivity
       end.
 
-    Local Lemma test_normalize_0 h:
-      eq (emp ** h) (h ** emp).
-    Proof.
-      normalize. reflexivity.
-    Qed.
-    
-    Local Lemma test_normalize_1 h P Q:
-      eq (pure P ** emp ** h ** pure Q) (h ** pure (P /\ Q) ** emp).
-    Proof.
-      normalize. reflexivity.
-    Qed.
-
-    Local Lemma test_normalize_2 h0 A h1:
-      eq (h0 ** ex A h1 ** emp) (ex A (fun x => emp ** h0 ** h1 x))%slprop.
-    Proof.
-      normalize. reflexivity.
-    Qed.
-
-    Local Lemma test_normalize_3 A h P h1:
-      eq (h ** ex A (fun x => pure (P x) ** h1 x))%slprop
-         (ex A (fun x => (pure (P x) ** h ** h1 x)))%slprop.
-    Proof.
-      etransitivity. normalize. reflexivity.
-    Qed.
-    
-    Local Lemma test_normalize_4 A B h0 h1 P Q:
-      eq (h0 ** ex A (fun x => ex B (h1 x) ** pure (P x)) ** pure Q)%slprop
-         (ex A (fun x => ex B (fun y => (pure (P x /\ Q) ** h0 ** h1 x y))))%slprop.
-    Proof.
-      etransitivity. normalize. reflexivity.
-    Qed.
-
   End Norm.
-  
-  Ltac normalize := Norm.normalize.
 
+  Ltac split_impp :=
+    try lazymatch goal with
+    | |- impp (pure   _) _ => apply impp_pure
+    | |- impp (star _ _) _ => apply impp_star; split_impp
+    end.
 End SLprop.
+
+(* DB for [normalize].
+   should solves goal [Change_Goal goal0 ?goal1] *)
+Global Create HintDb NormalizeDB discriminated.
+Global Hint Constants Opaque : NormalizeDB.
+Global Hint Variables Opaque : NormalizeDB.
+Ltac normalize :=
+  refine (Util.by_Change_Goal _ _);
+  [ solve [eauto 1 with NormalizeDB nocore] | try exact Logic.I].
+
+Global Hint Extern 1 (Change_Goal (SLprop.eq ?h0 ?h1) _) =>
+  Change_GoalI_tac ltac:(fun _ => first
+  [ is_evar h0; is_evar h1; reflexivity
+  | is_evar h1; SLprop.Norm.normalize_core
+  | is_evar h0; symmetry; SLprop.Norm.normalize_core
+  | etransitivity; [SLprop.Norm.normalize_core | etransitivity; [|symmetry;SLprop.Norm.normalize_core]]
+  ]) : NormalizeDB.
+
+Global Hint Extern 1 (Change_Goal (SLprop.sl_pred _ _) _) =>
+  Change_GoalI_tac ltac:(fun _ =>
+  eapply SLprop.sl_pred_eq; [SLprop.Norm.normalize_core|])
+    : NormalizeDB.
+
+Global Hint Extern 1 (Change_Goal (SLprop.imp _ _) _) =>
+  Change_GoalI_tac ltac:(fun _ =>
+  eapply SLprop.imp_morph; [SLprop.Norm.normalize_core|SLprop.Norm.normalize_core|])
+    : NormalizeDB.
+
+Global Hint Extern 1 (Change_Goal (SLprop.impp _ _) _) =>
+  Change_GoalI_tac ltac:(fun _ =>
+  eapply SLprop.impp_morph; [SLprop.Norm.normalize_core|reflexivity|])
+    : NormalizeDB.
+
+Global Hint Extern 1 (Change_Goal (_ = _) _) =>
+  Change_GoalI_tac ltac:(fun _ => reflexivity) : NormalizeDB.
 
 Module Tactics.
   #[export] Hint Extern 1 (Change_Goal (SLprop.imp (SLprop.star (SLprop.pure _) _) _) _) =>
      exact (Change_GoalI (SLprop.imp_pure_l _ _ _)) : IntroDB.
+  
+  #[export] Hint Extern 1 (Change_Goal (SLprop.imp (SLprop.pure _) _) _) =>
+     exact (Change_GoalI (SLprop.imp_pure_l1 _ _)) : IntroDB.
 
   #[export] Hint Extern 1 (Change_Goal (SLprop.imp (SLprop.ex _ _) _) _) =>
      exact (Change_GoalI (SLprop.imp_exists_l _ _ _)) : IntroDB.
@@ -649,6 +804,14 @@ Module Tactics.
   Proof.
     constructor; intros [H0 H1].
     apply SLprop.imp_pure_r; assumption.
+  Qed.
+  
+  Local Lemma Apply_imp_pure1 P h:
+    Change_Goal (SLprop.imp h (SLprop.pure P))
+                ({_ : P & SLprop.imp h SLprop.emp}).
+  Proof.
+    constructor; intros [H0 H1].
+    apply SLprop.imp_pure_r1; assumption.
   Qed.
 
   Local Lemma Apply_imp_exists A h0 h1:
@@ -662,8 +825,21 @@ Module Tactics.
   #[export] Hint Extern 1 (Change_Goal (SLprop.imp _ (SLprop.star (SLprop.pure _) _)) _) =>
      exact (Apply_imp_pure _ _ _) : ApplyDB.
 
+  #[export] Hint Extern 1 (Change_Goal (SLprop.imp _ (SLprop.pure _)) _) =>
+     exact (Apply_imp_pure1 _ _) : ApplyDB.
+
   #[export] Hint Extern 1 (Change_Goal (SLprop.imp _ (SLprop.ex _ _)) _) =>
      exact (Apply_imp_exists _ _ _) : ApplyDB.
+
+
+  #[export] Hint Extern 1 (Change_Goal (SLprop.impp (SLprop.star (SLprop.pure _) _) _) _) =>
+     exact (Change_GoalI (@SLprop.impp_pure_l _ _ _)) : IntroDB.
+  
+  #[export] Hint Extern 1 (Change_Goal (SLprop.impp (SLprop.pure _) _) _) =>
+     exact (Change_GoalI (@SLprop.impp_pure_l1 _ _)) : IntroDB.
+
+  #[export] Hint Extern 1 (Change_Goal (SLprop.impp (SLprop.ex _ _) _) _) =>
+     exact (Change_GoalI (@SLprop.impp_exists_l _ _ _)) : IntroDB.
 End Tactics.
 
 Module SLNotations.
@@ -671,3 +847,45 @@ Module SLNotations.
   Bind Scope slprop_scope with SLprop.t.
   Coercion SLprop.sl_pred : SLprop.t >-> Funclass.
 End SLNotations.
+
+Section Test.
+  Import SLprop SLNotations.
+
+  Local Lemma test_normalize_0 h:
+    eq (emp ** h) (h ** emp).
+  Proof.
+    normalize. reflexivity.
+  Qed.
+  
+  Local Lemma test_normalize_1 h P Q:
+    eq (pure P ** emp ** h ** pure Q) (h ** pure (P /\ Q) ** emp).
+  Proof.
+    normalize. reflexivity.
+  Qed.
+
+  Local Lemma test_normalize_2 h0 A h1:
+    eq (h0 ** ex A h1 ** emp) (ex A (fun x => emp ** h0 ** h1 x))%slprop.
+  Proof.
+    normalize. reflexivity.
+  Qed.
+
+  Local Lemma test_normalize_3 A h P h1:
+    eq (h ** ex A (fun x => pure (P x) ** h1 x))%slprop
+       (ex A (fun x => (pure (P x) ** h ** h1 x)))%slprop.
+  Proof.
+    etransitivity. normalize. reflexivity.
+  Qed.
+  
+  Local Lemma test_normalize_4 A B h0 h1 P Q:
+    eq (h0 ** ex A (fun x => ex B (h1 x) ** pure (P x)) ** pure Q)%slprop
+       (ex A (fun x => ex B (fun y => (pure (P x /\ Q) ** h0 ** h1 x y))))%slprop.
+  Proof.
+    etransitivity. normalize. reflexivity.
+  Qed.
+
+  Local Lemma test_normalize_5 P:
+    impp (emp ** pure P) P.
+  Proof.
+    normalize. apply impp_pure.
+  Qed.
+End Test.

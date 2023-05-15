@@ -193,7 +193,7 @@ Section SLS.
       sls f (Spec.mk (SLprop.pure P ** pre) post).
     Proof.
       intros fr m0; simpl; intros (fm0 & FM0 & H0).
-      erewrite SLprop.sl_pred_eq in H0 by SLprop.normalize.
+      erewrite SLprop.sl_pred_eq in H0 by SL.normalize.
       apply SLprop.star_pure in H0 as (HP & H0).
       apply (Sf HP).
       exists fm0; eauto.
@@ -204,7 +204,7 @@ Section SLS.
       sls f (Spec.mk (SLprop.ex X pre) post).
     Proof.
       intros fr m0; simpl; intros (fm0 & FM0 & H0).
-      erewrite SLprop.sl_pred_eq in H0 by SLprop.normalize.
+      erewrite SLprop.sl_pred_eq in H0 by SL.normalize.
       case H0 as (x & H0).
       apply (Sf x).
       exists fm0; eauto.
@@ -325,7 +325,7 @@ Section SLS.
       rewrite CELL in JOIN; clear CELL fm_cell.
       split. exact NNULL.
       do 2 esplit. exact FM.
-      SLprop.normalize.
+      SL.normalize.
       eapply SLprop.star_pure; split; auto.
       - apply FM.
         specialize (JOIN p); unfold FMem.cell in JOIN.
@@ -359,9 +359,9 @@ Section SLS.
 
 End SLS.
 
-Ltac normalize :=
-  match goal with
-  | |- sls _ _ (Spec.mk _ _) =>
-      eapply sls_morph; [eapply Spec.mk_morph; [|intro]; SLprop.Norm.normalize_core |]
-  | _ => SLprop.normalize
-  end.
+Module Tactics.
+  #[export] Hint Extern 1 (Change_Goal (sls _ _ (Spec.mk _ _)) _) =>
+    Change_GoalI_tac ltac:(fun _ =>
+    eapply sls_morph; [eapply Spec.mk_morph; [|intro]; SLprop.Norm.normalize_core |])
+      : NormalizeDB.
+End Tactics.

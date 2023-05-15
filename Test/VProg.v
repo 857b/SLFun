@@ -14,9 +14,9 @@ Section Program.
 
 
 Definition spec_0 : FDecl (ptr * ptr) _ unit _
-  : (p0, p1)
-    FOR (n0, n1) [] [vptr p0 ~> n0; vptr p1 ~> n1] True
-    RET ( _ ) FOR tt [vptr p0 ~> n1; vptr p1 ~> n0] True.
+  FOR (p0, p1)
+  FOR (n0, n1) [] [vptr p0 ~> n0; vptr p1 ~> n1] True
+  RET _ FOR tt [vptr p0 ~> n1; vptr p1 ~> n0] True.
 Proof. Derive. Defined.
 Variable f_0 : spec_0 _ SPEC.
 
@@ -32,9 +32,9 @@ Proof. Derive. Defined.
 
 
 Definition spec_1 : FDecl (ptr * ptr * ptr) _ unit _
-  : (p0, p1, p2)
-    FOR (n0, n1, n2) [vptr p2 ~> n2] [vptr p0 ~> n0; vptr p1 ~> n1] True
-    RET _ FOR tt [vptr p0 ~> n1; vptr p1 ~> n0] True.
+  FOR (p0, p1, p2)
+  FOR (n0, n1, n2) [vptr p2 ~> n2] [vptr p0 ~> n0; vptr p1 ~> n1] True
+  RET _ FOR tt [vptr p0 ~> n1; vptr p1 ~> n0] True.
 Proof. Derive. Defined.
 Variable f_1 : spec_1 _ SPEC.
 
@@ -49,9 +49,9 @@ Proof. Derive. Defined.
 Definition data42 : nat := 42.
 
 Definition spec_2 : FDecl (ptr * ptr * ptr) _ ptr _
-  : (p0, p1, p2)
-    FOR (n0, n1, n2) [vptr p2 ~> n2] [vptr p0 ~> n0; vptr p1 ~> n1] True
-    RET p FOR (n, n1') [vptr p ~> n; vptr p1 ~> n1'] (n1' > 0).
+  FOR (p0, p1, p2)
+  FOR (n0, n1, n2) [vptr p2 ~> n2] [vptr p0 ~> n0; vptr p1 ~> n1] True
+  RET p FOR (n, n1') [vptr p ~> n; vptr p1 ~> n1'] (n1' > 0).
 Proof. Derive. Defined.
 Variable f_2 : spec_2 _ SPEC.
 
@@ -71,9 +71,9 @@ Proof. Derive. Defined.
 
 
 Definition spec_3 : FDecl ptr (Some (fun _ => ptr)) ptr (Some (fun _ => ptr))
-  : p0 & p1
-    FOR (n0, n1) [] [vptr p0 ~> n0; vptr p1 ~> n1] True
-    RET p0' & p1' FOR (n0', n1') [vptr p0' ~> n0'; vptr p1' ~> n1'] True.
+  FOR p0 & p1
+  FOR (n0, n1) [] [vptr p0 ~> n0; vptr p1 ~> n1] True
+  RET p0' & p1' FOR (n0', n1') [vptr p0' ~> n0'; vptr p1' ~> n1'] True.
 Proof. Derive. Defined.
 Variable f_3 : spec_3 _ SPEC.
 
@@ -86,9 +86,9 @@ Proof. Derive. Defined.
 
 
 Definition spec_4 : FDecl (ptr * ptr) _ ptr (Some (fun _ => ptr))
-  : (p0, p1)
-    FOR (n0, n1) [] [vptr p0 ~> n0; vptr p1 ~> n1] True
-    RET p0' & p1' FOR (n0', n1') [vptr p0' ~> n0'; vptr p1' ~> n1'] True.
+  FOR (p0, p1)
+  FOR (n0, n1) [] [vptr p0 ~> n0; vptr p1 ~> n1] True
+  RET p0' & p1' FOR (n0', n1') [vptr p0' ~> n0'; vptr p1' ~> n1'] True.
 Proof. Derive. Defined.
 Variable f_4 : spec_4 _ SPEC.
 
@@ -105,28 +105,22 @@ Definition cell2 (p : ptr) '(v0, v1) : SLprop.t :=
   (SLprop.cell p v0 ** SLprop.cell (S p) v1)%slprop.
 
 Definition elim_cell2_spec : LDecl ptr unit
-  : p FOR n01 [] [cell2 p ~> n01] True
-    RET _ FOR tt [vptr p ~> (fst n01); vptr (S p) ~> (snd n01)] True.
+  FOR p FOR n01 [] [cell2 p ~> n01] True
+  RET _ FOR tt [vptr p ~> (fst n01); vptr (S p) ~> (snd n01)] True.
 Proof. Derive. Defined.
 Lemma elim_cell2 : elim_cell2_spec.
 Proof.
-  init_lemma.
-  intros p (n0, n1) _.
-  do 3 (Apply; [constructor|]); cbn.
-  SLprop.normalize.
+  init_lemma p (n0, n1) _.
   reflexivity.
 Qed.
 
 Definition intro_cell2_spec : LDecl ptr unit
-  : p FOR (n0, n1) [] [vptr p ~> n0; vptr (S p) ~> n1] True
-    RET _ FOR tt [cell2 p ~> (n0, n1)] True.
+  FOR p FOR (n0, n1) [] [vptr p ~> n0; vptr (S p) ~> n1] True
+  RET _ FOR tt [cell2 p ~> (n0, n1)] True.
 Proof. Derive. Defined.
 Lemma intro_cell2 : intro_cell2_spec.
 Proof.
-  init_lemma.
-  intros p (n0, n1) _; cbn.
-  do 3 (Apply; [constructor|]); cbn.
-  SLprop.normalize.
+  init_lemma p (n0, n1) _.
   reflexivity.
 Qed.
 
@@ -136,9 +130,9 @@ Global Arguments cell2 : simpl never.
 *)
 
 Definition spec_5 : FDecl ptr _ unit _
-  : p
-    FOR v [] [cell2 p ~> v] True
-    RET _ FOR v' [cell2 p ~> v'] (v' = let (n0, n1) := v in (S n0, n1)).
+  FOR p
+  FOR v [] [cell2 p ~> v] True
+  RET _ FOR v' [cell2 p ~> v'] (v' = let (n0, n1) := v in (S n0, n1)).
 Proof. Derive. Defined.
 Variable f_5 : spec_5 _ SPEC.
 
@@ -195,15 +189,10 @@ Section Extraction.
     | _ => tt
     end.
 
-  Ltac case_until_True :=
-    try exact (fun _ => Logic.I);
-    let i := fresh "i" in
-    intros [|i]; [|revert i; case_until_True].
-
   Lemma match_context:
     CP.context_match_spec IMPL SPEC.
   Proof.
-    case_until_True;
+    Tac.case_until_True;
     cbn beta iota delta [SIG IMPL SPEC];
     apply f_extract_match_spec.
     - apply correct_0.
@@ -217,7 +206,7 @@ Section Extraction.
   Lemma context_oracle_free:
     CP.context_oracle_free IMPL.
   Proof.
-    case_until_True;
+    Tac.case_until_True;
     cbn beta iota delta [SIG IMPL SPEC];
     apply f_extract_oracle_free.
   Qed.
@@ -227,9 +216,9 @@ Section Other.
 
 Definition sigh_a0 := mk_f_sig1 (ptr * ptr) None unit None.
 Definition spec_a0 : FSpec sigh_a0
-  : ps
-    FOR n [vptr (fst ps) ~> n] [] True
-    RET _ FOR tt [] True.
+  FOR ps
+  FOR n [vptr (fst ps) ~> n] [] True
+  RET _ FOR tt [] True.
 Proof. Tac.build_FSpec. Defined.
 
 Definition vprog_a0 : f_body SPEC sigh_a0 := fun ps =>
@@ -245,9 +234,9 @@ Proof. Tac.extract_impl. Defined.
 
 Definition sigh_a1a := mk_f_sig1 (bool * ptr * ptr * ptr) None unit None.
 Definition spec_a1a : FSpec sigh_a1a
-  : (b, p0, p1, p2)
-    FOR (n0, n1, n2) [vptr p0 ~> n0] [vptr p1 ~> n1; vptr p2 ~> n2] True
-    RET _ FOR (n1', n2') [vptr p1 ~> n1'; vptr p2 ~> n2'] (b = true -> n1' = 0).
+  FOR (b, p0, p1, p2)
+  FOR (n0, n1, n2) [vptr p0 ~> n0] [vptr p1 ~> n1; vptr p2 ~> n2] True
+  RET _ FOR (n1', n2') [vptr p1 ~> n1'; vptr p2 ~> n2'] (b = true -> n1' = 0).
 Proof. Tac.build_FSpec. Defined.
 
 Definition vprog_a1a : f_body SPEC sigh_a1a := fun '(b, p0, p1, p2) =>
@@ -266,9 +255,9 @@ Inductive bool3 : Set := B0 | B1 | B2.
 
 Definition sigh_a1b := mk_f_sig1 (bool3 * ptr) None unit None.
 Definition spec_a1b : FSpec sigh_a1b
-  : (b, p)
-    FOR n [] [vptr p ~> n] (b <> B2)
-    RET _ FOR n' [vptr p ~> n'] (b <> B1 -> n' = 0).
+  FOR (b, p)
+  FOR n [] [vptr p ~> n] (b <> B2)
+  RET _ FOR n' [vptr p ~> n'] (b <> B1 -> n' = 0).
 Proof. Tac.build_FSpec. Defined.
 
 Definition vprog_a1b : f_body SPEC sigh_a1b := fun '(b, p) =>
@@ -283,9 +272,9 @@ Proof. by_wlp; congruence. Qed.
 
 Definition sigh_a1c := mk_f_sig1 (option nat * ptr) None unit None.
 Definition spec_a1c : FSpec sigh_a1c
-  : (o, p)
-    FOR n [] [vptr p ~> n] (n > 0 /\ match o with Some n' => n' > 0 | None => True end)
-    RET _ FOR n' [vptr p ~> n'] (n' > 0).
+  FOR (o, p)
+  FOR n [] [vptr p ~> n] (n > 0 /\ match o with Some n' => n' > 0 | None => True end)
+  RET _ FOR n' [vptr p ~> n'] (n' > 0).
 Proof. Tac.build_FSpec. Defined.
 
 Definition vprog_a1c : f_body SPEC sigh_a1c := fun '(o, p) =>
@@ -300,14 +289,14 @@ Proof. by_wlp. Qed.
 
 Definition sigh_a2a := mk_f_sig1 (ptr * ptr) None unit None.
 Definition spec_a2a : FSpec sigh_a2a
-  : (p0, p1)
-    FOR (n0, n1) [vptr p0 ~> n0] [vptr p1 ~> n1] (n0 <= n1)
-    RET _ FOR n1' [vptr p1 ~> n1'] (n0 <= n1').
+  FOR (p0, p1)
+  FOR (n0, n1) [vptr p0 ~> n0] [vptr p1 ~> n1] (n0 <= n1)
+  RET _ FOR n1' [vptr p1 ~> n1'] (n0 <= n1').
 Proof. Tac.build_FSpec. Defined.
 
 Definition vprog_a2a : f_body SPEC sigh_a2a := fun '(p0, p1) =>
   'v1 <- Read p1;
-  'v0 <- GGet (SLprop.cell p0);
+  'v0 <- gGet (SLprop.cell p0);
   Assert (fun 'tt => ([], v0 <= v1));;
   Write p1 (S v1).
 Lemma imatch_a2a:
@@ -319,7 +308,7 @@ Proof. Tac.extract_impl. Defined.
 Definition vprog_a2b : f_body SPEC sigh_a2a := fun '(p0, p1) =>
   'v1 v0 <- (
     'v1 <- Read p1;
-    'v0 <- GGet (SLprop.cell p0);
+    'v0 <- gGet (SLprop.cell p0);
     RetG v1 v0);
   Assert (fun 'tt => ([], v0 <= v1));;
   Write p1 (S v1).
@@ -332,9 +321,9 @@ Proof. Tac.extract_impl. Defined.
 
 Definition sigh_a3 := mk_f_sig1 unit (Some (fun _ => (nat * nat)%type <: Type)) unit (Some (fun _ => nat <: Type)).
 Definition spec_a3 : FSpec sigh_a3
-  : _ & (n0, n1)
-    FOR tt [] [] True
-    RET _ & r FOR tt [] (r = n0 + n1).
+  FOR _ & (n0, n1)
+  FOR tt [] [] True
+  RET _ & r FOR tt [] (r = n0 + n1).
 Proof. Tac.build_FSpec. Defined.
 
 Definition vprog_a3 : f_body SPEC sigh_a3 := fun _ '(n0, n1) =>

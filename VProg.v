@@ -4,7 +4,7 @@ Require SLFun.ConcreteProg SLFun.SLProg SLFun.FunProg.
 Require Import Coq.Lists.List.
 Require Import Coq.Setoids.Setoid.
 
-Import SLNotations SL.Tactics.
+Import SLNotations SL.Tactics SLProg.Tactics.
 Import ListNotations.
 
 
@@ -38,7 +38,7 @@ Module CTX.
   Lemma sl_app (c0 c1 : t):
     SLprop.eq (sl (app c0 c1)) (sl c0 ** sl c1).
   Proof.
-    induction c0; simpl; SLprop.normalize; [|rewrite IHc0]; reflexivity.
+    induction c0; simpl; SL.normalize; [|rewrite IHc0]; reflexivity.
   Qed.
 
   Module Sub.
@@ -210,12 +210,12 @@ Module CTX.
                 (sl (sub (sub c s0) s1) ** sl (sub (sub c (neg s0)) s2)).
     Proof.
       induction c as [|c0 c].
-      - simpl; SLprop.normalize; reflexivity.
+      - simpl; SL.normalize; reflexivity.
       - case s0 as [[] s0] using Vector.caseS'.
         + case s1 as [[]] using Vector.caseS'; simpl;
-            rewrite IHc; SLprop.normalize; reflexivity.
+            rewrite IHc; SL.normalize; reflexivity.
         + case s2 as [[]] using Vector.caseS'; simpl;
-            rewrite IHc; SLprop.normalize; [rewrite SLprop.star_comm12|]; reflexivity.
+            rewrite IHc; SL.normalize; [rewrite SLprop.star_comm12|]; reflexivity.
     Qed.
   End Sub.
 
@@ -225,10 +225,10 @@ Module CTX.
     SLprop.eq (sl c) (sl (sub c s) ** sl (sub c (Sub.neg s))).
   Proof.
     induction c; simpl.
-    - SLprop.normalize; reflexivity.
+    - SL.normalize; reflexivity.
     - case s as [hd tl] using Vector.caseS'; simpl.
       rewrite (IHc tl).
-      case hd; simpl; SLprop.normalize.
+      case hd; simpl; SL.normalize.
       + reflexivity.
       + apply SLprop.star_comm12.
   Qed.
@@ -386,7 +386,11 @@ Module CTX.
           | |- ieq_goal _ nil =>
               clear_ieq_asm; exact (Ieq_Done _)
           | |- ieq_goal _ (existT _ ?v _ :: _) =>
-              fail "Inj.build" v
+              idtac "FAILURE: Inj.build failed to find" v ". Remaining context:";
+              try match goal with
+               _ : CTX.Inj.ieq_asm (existT _ ?v0 _) _ |- _ => idtac "-" v0; fail
+              end;
+              fail 1 "Inj.build" v
         end
       | (* C0  *) cbn; reflexivity
       | (* IMG *) cbn; reflexivity ].
@@ -941,7 +945,7 @@ Section AddCsm.
     rewrite TF.to_of_fun; cbn.
     rewrite !TF.to_of_tu.
     apply SLprop.star_morph_imp. reflexivity.
-    rewrite VpropList.inst_app, !CTX.sl_app; SLprop.normalize.
+    rewrite VpropList.inst_app, !CTX.sl_app; SL.normalize.
     apply SLprop.star_morph_imp. reflexivity.
     unfold acsm; rewrite VpropList.inst_of_ctx.
     set (c0 := CTX.sub ctx (Sub.neg (sf_csm s))).
@@ -1065,7 +1069,7 @@ Section FunImpl.
     - intro xG.
       Intro rsel.
       Intro (sel1 & ij & ENS).
-      unfold Expanded.tr_post; cbn; SLprop.normalize.
+      unfold Expanded.tr_post; cbn; SL.normalize.
       Apply sel1.
       Apply ENS.
       rewrite F_CSM; unfold Sub.neg, Sub.const;
@@ -1367,7 +1371,7 @@ Section Bind.
       unfold Sub.neg, Sub.const.
       rewrite Sub.map_app, Sub.sub_app, Sub.map_pull, !Vector.map_const; simpl.
       rewrite Sub.sl_pull.
-      rewrite !Sub.sub_const_false; simpl; SLprop.normalize; reflexivity.
+      rewrite !Sub.sub_const_false; simpl; SL.normalize; reflexivity.
   Qed.
 
   Local Opaque TF.of_fun TF.to_fun.
@@ -1566,12 +1570,12 @@ Section Call.
       eapply SP.CFrame with (fr := CTX.sl (CTX.sub ctx1 (Sub.neg csm_prs))).
       { apply Call_impl_sls. }
       split; simpl.
-      - SLprop.normalize.
+      - SL.normalize.
         Apply REQ.
         rewrite (CTX.sl_split ctx  csm_pre), (CTX.Inj.ieqE ij_pre); fold ctx1.
         rewrite (CTX.sl_split ctx1 csm_prs), (CTX.Inj.ieqE ij_prs).
         reflexivity.
-      - intro rx; unfold Expanded.tr_post; simpl; SLprop.normalize.
+      - intro rx; unfold Expanded.tr_post; simpl; SL.normalize.
         Intro sel1.
         Intro ENS.
         specialize (POST (TF.mk _ rx sel1)).
@@ -1597,7 +1601,7 @@ Section Call.
   
   Section Ghost.
     Context [sg : f_sig] [s : ghost_spec sg] (L : ghost_lem s) (x : f_arg_t sg).
-    Program Definition Call_ghost : instr (f_ret_t sg) := {|
+    Program Definition gLem : instr (f_ret_t sg) := {|
       i_impl := CP.Oracle (f_ret_t sg);
       i_spec := fun ctx => Call_Spec (s x tt) ctx;
     |}.
@@ -1653,7 +1657,7 @@ Section GGet.
       sf_spec := FP.Ret (TF.mk _ a Tuple.tt)
     |}.
 
-  Program Definition GGet : instr A := {|
+  Program Definition gGet : instr A := {|
     i_impl := CP.Oracle A;
     i_spec := fun ctx => GGet_Spec ctx;
   |}.
@@ -1698,8 +1702,7 @@ Section Assert.
     - eenough (SLprop.eq (CTX.sl ctx) _) as sl_eq.
       split; unfold sf_post, sf_post_ctx, sf_rsel; simpl.
       + rewrite sl_eq; reflexivity.
-      + intros []; SLprop.normalize.
-        Apply tt.
+      + intros []; SL.normalize.
         Apply POST.
         unfold Sub.neg, Sub.const; rewrite Vector.map_const; simpl.
         rewrite Sub.sub_const_true.
@@ -1733,15 +1736,14 @@ Section Read.
     - eapply SP.Read with (d := d).
     - eassert (IEq : SLprop.eq _ _). {
         etransitivity. apply (CTX.Inj.ieqE ij).
-        simpl; SLprop.normalize.
+        simpl; SL.normalize.
       }
       split; simpl.
       + rewrite CTX.sl_split with (s := img).
         apply SLprop.star_morph_imp. 2:reflexivity.
         rewrite IEq; reflexivity.
-      + intro. SLprop.normalize. Intro ->.
-        unfold sf_post; simpl; SLprop.normalize.
-        Apply tt.
+      + intro. SL.normalize. Intro ->.
+        unfold sf_post; simpl; SL.normalize.
         Apply. assumption.
         etransitivity. apply SLprop.star_morph_imp. 2:reflexivity. 
         eapply SLprop.imp_morph. symmetry in IEq; exact IEq. 1,2:reflexivity.
@@ -1776,8 +1778,8 @@ Section Write.
     - split; unfold sf_post, sf_post_ctx, sf_rsel; simpl.
       + rewrite CTX.sl_split with (s := csm).
         apply SLprop.star_morph_imp. 2:reflexivity.
-        rewrite (CTX.Inj.ieqE ij); simpl; SLprop.normalize; reflexivity.
-      + intros []; SLprop.normalize.
+        rewrite (CTX.Inj.ieqE ij); simpl; SL.normalize; reflexivity.
+      + intros []; SL.normalize.
         Apply (d, tt).
         Apply. assumption.
         reflexivity.
@@ -1791,8 +1793,8 @@ Global Arguments RetG [_ _ _ _] _ _ {pt}.
 Global Arguments Bind [_ _ _ _] _ _.
 Global Arguments Call [_ _ _ _ _] _ _ _ [_] _.
 Global Arguments Call_f_decl [_ _ _ _ _] _ _.
-Global Arguments Call_ghost [_ _ _ _] _ _.
-Global Arguments GGet [_ _ _] _.
+Global Arguments gLem [_ _ _ _] _ _.
+Global Arguments gGet [_ _ _] _.
 Global Arguments Assert [_ _ _].
 Global Arguments Read [_ _] _.
 Global Arguments Write [_ _] _ _.
@@ -1850,8 +1852,6 @@ Module NotationsDef.
   Definition to_ghost_lem [arg_t ret_t e] (L : @LDecl arg_t ret_t e)
     : Type := ghost_lem (m_spec (ld_FSpec L)).
 
-  Definition gLem [SIG SPC sg s] := @Call_ghost SIG SPC sg s.
-
   (* NOTE it does not seem possible to declare a coercion from [to_ghost_lem] to Funclass
      with implicit [SIG] and [SPC] (see https://github.com/coq/coq/issues/5527).
      One has to use an explicit conversion [gLem]. *)
@@ -1874,6 +1874,12 @@ Module Tac.
     lazymatch t with (match ?p with _ => _ end) =>
       build_term p ltac:(fun _ => econstructor; shelve)
     end.
+  
+  Ltac case_until_True :=
+    try exact (fun _ => Logic.I);
+    let i := fresh "i" in
+    intros [|i]; [|revert i; case_until_True].
+
 
   Ltac of_expanded_arg :=
     lazymatch goal with |- _ (match ?x with _ => _ end) ?s =>
@@ -2241,8 +2247,14 @@ Module Tactics.
     eauto.
 
   (* start the proof of a ghost lemma *)
-  Ltac init_lemma :=
+  Ltac init_lemma0 :=
     unfold NotationsDef.to_ghost_lem, ghost_lem; cbn.
+
+  Tactic Notation "init_lemma" simple_intropattern_list(xs) :=
+    init_lemma0;
+    intros xs;
+    cbn in *;
+    try SL.normalize.
 End Tactics.
 
 Module Notations.
@@ -2297,9 +2309,9 @@ Module Notations.
   Declare Custom Entry vprog_spec_0.
   Declare Custom Entry vprog_spec_1.
   Declare Custom Entry vprog_spec_2.
-  Notation ": arg s" := (mk_f_r0_None (fun arg => s))
+  Notation "'FOR' arg s" := (mk_f_r0_None (fun arg => s))
     (at level 0, arg pattern at level 0, s custom vprog_spec_0 at level 0) : vprog_spec_scope.
-  Notation ": arg & gi s" := (mk_f_r0_Some (fun arg gi => s))
+  Notation "'FOR' arg & gi s" := (mk_f_r0_Some (fun arg gi => s))
     (at level 0, arg pattern at level 0, gi pattern at level 0, s custom vprog_spec_0 at level 0) : vprog_spec_scope.
   Notation "'FOR' sel0 prs pre req s" :=
     (Spec.Expanded.mk_r0 (fun sel0 =>

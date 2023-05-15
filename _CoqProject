@@ -6,6 +6,8 @@ SL.v
 SLProg.v
 FunProg.v
 VProg.v
+VProgGhost.v
 Test/ConcreteProg.v
 Test/SLProg.v
 Test/VProg.v
+Test/SLList.v

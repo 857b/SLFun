@@ -20,6 +20,12 @@ Local Lemma by_Change_Goal [goal0 goal1]
   goal0.
 Proof. apply S, C. Defined.
 
+Ltac Change_GoalI_tac tc :=
+  constructor;
+  let H := fresh "H" in intro H;
+  tc tt;
+  exact H.
+
 (* DB for [Intro].
    Should solves goals [Change_Goal goal0 ?goal1] and instantiate [?goal1] to [forall _, _] *)
 Global Create HintDb IntroDB discriminated.
@@ -403,6 +409,11 @@ Module Tuple.
     apply (IHTS (fun xs => TRG (a0, xs))).
   Qed.
 
+  Definition force_match [A] (TS : list Type) (f : Tuple.t TS -> A) (x : Tuple.t TS) : A :=
+    to_fun (of_fun f) x.
+  Global Arguments force_match/.
+
+
   (* forall *)
 
   Fixpoint all (TS : list Type) : (t TS -> Prop) -> Prop :=
@@ -431,6 +442,35 @@ Module Tuple.
   Proof.
     induction TS; simpl; [|setoid_rewrite IHTS];
       (split; intro H; [decompose record H|case H as [[]]]; eauto).
+  Qed.
+
+  (* isomorphisms *)
+
+  Definition type_iso_tu (A : Type) (TS : list Type) :=
+    type_iso A (t TS).
+  
+  Lemma type_iso_tu_nil:
+    type_iso_tu unit nil (fun _ => tt) (fun _ => tt).
+  Proof.
+    split; intros []; reflexivity.
+  Qed.
+
+  Lemma type_iso_tu_one A:
+    type_iso_tu A [A] (fun x => (x, tt)) (fun '(x, _) => x).
+  Proof.
+    split.
+    - reflexivity.
+    - intros (?, []); reflexivity.
+  Qed.
+
+  (* NOTE: [_ * _] is left associative but [Tuple.t] is right associative *)
+  Lemma type_iso_tu_prod A AS f g B
+    (H : type_iso_tu A AS f g):
+    type_iso_tu (A * B) (B :: AS) (fun '(xs, x) => (x, f xs)) (fun '(x, xs) => (g xs, x)).
+  Proof.
+    split.
+    - intros (xs, x); rewrite (proj1 H); reflexivity.
+    - intros (x, xs); rewrite (proj2 H); reflexivity.
   Qed.
 
   (* reversing *)
@@ -463,6 +503,89 @@ Module Tuple.
       exact IHTS0.
   Qed.
 
+  (* isomorphic user-friendly type *)
+
+  Fixpoint concise_r_t (T0 : Type) (TS : list Type) : Type :=
+    match TS with
+    | nil     => T0
+    | T :: TS => concise_r_t T TS * T0
+    end.
+
+  Fixpoint of_concise_r [T0 : Type] [TS : list Type] {struct TS}: concise_r_t T0 TS -> T0 * t TS :=
+    match TS with
+    | nil     => fun x0        => (x0, tt)
+    | T :: TS => fun '(xs, x0) => let '(x, xs) := @of_concise_r T TS xs in (x0, (x, xs))
+    end.
+  
+  Fixpoint to_concise_r [T0 : Type] [TS : list Type] {struct TS}: T0 * t TS -> concise_r_t T0 TS :=
+    match TS with
+    | nil     => fun '(x0,  _) => x0
+    | T :: TS => fun '(x0, xs) => (@to_concise_r T TS xs, x0)
+    end.
+
+  Lemma type_iso_concise_r T0 TS:
+    type_iso (concise_r_t T0 TS) (T0 * t TS) (@of_concise_r T0 TS) (@to_concise_r T0 TS).
+  Proof.
+    split; revert T0; induction TS as [|T TS]; intro; cbn.
+    - reflexivity.
+    - intros (x, x0).
+      specialize (IHTS _ x).
+      destruct of_concise_r; f_equal; auto.
+    - intros [? []]; reflexivity.
+    - intros (x0, (x, xs)); rewrite IHTS; reflexivity.
+  Qed.
+
+  Definition concise_t (TS : list Type) : Type :=
+    match TS with
+    | nil     => unit
+    | T :: TS => concise_r_t T TS
+    end.
+
+  Definition of_concise [TS] : concise_t TS -> t TS.
+  Proof.
+    unfold concise_t.
+    case TS as [|].
+    - exact (fun _ => tt).
+    - exact (@of_concise_r _ _).
+  Defined.
+  
+  Definition to_concise [TS] : t TS -> concise_t TS.
+  Proof.
+    unfold concise_t.
+    case TS as [|].
+    - exact (fun _ => tt).
+    - exact (@to_concise_r _ _).
+  Defined.
+
+  Definition type_iso_concise TS:
+    type_iso (concise_t TS) (t TS) (@of_concise TS) (@to_concise TS).
+  Proof.
+    case TS as [|T TS].
+    - split; intros []; reflexivity.
+    - exact (type_iso_concise_r T TS).
+  Qed.
+
+  Definition u_t (TS : list Type) : Type :=
+    concise_t (List.rev_append TS nil).
+
+  Definition of_u_t [TS] (x : u_t TS) : t TS :=
+    fst (iso_rev_g _ _ (of_concise x)).
+
+  Definition to_u_t [TS] (x : t TS) : u_t TS :=
+    to_concise (iso_rev_f TS [] (x, tt)).
+
+  Lemma type_iso_u_t TS:
+    type_iso (u_t TS) (t TS) (@of_u_t TS) (@to_u_t TS).
+  Proof.
+    split; intro; unfold of_u_t, to_u_t.
+    - specialize (proj2 (type_iso_rev TS []) (of_concise x)).
+      case (iso_rev_g _ _ _) as (?, []); cbn; intros ->.
+      apply type_iso_concise.
+    - ecase type_iso_concise as [_ ->],
+            type_iso_rev     as [-> _].
+      reflexivity.
+  Qed.
+
   (* equality *)
 
   (* avoid losing [TS] while reducing [u] and [v] *)
@@ -493,38 +616,11 @@ Module Tuple.
   
   (* replacing a product type with a tuple, given a term that let-matches on the product type *)
 
-  Definition type_iso_tu (A : Type) (TS : list Type) :=
-    type_iso A (t TS).
-
   Inductive type_iso_tu_goal [T : Type] (t : T) : forall (P : Prop) (pf : P), Prop :=
     | type_iso_tu_goal_cont [P0 P1 : Prop] (C : P0 -> P1) [pf : P0]:
         type_iso_tu_goal t P0 pf -> type_iso_tu_goal t P1 (C pf)
     | type_iso_tu_goal_end [P : Prop] (pf : P):
         type_iso_tu_goal t P pf.
-
-  Lemma type_iso_tu_nil:
-    type_iso_tu unit nil (fun _ => tt) (fun _ => tt).
-  Proof.
-    split; intros []; reflexivity.
-  Qed.
-
-  Lemma type_iso_tu_one A:
-    type_iso_tu A [A] (fun x => (x, tt)) (fun '(x, _) => x).
-  Proof.
-    split.
-    - reflexivity.
-    - intros (?, []); reflexivity.
-  Qed.
-
-  (* NOTE: [_ * _] is left associative but [Tuple.t] is right associative *)
-  Lemma type_iso_tu_prod A AS f g B
-    (H : type_iso_tu A AS f g):
-    type_iso_tu (A * B) (B :: AS) (fun '(xs, x) => (x, f xs)) (fun '(x, xs) => (g xs, x)).
-  Proof.
-    split.
-    - intros (xs, x); rewrite (proj1 H); reflexivity.
-    - intros (x, xs); rewrite (proj2 H); reflexivity.
-  Qed.
 
   Lemma type_iso_tu_init [A TS0 f0 g0 TS1 f1 g1]
     (E : type_iso_tu A (List.rev_append TS0 nil)
