@@ -1,6 +1,4 @@
-Require Import SLFun.Util.
-Require Import SLFun.SLProg.
-Require Import SLFun.SL.
+From SLFun Require Import Util SLProg SL.
 
 Import SLNotations SLProg.Tactics.
 

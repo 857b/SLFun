@@ -1,9 +1,8 @@
-From SLFun Require Import Util Values SL VProg VProgGhost.
+From SLFun Require Import Util Values SL VProg.Main.
 From Coq   Require Import Lists.List.
 
-Import SLNotations SL.Tactics.
-Import ListNotations.
-Import VProg.Notations.
+Import SLNotations ListNotations VProg.Main.Notations.
+Import SL.Tactics.
 
 
 (* Singly linked lists *)

@@ -1,4 +1,5 @@
-Require Import SLFun.ConcreteProg.
+From SLFun Require Import ConcreteProg.
+
 
 Definition f_aux  : fid := 0.
 Definition f_main : fid := 1.

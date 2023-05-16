@@ -1,6 +1,5 @@
-Require Import SLFun.Util.
-
-Require Import Coq.Setoids.Setoid.
+From SLFun Require Import Util.
+From Coq   Require Import Setoids.Setoid.
 
 
 Module Spec.

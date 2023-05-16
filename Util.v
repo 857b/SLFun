@@ -1,7 +1,8 @@
-Require Import Coq.Setoids.Setoid Coq.Lists.List.
-Require Coq.Vectors.Vector.
+From Coq Require Import Setoids.Setoid Lists.List.
+From Coq Require Vectors.Vector.
 
 Import ListNotations.
+
 
 (* Tactics *)
 

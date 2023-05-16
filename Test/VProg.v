@@ -1,13 +1,9 @@
-Require Import SLFun.Util SLFun.Values SLFun.SL.
-Require Import SLFun.VProg.
+From SLFun Require Import Util Values SL VProg.Main.
+From Coq   Require Import Lists.List.
 
-Require Import Coq.Lists.List.
+Import SLNotations ListNotations DTuple.Notations VProg.Core.Abbrev VProg.Main.Notations.
+Import SL.Tactics.
 
-Import SLNotations SL.Tactics.
-Import ListNotations.
-Import DTuple.Notations.
-Import VProg._Abbrev.
-Import VProg.Notations.
 
 Section Program.
   Variables (SIG : sig_context) (SPEC : CP.spec_context SIG).

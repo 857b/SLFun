@@ -1,8 +1,7 @@
-Require Import SLFun.Util.
-Require Export SLFun.Values.
+From SLFun Require Export Values.
+From SLFun Require Import Util.
+From Coq   Require Import Relations.Relations Setoids.Setoid.
 
-Require Import Coq.Relations.Relations.
-Require Import Coq.Setoids.Setoid.
 
 (* sig ghost *)
 Inductive sigG (A : Type) (P : A -> Type) : Type :=

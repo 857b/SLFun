@@ -5,8 +5,10 @@ ConcreteProg.v
 SL.v
 SLProg.v
 FunProg.v
-VProg.v
-VProgGhost.v
+VProg/Vprop.v
+VProg/Core.v
+VProg/Ghost.v
+VProg/Main.v
 Test/ConcreteProg.v
 Test/SLProg.v
 Test/VProg.v

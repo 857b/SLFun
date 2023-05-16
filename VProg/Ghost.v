@@ -1,9 +1,9 @@
-From SLFun Require Import Util Values SL VProg.
+From SLFun Require Import Util Values SL VProg.Vprop VProg.Core.
 From Coq   Require Import Lists.List.
 
-Import SLNotations SL.Tactics.
-Import ListNotations.
-Import VProg.Notations.
+Import SLNotations ListNotations VProg.Core.Notations.
+Import SL.Tactics.
+
 
 Section Admit.
   Lemma admit_change {A} : @ghost_lem (mk_f_sig (VpropList.t * (A -> VpropList.t)) A)

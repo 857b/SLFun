@@ -1,4 +1,4 @@
-Require Import SLFun.Util.
+From SLFun Require Import Util.
 
 
 Definition ptr : Type := nat.

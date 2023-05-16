@@ -1,7 +1,6 @@
-Require Import SLFun.Util.
-Require Import SLFun.Values.
+From SLFun Require Import Util Values.
+From Coq   Require Import Setoids.Setoid.
 
-Require Import Coq.Setoids.Setoid.
 
 Declare Scope slprop_scope.
 Delimit Scope slprop_scope with slprop.

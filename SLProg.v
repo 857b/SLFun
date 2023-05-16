@@ -1,9 +1,7 @@
-Require Import SLFun.Util.
-Require Export SLFun.Values.
-Require Import SLFun.SL.
-Require SLFun.ConcreteProg.
-
-Require Import Coq.Setoids.Setoid.
+From SLFun Require Export Values.
+From SLFun Require Import Util SL.
+From SLFun Require ConcreteProg.
+From Coq   Require Import Setoids.Setoid.
 
 Module CP := ConcreteProg.
 Import SLNotations.
