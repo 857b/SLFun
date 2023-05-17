@@ -8,6 +8,7 @@ FunProg.v
 VProg/Vprop.v
 VProg/Core.v
 VProg/Ghost.v
+VProg/Instructions.v
 VProg/Main.v
 Test/ConcreteProg.v
 Test/SLProg.v
