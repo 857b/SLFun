@@ -15,6 +15,7 @@ Module Mem.
 
   Definition ptr_eq (p0 p1 : ptr) : {p0 = p1}+{p0<>p1}.
   Proof. decide equality. Defined.
+  Global Opaque Mem.ptr_eq.
 
   Definition write (m : t) (p : ptr) (x : memdata) : t :=
     fset ptr_eq p x m.

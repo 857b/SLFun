@@ -358,8 +358,8 @@ Section SLS.
 End SLS.
 
 Module Tactics.
-  #[export] Hint Extern 1 (Change_Goal (sls _ _ (Spec.mk _ _)) _) =>
-    Change_GoalI_tac ltac:(fun _ =>
+  #[export] Hint Extern 1 (Arrow _ (sls _ _ (Spec.mk _ _))) =>
+    mk_Arrow_tac ltac:(fun _ =>
     eapply sls_morph; [eapply Spec.mk_morph; [|intro]; SLprop.Norm.normalize_core |])
       : NormalizeDB.
 End Tactics.

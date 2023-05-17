@@ -753,92 +753,89 @@ Module SLprop.
 End SLprop.
 
 (* DB for [normalize].
-   should solves goal [Change_Goal goal0 ?goal1] *)
+   should solves goal [Arrow ?goal1 goal0] *)
 Global Create HintDb NormalizeDB discriminated.
 Global Hint Constants Opaque : NormalizeDB.
 Global Hint Variables Opaque : NormalizeDB.
 Ltac normalize :=
-  refine (Util.by_Change_Goal _ _);
+  refine (Util.cut_Arrow _ _);
   [ solve [eauto 1 with NormalizeDB nocore] | try exact Logic.I].
 
-Global Hint Extern 1 (Change_Goal (SLprop.eq ?h0 ?h1) _) =>
-  Change_GoalI_tac ltac:(fun _ => first
+Global Hint Extern 1 (Arrow _ (SLprop.eq ?h0 ?h1)) =>
+  mk_Arrow_tac ltac:(fun _ => first
   [ is_evar h0; is_evar h1; reflexivity
   | is_evar h1; SLprop.Norm.normalize_core
   | is_evar h0; symmetry; SLprop.Norm.normalize_core
   | etransitivity; [SLprop.Norm.normalize_core | etransitivity; [|symmetry;SLprop.Norm.normalize_core]]
   ]) : NormalizeDB.
 
-Global Hint Extern 1 (Change_Goal (SLprop.sl_pred _ _) _) =>
-  Change_GoalI_tac ltac:(fun _ =>
+Global Hint Extern 1 (Arrow _ (SLprop.sl_pred _ _)) =>
+  mk_Arrow_tac ltac:(fun _ =>
   eapply SLprop.sl_pred_eq; [SLprop.Norm.normalize_core|])
     : NormalizeDB.
 
-Global Hint Extern 1 (Change_Goal (SLprop.imp _ _) _) =>
-  Change_GoalI_tac ltac:(fun _ =>
+Global Hint Extern 1 (Arrow _ (SLprop.imp _ _)) =>
+  mk_Arrow_tac ltac:(fun _ =>
   eapply SLprop.imp_morph; [SLprop.Norm.normalize_core|SLprop.Norm.normalize_core|])
     : NormalizeDB.
 
-Global Hint Extern 1 (Change_Goal (SLprop.impp _ _) _) =>
-  Change_GoalI_tac ltac:(fun _ =>
+Global Hint Extern 1 (Arrow _ (SLprop.impp _ _)) =>
+  mk_Arrow_tac ltac:(fun _ =>
   eapply SLprop.impp_morph; [SLprop.Norm.normalize_core|reflexivity|])
     : NormalizeDB.
 
-Global Hint Extern 1 (Change_Goal (_ = _) _) =>
-  Change_GoalI_tac ltac:(fun _ => reflexivity) : NormalizeDB.
+Global Hint Extern 1 (Arrow _ (_ = _)) =>
+  mk_Arrow_tac ltac:(fun _ => reflexivity) : NormalizeDB.
 
 Module Tactics.
-  #[export] Hint Extern 1 (Change_Goal (SLprop.imp (SLprop.star (SLprop.pure _) _) _) _) =>
-     exact (Change_GoalI (SLprop.imp_pure_l _ _ _)) : IntroDB.
+  #[export] Hint Extern 1 (Arrow _ (SLprop.imp (SLprop.star (SLprop.pure _) _) _)) =>
+     exact (mk_Arrow (SLprop.imp_pure_l _ _ _)) : IntroDB.
   
-  #[export] Hint Extern 1 (Change_Goal (SLprop.imp (SLprop.pure _) _) _) =>
-     exact (Change_GoalI (SLprop.imp_pure_l1 _ _)) : IntroDB.
+  #[export] Hint Extern 1 (Arrow _ (SLprop.imp (SLprop.pure _) _)) =>
+     exact (mk_Arrow (SLprop.imp_pure_l1 _ _)) : IntroDB.
 
-  #[export] Hint Extern 1 (Change_Goal (SLprop.imp (SLprop.ex _ _) _) _) =>
-     exact (Change_GoalI (SLprop.imp_exists_l _ _ _)) : IntroDB.
+  #[export] Hint Extern 1 (Arrow _ (SLprop.imp (SLprop.ex _ _) _)) =>
+     exact (mk_Arrow (SLprop.imp_exists_l _ _ _)) : IntroDB.
   
-  Local Lemma Apply_imp_pure P h0 h1:
-    Change_Goal (SLprop.imp h0 (SLprop.star (SLprop.pure P) h1))
-                ({_ : P & SLprop.imp h0 h1}).
+  Local Lemma Apply_imp_pure (P : Prop) h0 h1:
+    Arrow ({_ : P & SLprop.imp h0 h1}) (SLprop.imp h0 (SLprop.star (SLprop.pure P) h1)).
   Proof.
     constructor; intros [H0 H1].
     apply SLprop.imp_pure_r; assumption.
   Qed.
   
-  Local Lemma Apply_imp_pure1 P h:
-    Change_Goal (SLprop.imp h (SLprop.pure P))
-                ({_ : P & SLprop.imp h SLprop.emp}).
+  Local Lemma Apply_imp_pure1 (P : Prop) h:
+    Arrow ({_ : P & SLprop.imp h SLprop.emp}) (SLprop.imp h (SLprop.pure P)).
   Proof.
     constructor; intros [H0 H1].
     apply SLprop.imp_pure_r1; assumption.
   Qed.
 
   Local Lemma Apply_imp_exists A h0 h1:
-    Change_Goal (SLprop.imp h0 (SLprop.ex A h1))
-                ({x : A & SLprop.imp h0 (h1 x)}).
+    Arrow ({x : A & SLprop.imp h0 (h1 x)}) (SLprop.imp h0 (SLprop.ex A h1)).
   Proof.
     constructor; intros [x H].
     apply SLprop.imp_exists_r with (wit := x); assumption.
   Qed.
   
-  #[export] Hint Extern 1 (Change_Goal (SLprop.imp _ (SLprop.star (SLprop.pure _) _)) _) =>
+  #[export] Hint Extern 1 (Arrow _ (SLprop.imp _ (SLprop.star (SLprop.pure _) _))) =>
      exact (Apply_imp_pure _ _ _) : ApplyDB.
 
-  #[export] Hint Extern 1 (Change_Goal (SLprop.imp _ (SLprop.pure _)) _) =>
+  #[export] Hint Extern 1 (Arrow _ (SLprop.imp _ (SLprop.pure _))) =>
      exact (Apply_imp_pure1 _ _) : ApplyDB.
 
-  #[export] Hint Extern 1 (Change_Goal (SLprop.imp _ (SLprop.ex _ _)) _) =>
+  #[export] Hint Extern 1 (Arrow _ (SLprop.imp _ (SLprop.ex _ _))) =>
      exact (Apply_imp_exists _ _ _) : ApplyDB.
 
 
-  #[export] Hint Extern 1 (Change_Goal (SLprop.impp (SLprop.star (SLprop.pure _) _) _) _) =>
-     exact (Change_GoalI (@SLprop.impp_pure_l _ _ _)) : IntroDB.
+  #[export] Hint Extern 1 (Arrow _ (SLprop.impp (SLprop.star (SLprop.pure _) _) _)) =>
+     exact (mk_Arrow (@SLprop.impp_pure_l _ _ _)) : IntroDB.
   
-  #[export] Hint Extern 1 (Change_Goal (SLprop.impp (SLprop.pure _) _) _) =>
-     exact (Change_GoalI (@SLprop.impp_pure_l1 _ _)) : IntroDB.
+  #[export] Hint Extern 1 (Arrow _ (SLprop.impp (SLprop.pure _) _)) =>
+     exact (mk_Arrow (@SLprop.impp_pure_l1 _ _)) : IntroDB.
 
-  #[export] Hint Extern 1 (Change_Goal (SLprop.impp (SLprop.ex _ _) _) _) =>
-     exact (Change_GoalI (@SLprop.impp_exists_l _ _ _)) : IntroDB.
+  #[export] Hint Extern 1 (Arrow _ (SLprop.impp (SLprop.ex _ _) _)) =>
+     exact (mk_Arrow (@SLprop.impp_exists_l _ _ _)) : IntroDB.
 End Tactics.
 
 Module SLNotations.

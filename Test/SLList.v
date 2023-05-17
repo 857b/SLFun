@@ -7,6 +7,8 @@ Import SL.Tactics.
 
 (* Singly linked lists *)
 
+Section Definitions.
+
 Record lcell_t := mk_lcell {
   v_data : memdata;
   v_next : ptr;
@@ -41,7 +43,9 @@ Definition llist (p : ptr) : Vprop.p lseg_t :=
   lseg p NULL.
 Global Arguments llist/.
 
-(* Lemmas *)
+End Definitions.
+
+Section Lemmas.
 
 Lemma lcell_non_null p v:
   SLprop.impp (lcell p v) (p <> NULL).
@@ -67,7 +71,7 @@ Qed.
 Definition intro_lseg_nil_spec : LDecl ptr unit
   FOR p FOR tt [] [] True
   RET _ FOR tt [lseg p p ~> nil] True.
-Proof. Derive. Defined.
+Proof. Derived. Defined.
 Lemma intro_lseg_nil : intro_lseg_nil_spec.
 Proof.
   init_lemma p [] _; unfold lseg; SL.normalize.
@@ -77,7 +81,7 @@ Qed.
 Definition elim_lseg_nil_spec : LDecl (ptr * ptr) unit
   FOR (p0, p1) FOR l [] [lseg p0 p1 ~> l] (l = nil)
   RET _ FOR tt [] (p0 = p1).
-Proof. Derive. Defined.
+Proof. Derived. Defined.
 Lemma elim_lseg_nil : elim_lseg_nil_spec.
 Proof.
   init_lemma (p0, p1) l ->; unfold lseg; SL.normalize.
@@ -87,7 +91,7 @@ Qed.
 Definition intro_lseg_cons_spec : LDecl (ptr * ptr * ptr) unit
   FOR (p0, p1, pn) FOR (hd, tl) [] [lcell p0 ~> hd; lseg p1 pn ~> tl] (v_next hd = p1)
   RET _ FOR tt [lseg p0 pn ~> ((p0, v_data hd) :: tl)] True.
-Proof. Derive. Defined.
+Proof. Derived. Defined.
 Lemma intro_lseg_cons : intro_lseg_cons_spec.
 Proof.
   init_lemma ((p0, p1), pn) ([], tl) <-.
@@ -100,7 +104,7 @@ Definition elim_lseg_cons_spec : LDecl (ptr * ptr) ptr
   FOR (p0, pn) FOR l [] [lseg p0 pn ~> l] (match l with nil => False | cons _ _ => True end)
   RET p1 FOR (dt, tl) [lcell p0 ~> (mk_lcell dt p1); lseg p1 pn ~> tl]
     (match l with nil => False | (p0', dt') :: tl' => p0' = p0 /\ dt = dt' /\ tl = tl' end).
-Proof. Derive. Defined.
+Proof. Derived. Defined.
 Lemma elim_lseg_cons : elim_lseg_cons_spec.
 Proof.
   init_lemma (p0, pn) [|[p0' dt] tl] [].
@@ -114,7 +118,7 @@ Qed.
 Definition elim_llist_nnull_spec : LDecl ptr ptr
   FOR p0 FOR l [] [llist p0 ~> l] (p0 <> NULL)
   RET p1 FOR (dt, tl) [lcell p0 ~> (mk_lcell dt p1); llist p1 ~> tl] (l = (p0, dt) :: tl).
-Proof. Derive. Defined.
+Proof. Derived. Defined.
 Lemma elim_llist_nnull : elim_llist_nnull_spec.
 Proof.
   init_lemma p0 l NNULL.
@@ -168,7 +172,7 @@ Qed.
 Definition lseg_app_spec : LDecl (ptr * ptr * ptr) unit
   FOR (p0, p1, p2) FOR (l0, l1) [] [lseg p0 p1 ~> l0; lseg p1 p2 ~> l1] True
   RET _ FOR tt [lseg p0 p2 ~> (l0 ++ l1)] True.
-Proof. Derive. Defined.
+Proof. Derived. Defined.
 Lemma lseg_app : lseg_app_spec.
 Proof.
   init_lemma ((p0, p1), p2) (l0, l1) _.
@@ -178,18 +182,17 @@ Proof.
   Apply; reflexivity.
 Qed.
 
-
-(* Implementation *)
+End Lemmas.
 
 Section Program.
-  Variables (SIG : sig_context) (SPEC : ConcreteProg.spec_context SIG).
+  Variable CT : ConcreteProg.context.
 
 Definition Length_spec : FDecl ptr _ nat _
   FOR p
   FOR l [llist p ~> l] [] True
   RET n FOR tt [] (n = length l).
-Proof. Derive. Defined.
-Variable Length : Length_spec _ SPEC.
+Proof. Derived. Defined.
+Variable Length : Length_spec CT.
 
 Definition Length_impl : FImpl Length := fun p0 =>
   if Mem.ptr_eq p0 NULL
@@ -208,15 +211,13 @@ Definition Length_impl : FImpl Length := fun p0 =>
     Ret (S n).
 Lemma Length_correct : FCorrect Length_impl.
 Proof. by_wlp. Qed.
-Definition Length_cp : f_extract Length_impl.
-Proof. Derive. Defined.
 
 Definition Rev_spec : FDecl (ptr * ptr) _ ptr _
   FOR (p, pr)
   FOR l [] [llist p ~> l] True
   RET r FOR tt [lseg r pr ~> rev l] True.
-Proof. Derive. Defined.
-Variable Rev : Rev_spec _ SPEC.
+Proof. Derived. Defined.
+Variable Rev : Rev_spec CT.
 
 Definition Rev_impl : FImpl Rev := fun '(p0, pr) =>
   gLem intro_lseg_nil pr;;
@@ -238,50 +239,11 @@ Definition Rev_impl : FImpl Rev := fun '(p0, pr) =>
     Ret r (pt := fun r => [lseg r pr ~>]).
 Lemma Rev_correct : FCorrect Rev_impl.
 Proof. by_wlp. Qed.
-Definition Rev_cp : f_extract Rev_impl.
-Proof. Derive. Defined.
+
 End Program.
 
-Section Extraction.
-  Definition SIG : sig_context :=
-    fun f => match f with
-    | 0 => Some (fd_sig Length_spec)
-    | 1 => Some (fd_sig Rev_spec)
-    | _ => None
-    end.
-
-  Definition SPEC : ConcreteProg.spec_context SIG :=
-    fun f => match f with
-    | 0 => fd_cp Length_spec
-    | 1 => fd_cp Rev_spec
-    | _ => tt
-    end.
-
-  Definition H_Length := fd_mk 0 Length_spec SPEC eq_refl eq_refl.
-  Definition H_Rev    := fd_mk 1 Rev_spec    SPEC eq_refl eq_refl.
-
-  Definition IMPL : ConcreteProg.impl_context SIG :=
-    fun f => match f with
-    | 0 => proj1_sig (Length_cp _ _ H_Length)
-    | 1 => proj1_sig (Rev_cp    _ _ H_Rev)
-    | _ => tt
-    end.
-
-  Lemma match_context:
-    ConcreteProg.context_match_spec IMPL SPEC.
-  Proof.
-    Tac.case_until_True;
-    cbn beta iota delta [SIG IMPL SPEC];
-    apply f_extract_match_spec.
-    - apply Length_correct.
-    - apply Rev_correct.
-  Qed.
-
-  Lemma context_oracle_free:
-    ConcreteProg.context_oracle_free IMPL.
-  Proof.
-    Tac.case_until_True;
-    cbn beta iota delta [SIG IMPL SPEC];
-    apply f_extract_oracle_free.
-  Qed.
-End Extraction.
+Derive prog SuchThat (ConcreteProg.of_entries [
+  f_entry Length_spec Length_correct;
+  f_entry Rev_spec    Rev_correct
+] prog) As prog_correct.
+Proof. Derived. Qed.

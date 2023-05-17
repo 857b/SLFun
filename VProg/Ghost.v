@@ -2,7 +2,7 @@ From SLFun Require Import Util Values SL VProg.Vprop VProg.Core.
 From Coq   Require Import Lists.List.
 
 Import SLNotations ListNotations VProg.Core.Notations.
-Import SL.Tactics.
+Import SL.Tactics VProg.Core.Tactics.
 
 
 Section Admit.
@@ -78,18 +78,18 @@ Section Equivalence.
     split; eauto using eqv_lem1, eqv_lem2.
   Qed.
 
-  Definition gUnfold {SIG SPC} (L : eqv_lemma) : @instr SIG SPC unit :=
+  Definition gUnfold {CT} (L : eqv_lemma) : @instr CT unit :=
     gLem (proj1 L) tt.
-  Definition gFold {SIG SPC} (L : eqv_lemma) : @instr SIG SPC unit :=
+  Definition gFold {CT} (L : eqv_lemma) : @instr CT unit :=
     gLem (proj2 L) tt.
 End Equivalence.
-Global Arguments gUnfold [_ _ _ _] {_ _} L.
-Global Arguments gFold   [_ _ _ _] {_ _} L.
+Global Arguments gUnfold [_ _ _ _] {_} L.
+Global Arguments gFold   [_ _ _ _] {_} L.
 Section Replace.
   Definition replace1_spec A : LDecl (Vprop.p A * Vprop.p A) unit
     FOR (v0, v1) FOR x [] [v0 ~> x] (v0 = v1)
     RET _ FOR tt [v1 ~> x] True.
-  Proof. Derive. Defined.
+  Proof. Derived. Defined.
   Lemma replace1 {A} : replace1_spec A.
   Proof.
     init_lemma (v0, v1) sel0 E; subst; reflexivity.

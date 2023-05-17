@@ -1,5 +1,5 @@
 From Coq Require Import Setoids.Setoid Lists.List.
-From Coq Require Vectors.Vector.
+From Coq Require Vectors.Vector derive.Derive.
 
 Import ListNotations.
 
@@ -9,32 +9,35 @@ Import ListNotations.
 Global Create HintDb DeriveDB discriminated.
 Global Hint Constants Opaque : DeriveDB.
 Global Hint Variables Opaque : DeriveDB.
-Ltac Derive := solve [auto 1 with DeriveDB nocore].
+Ltac Derived := solve [auto 1 with DeriveDB nocore].
 
-Inductive Change_Goal (goal0 : Type) (goal1 : Type) :=
-  Change_GoalI (H : goal1 -> goal0).
-Global Arguments Change_GoalI [_ _].
+Inductive Arrow (A B : Type) :=
+  mk_Arrow (H : A -> B).
+Global Arguments mk_Arrow [_ _].
 
-Local Lemma by_Change_Goal [goal0 goal1]
-  (S : @Change_Goal goal0 goal1)
+Local Lemma cut_Arrow [goal0 goal1]
+  (S : Arrow goal1 goal0)
   (C : goal1):
   goal0.
 Proof. apply S, C. Defined.
 
-Ltac Change_GoalI_tac tc :=
+(* solves a goal [Arrow ?A B]
+   [tc] should solve [B] possibly leaving a single goal [H].
+   In this case, [?A] is instantiated to [H]. Otherwise, [?A] is unchanged. *)
+Ltac mk_Arrow_tac tc :=
   constructor;
   let H := fresh "H" in intro H;
   tc tt;
   exact H.
 
 (* DB for [Intro].
-   Should solves goals [Change_Goal goal0 ?goal1] and instantiate [?goal1] to [forall _, _] *)
+   Should solve goals [Arrow ?goal1 goal0] and instantiate [?goal1] to [forall _, _] *)
 Global Create HintDb IntroDB discriminated.
 Global Hint Constants Opaque : IntroDB.
 Global Hint Variables Opaque : IntroDB.
 
 Ltac Intro_core :=
-  refine (by_Change_Goal _ _); [ solve [eauto 1 with IntroDB nocore] |].
+  refine (cut_Arrow _ _); [ solve [eauto 1 with IntroDB nocore] |].
 
 Global Tactic Notation "Intro" :=
   Intro_core; intro.
@@ -43,13 +46,13 @@ Global Tactic Notation "Intro" simple_intropattern(x) :=
   Intro_core; intros x.
 
 (* DB for [Apply].
-   Should solves goals [Change_Goal goal0 ?goal1] and instantiate [?goal1] to [{_ & _}] *)
+   Should solve goals [Arrow ?goal1 goal0] and instantiate [?goal1] to [{_ & _}] *)
 Global Create HintDb ApplyDB discriminated.
 Global Hint Constants Opaque : ApplyDB.
 Global Hint Variables Opaque : ApplyDB.
 
 Ltac Apply_core := 
-  refine (by_Change_Goal _ _); [ solve [eauto 1 with ApplyDB nocore] |].
+  refine (cut_Arrow _ _); [ solve [eauto 1 with ApplyDB nocore] |].
 
 Global Tactic Notation "Apply" :=
   Apply_core; unshelve eexists.
@@ -111,6 +114,18 @@ Module Tac.
     repeat match goal with |- forall _, _ => intros _ end;
     unfold gl; clear gl
     end.
+
+
+  Lemma apply_Arrow_lem [H0 H1]
+    (C : Arrow H0 H1):
+    H0 -> H1.
+  Proof.
+    apply C.
+  Defined.
+
+  Ltac apply_Arrow H :=
+    eapply apply_Arrow_lem in H; cycle 1.
+
 
   (* given [u := x0 :: ... :: x9 :: tail], call [f tail] *)
   Ltac elist_tail u f :=
@@ -257,6 +272,12 @@ Module ListTransp.
     induction u; simpl; f_equal; auto.
   Defined.
 End ListTransp.
+
+Fixpoint mapi [A B : Type] (f : nat -> A -> B) (u : list A) : list B :=
+  match u with
+  | nil     => nil
+  | x :: xs => f O x :: mapi (fun i => f (S i)) xs
+  end.
 
 (* propositions *)
 
@@ -444,6 +465,16 @@ Module Tuple.
     induction TS; simpl; [|setoid_rewrite IHTS];
       (split; intro H; [decompose record H|case H as [[]]]; eauto).
   Qed.
+
+  (* map *)
+
+  Fixpoint map [A : Type] (F0 : A -> Type) (F1 : A -> Type) (f : forall x : A, F0 x -> F1 x)
+    (x : list A) {struct x} : Tuple.t (List.map F0 x) -> Tuple.t (List.map F1 x).
+  Proof.
+    case x as [|x xs].
+    - exact (fun _ => tt).
+    - exact (fun '(y, ys) => (f x y, map A F0 F1 f xs ys)).
+  Defined.
 
   (* isomorphisms *)
 

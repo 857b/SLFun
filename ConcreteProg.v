@@ -76,7 +76,9 @@ Definition f_impl (sig : f_sig) := f_arg_t sig -> instr (f_ret_t sig).
 Definition opt_type [A] (f : A -> Type) (o : option A) : Type :=
   OptTy.t (option_map f o).
 
-Definition impl_context := forall f : fid, opt_type f_impl (SG f).
+Definition impl_context' (SG' : sig_context) := forall f : fid, opt_type f_impl (SG' f).
+
+Definition impl_context := impl_context' SG.
 
 (* Small step semantics *)
 
@@ -126,20 +128,23 @@ Fixpoint oracle_free [A] (i : instr A) : Prop :=
   | _        => True
   end.
 
-Definition context_oracle_free (c : impl_context) : Prop :=
+Definition context_oracle_free' SG' (c : impl_context' SG') : Prop :=
   forall (f : fid),
-  match SG f as sg return opt_type f_impl sg -> Prop with
+  match SG' f as sg return opt_type f_impl sg -> Prop with
   | Some sig => fun imp => forall x : f_arg_t sig, oracle_free (imp x)
   | None     => fun _   => True
   end (c f).
 
+Definition context_oracle_free : impl_context -> Prop :=
+  context_oracle_free' SG.
+
 Definition f_spec (sg : f_sig) : Type := f_arg_t sg -> Spec.t (f_ret_t sg) -> Prop.
 
-Definition spec_context :=
+Definition spec_context SG :=
   forall f : fid, opt_type f_spec (SG f).
 
 Section WLP.
-  Variable G : spec_context.
+  Variable G : spec_context SG.
   
   Definition fun_has_spec [sg] (f : fid) (SIG : SG f = Some sg) : f_spec sg.
   Proof.
@@ -189,16 +194,18 @@ Section WLP.
 End WLP.
 
 Section WLP_Correct.
-  Variables (C : impl_context) (S : spec_context).
+  Variables (C : impl_context) (S : spec_context SG).
 
-  Definition context_match_spec : Prop :=
+  Definition context_match_spec' SG' (C' : impl_context' SG') (S' : spec_context SG') : Prop :=
     forall f,
-    match SG f as sg return
+    match SG' f as sg return
       opt_type f_impl sg -> opt_type f_spec sg -> Prop
     with
     | Some sg => @f_match_spec S sg
     | None    => fun _  _  => True
-    end (C f) (S f).
+    end (C' f) (S' f).
+
+  Definition context_match_spec : Prop := context_match_spec' SG C S.
 
   Hypothesis MATCH : context_match_spec.
   
@@ -416,6 +423,104 @@ End Concrete.
 Global Arguments impl_context : clear implicits.
 Global Arguments spec_context : clear implicits.
 
+Section ListRepresentation.
+  Import Coq.Lists.List List.ListNotations.
+
+  Definition context := {SIG : sig_context & spec_context SIG}.
+
+  Record context_entry := {
+    ce_sig  : f_sig;
+    ce_spec : f_spec ce_sig;
+  }.
+
+  Definition context_has_entry (CT : context) (f : fid) (e : context_entry) :=
+    {HSIG : projT1 CT f = Some (ce_sig e) | fun_has_spec (projT2 CT) f HSIG = ce_spec e}.
+
+  Local Set Implicit Arguments.
+  Record entry_impl_correct (CT : context) (e : context_entry) (r : @f_impl (projT1 CT) (ce_sig e)) : Prop := {
+    ce_correct     : f_match_spec (projT2 CT) r (ce_spec e);
+    ce_oracle_free : forall x : f_arg_t (ce_sig e), oracle_free (r x);
+  }.
+  Local Unset Implicit Arguments.
+
+  Definition empty_context : context.
+  Proof.
+    exists (fun _ => None).
+    exact  (fun _ => tt).
+  Defined.
+
+  Definition cons_context_entry (e : context_entry) (CT : context) : context.
+  Proof.
+    unshelve eexists.
+    - intros [|f].
+      + exact (Some (ce_sig e)).
+      + exact (projT1 CT f).
+    - intros [|f].
+      + exact (ce_spec e).
+      + exact (projT2 CT f).
+  Defined.
+
+  Definition context_of : list context_entry -> context :=
+    List.fold_right cons_context_entry empty_context.
+
+  Lemma context_of_has_entries es:
+    and_list (mapi (context_has_entry (context_of es)) es).
+  Proof.
+    induction es.
+    - constructor.
+    - split.
+      + unshelve eexists; reflexivity.
+      + cbn.
+        destruct (context_of es).
+        exact IHes.
+  Defined.
+
+  Definition impl_list' SIG es :=
+    Tuple.t (List.map (fun e => @f_impl SIG (ce_sig e)) es).
+
+  Definition impl_list es := impl_list' (projT1 (context_of es)) es.
+
+  Definition impl_of_list' [IT] es (l : Tuple.t (List.map (fun e => IT (ce_sig e)) es)):
+    forall f : fid, opt_type IT (projT1 (context_of es) f).
+  Proof.
+    revert l; induction es as [|e es IH]; cbn.
+    - constructor.
+    - intros (i, is) [|f].
+      + exact i.
+      + exact (IH is f).
+  Defined.
+
+  Definition impl_of_list [es] (l : impl_list es) : impl_context (projT1 (context_of es))
+    := impl_of_list' es l.
+
+  Definition program_ok' SIG SPC SIG' SPC' (IMPL : @impl_context' SIG SIG') :=
+    @context_match_spec' SIG SPC SIG' IMPL SPC' /\
+    @context_oracle_free' SIG SIG' IMPL.
+
+  Fixpoint impl_list_correct CT es : impl_list' (projT1 CT) es -> Prop :=
+    match es with
+    | nil     => fun _       => True
+    | e :: es => fun '(i, l) => entry_impl_correct CT e i /\ impl_list_correct CT es l
+    end.
+
+  Lemma program_ok_of_list CT es (l : impl_list' (projT1 CT) es)
+    (H : impl_list_correct CT es l):
+    let CT' := context_of es in
+    program_ok' (projT1 CT) (projT2 CT) (projT1 CT') (projT2 CT') (impl_of_list' es l).
+  Proof.
+    split; revert l H;
+    (induction es; [constructor|
+     intros (p, l) [H0 H1] [|f]; [|exact (IHes l H1 f)]]).
+    - exact (ce_correct H0).
+    - exact (ce_oracle_free H0).
+  Qed.
+
+  Definition of_entries (es : list context_entry) (p : impl_list es) : Prop :=
+    let IMPL := impl_of_list p in
+    context_match_spec IMPL (projT2 (context_of es)) /\
+    context_oracle_free IMPL.
+End ListRepresentation.
+
 
 (* solves a goal [ebind g ?A' ?k ?g'] *)
 Ltac build_ebind :=
@@ -471,3 +576,68 @@ Ltac build_oracle_free_aux :=
 
 (* solves a goal [oracle_free i] *)
 Ltac build_oracle_free := repeat build_oracle_free_aux.
+
+(* solves a goal [of_entries es ?prog]. *)
+
+Local Lemma entry_impl_correct_change [CT e impl0 impl1]
+  (C : entry_impl_correct CT e impl0)
+  (E : impl0 = impl1):
+  entry_impl_correct CT e impl1.
+Proof.
+  subst; assumption.
+Qed.
+
+Local Lemma intro_of_entries es [p1]
+  (C : let CT := context_of es in
+       { p0 : impl_list es | impl_list_correct CT es p0 })
+  (E : p1 = proj1_sig C):
+  of_entries es p1.
+Proof.
+  subst.
+  apply program_ok_of_list.
+  apply (proj2_sig C).
+Qed.
+
+Global Create HintDb extractDB discriminated.
+Global Hint Constants Opaque : extractDB.
+Global Hint Variables Opaque : extractDB.
+
+Ltac build_of_entries :=
+  lazymatch goal with |- of_entries ?es ?prog =>
+  simple refine (intro_of_entries es _ _); [
+    let CT := fresh "CT" in intro CT;
+    (* derive hypotheses from [CP.context_has_entry] *)
+    let rec pose_has_entry f es :=
+      lazymatch es with
+      | cons ?e ?es =>
+          let H := fresh "H_f" in
+          assert (context_has_entry CT f e) as H;
+          [ exists eq_refl; reflexivity |];
+          Util.Tac.apply_Arrow H;
+          [ (* [Arrow (CP.context_has_entry CT fid e) ?H] *)
+            solve [eauto 1 with extractDB nocore]
+          |];
+          pose_has_entry (S f) es
+      | nil => idtac
+      end
+    in
+    pose_has_entry O es;
+
+    unshelve eexists; [cbn; Tuple.build_shape |];
+    cbn -[CT];
+    let rec loop := try solve [split]; (split; [|loop]) in loop;
+    (refine (entry_impl_correct_change _ _);
+     [ clearbody CT;
+       (* [CP.entry_impl_correct CT e ?impl] *)
+       solve [eauto 1 with extractDB nocore]
+     | reflexivity ])
+  |
+    cbv; reflexivity
+  ]
+  end.
+
+(* Exported tactics *)
+
+Module Tactics.
+  #[export] Hint Extern 1 (of_entries _ _) => build_of_entries : DeriveDB.
+End Tactics.

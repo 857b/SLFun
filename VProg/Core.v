@@ -307,7 +307,9 @@ Section F_SPEC.
     m_equiv : forall x : f_arg_t sg, Spec.Expanded.of_expanded (e x) (m_spec x);
   }.
 
-  Context [SIG : sig_context] (SPC : CP.spec_context SIG).
+  Variable (CT : CP.context).
+  Let SIG : sig_context         := projT1 CT.
+  Let SPC : CP.spec_context SIG := projT2 CT.
 
   Definition fun_has_spec (f : fid) (HSIG : SIG f = Some sg)
       (x : f_arg_t sg) (s : sigh_spec_t x) : Prop :=
@@ -316,7 +318,7 @@ Section F_SPEC.
   Lemma cp_has_spec (f : fid)
     (HSIG : SIG f = Some sg)
     [s : f_spec] (HSPC : CP.fun_has_spec SPC f HSIG = cp_f_spec s):
-    forall x, fun_has_spec HSIG (s x).
+    forall x, fun_has_spec f HSIG (s x).
   Proof.
     intros x ss TR.
     do 2 esplit. reflexivity.
@@ -326,7 +328,7 @@ Section F_SPEC.
   
   Record f_declared (f : fid) (s : f_spec) : Prop := {
     fd_Hsig  : SIG f = Some sg;
-    fd_Hspec : forall x, fun_has_spec fd_Hsig (s x);
+    fd_Hspec : forall x, fun_has_spec f fd_Hsig (s x);
   }.
 
   Lemma cp_is_declared (f : fid) (s : f_spec)
@@ -336,7 +338,7 @@ Section F_SPEC.
   Proof.
     exists HSIG.
     apply cp_has_spec, HSPC.
-  Qed.
+  Defined.
 
   Record f_decl (s : f_spec) : Type := {
     fd_id : fid;
@@ -416,7 +418,9 @@ Global Arguments sf_post _ _ !_ _/.
 
 (* [instr] *)
 
-  Context [SIG : sig_context] (SPC : CP.spec_context SIG).
+  Context (CT : CP.context).
+  Let SIG : sig_context         := projT1 CT.
+  Let SPC : CP.spec_context SIG := projT2 CT.
 
 Definition sound_spec [A : Type] (i : @CP.instr SIG A) (ctx : CTX.t) (s : i_spec_t A ctx) : Prop :=
   forall (post : sf_rvar_t s -> Prop)
@@ -1088,7 +1092,7 @@ Section Call.
     Defined.
 
     Variables (gi : OptTy.t (f_ghin_t_x sgh x)) (s : sigh_spec_t sgh x).
-    Hypothesis (HSPC : fun_has_spec SPC f HSIG s).
+    Hypothesis (HSPC : fun_has_spec CT f HSIG s).
 
     Lemma Call_impl_sls sel0:
       SP.sls SPC Call_impl
@@ -1145,7 +1149,7 @@ Section Call.
     Qed.
   End Impl.
 
-  Definition Call_f_decl [sg sgh s] (fd : @f_decl sg sgh SIG SPC s)
+  Definition Call_f_decl [sg sgh s] (fd : @f_decl sg sgh CT s)
     (x : f_arg_t sg)
     : OptTy.arrow (f_ghin_t_x sgh x)
                   (fun _ => instr (Spec.opt_sigG (f_ghout_t sgh)))
@@ -1342,16 +1346,16 @@ End Write.
 
 End VProg.
 
-Global Arguments Ret [_ _ _] _ {pt}.
-Global Arguments RetG [_ _ _ _] _ _ {pt}.
-Global Arguments Bind [_ _ _ _] _ _.
-Global Arguments Call [_ _ _ _ _] _ _ _ [_] _.
-Global Arguments Call_f_decl [_ _ _ _ _] _ _.
-Global Arguments gLem [_ _ _ _] _ _.
-Global Arguments gGet [_ _ _] _.
-Global Arguments Assert [_ _ _].
-Global Arguments Read [_ _] _.
-Global Arguments Write [_ _] _ _.
+Global Arguments Ret [_ _] _ {pt}.
+Global Arguments RetG [_ _ _] _ _ {pt}.
+Global Arguments Bind [_ _ _] _ _.
+Global Arguments Call [_ _ _ _] _ _ _ [_] _.
+Global Arguments Call_f_decl [_ _ _ _] _ _.
+Global Arguments gLem [_ _ _] _ _.
+Global Arguments gGet [_ _] _.
+Global Arguments Assert [_ _].
+Global Arguments Read [_] _.
+Global Arguments Write [_] _ _.
 
 
 Module NotationsDef.
@@ -1375,22 +1379,22 @@ Module NotationsDef.
 
   Definition to_f_decl
     [arg_t ghin_t ret_t ghout_t e] (F : @FDecl arg_t ghin_t ret_t ghout_t e)
-    [SIG : sig_context] (SPC : CP.spec_context SIG)
-    : Type := f_decl SPC (m_spec (fd_FSpec F)).
+    (CT : CP.context)
+    : Type := f_decl CT (m_spec (fd_FSpec F)).
 
   Definition fd_mk (f : fid)
     [arg_t ghin_t ret_t ghout_t e] (F : @FDecl arg_t ghin_t ret_t ghout_t e)
-    [SIG : sig_context] (SPC : CP.spec_context SIG)
-    (HSIG : SIG f = Some (fd_sig F))
-    (HSPS : CP.fun_has_spec SPC f HSIG = fd_cp F):
-    to_f_decl F SPC.
+    (CT : CP.context)
+    (HSIG : projT1 CT f = Some (fd_sig F))
+    (HSPS : CP.fun_has_spec (projT2 CT) f HSIG = fd_cp F):
+    to_f_decl F CT.
   Proof.
     exists f. unshelve eapply cp_is_declared; assumption.
   Defined.
 
   Definition Call_to_f_decl
-    [arg_t ghin_t ret_t ghout_t e F SIG SPC] (fd : @to_f_decl arg_t ghin_t ret_t ghout_t e F SIG SPC)
-    (x : arg_t) : OptTy.arrow (option_map (fun gi => gi x) ghin_t) (fun _ => instr SPC (Spec.opt_sigG ghout_t))
+    [arg_t ghin_t ret_t ghout_t e F CT] (fd : @to_f_decl arg_t ghin_t ret_t ghout_t e F CT)
+    (x : arg_t) : OptTy.arrow (option_map (fun gi => gi x) ghin_t) (fun _ => instr CT (Spec.opt_sigG ghout_t))
     := Call_f_decl fd x.
 
   Coercion to_f_decl      : FDecl     >-> Funclass.
@@ -1407,17 +1411,43 @@ Module NotationsDef.
     : Type := ghost_lem (m_spec (ld_FSpec L)).
 
   (* NOTE it does not seem possible to declare a coercion from [to_ghost_lem] to Funclass
-     with implicit [SIG] and [SPC] (see https://github.com/coq/coq/issues/5527).
+     with implicit [CT] (see https://github.com/coq/coq/issues/5527).
      One has to use an explicit conversion [gLem]. *)
   Coercion to_ghost_lem : LDecl >-> Sortclass.
 
 
-  Definition FImpl [SIG SPC sg sgh s] (fd : @f_decl sg sgh SIG SPC s) : Type
-    := f_body SPC sgh.
+  Definition FImpl [CT sg sgh s] (fd : @f_decl sg sgh CT s) : Type
+    := f_body CT sgh.
 
-  Definition FCorrect [SIG SPC sg sgh s fd] (fi : @FImpl SIG SPC sg sgh s fd) : Prop
+  Definition FCorrect [CT sg sgh s fd] (fi : @FImpl CT sg sgh s fd) : Prop
     := f_body_match fi s.
 End NotationsDef.
+
+Section F_ENTRY.
+  Import NotationsDef.
+
+  Context [arg_t ghin_t ret_t ghout_t e] (F : FDecl arg_t ghin_t ret_t ghout_t e).
+
+  Definition f_entry [A : CP.context -> Prop] (C : forall CT, A CT): CP.context_entry
+    := {| CP.ce_sig := fd_sig F; CP.ce_spec := fd_cp F |}.
+
+  Lemma has_f_entry [CT f A] C (H : CP.context_has_entry CT f (@f_entry A C)):
+    to_f_decl F CT.
+  Proof.
+    exact (fd_mk f F CT (proj1_sig H) (proj2_sig H)).
+  Defined.
+
+  Definition f_entry_extract [CT A C] [impl : f_body CT _] [r]
+    (CR : f_body_match impl (m_spec (fd_FSpec F)))
+    (EX : f_extract impl)
+    (E  : r = proj1_sig EX):
+    CP.entry_impl_correct CT (@f_entry A C) r.
+  Proof.
+    rewrite E; split.
+    - apply f_extract_match_spec, CR.
+    - apply f_extract_oracle_free.
+  Defined.
+End F_ENTRY.
 
 Module Tac.
   Export Util.Tac.
@@ -1429,10 +1459,10 @@ Module Tac.
       build_term p ltac:(fun _ => econstructor; shelve)
     end.
   
-  Ltac case_until_True :=
-    try exact (fun _ => Logic.I);
+  Ltac case_until_triv :=
+    try solve [split];
     let i := fresh "i" in
-    intros [|i]; [|revert i; case_until_True].
+    intros [|i]; [|revert i; case_until_triv].
 
 
   Ltac of_expanded_arg :=
@@ -1634,9 +1664,9 @@ Module Tac.
   (* solves a goal [HasSpec i ctx ?s] *)
   Ltac build_HasSpec :=
     let rec build _ :=
-    lazymatch goal with |- @HasSpec ?SIG ?SPEC ?A ?i ?ctx ?s =>
+    lazymatch goal with |- @HasSpec ?C ?A ?i ?ctx ?s =>
     let i' := eval hnf in i in
-    change (@HasSpec SIG SPEC A i' ctx s);
+    change (@HasSpec C A i' ctx s);
     lazymatch i' with
     | mk_instr _ =>
         refine (HasSpec_ct _ _);
@@ -1727,12 +1757,12 @@ Module Tac.
     |- Impl_Match _ _ (match ?x with _ => _ end) => destruct x
     end;
 
-    simple refine (@Impl_MatchI _ _ _ _ _ _ _ _ _ _ _);
+    simple refine (@Impl_MatchI _ _ _ _ _ _ _ _ _ _);
     [ shelve | (* F *) cbn | shelve
     | (* EX_SEL1 *) solve [cbn; repeat intro; simplify_ex_eq_tuple]
     | (* WLP *) ].
 
-  (* change a goal [impl_match SPEC vprog spec] into a condition [req -> wlp f post] *)
+  (* change a goal [impl_match CT vprog spec] into a condition [req -> wlp f post] *)
   Ltac build_impl_match :=
     build_impl_match_init;
     [ (* F   *) build_HasSpec_exact
@@ -1777,9 +1807,29 @@ Module Tac.
     | Tac.cbn_refl
     | try solve [ CP.build_oracle_free ] ].
 
+  (* solves a goal [CP.entry_impl_correct CT (f_entry F PF) ?impl] *)
+  Ltac build_f_entry_impl_correct :=
+    match goal with |- CP.entry_impl_correct _ (f_entry _ ?C) _ =>
+    simple refine (f_entry_extract _ _ _ _);
+    [ shelve
+    | unshelve eapply C; assumption
+    | Tac.extract_impl
+    | cbn; reflexivity ]
+    end.
+
 End Tac.
 
 (* Exported tactics *)
+
+Module ExtractTactics.
+  #[export] Hint Extern 1 (Arrow (CP.context_has_entry _ _ (f_entry _ _)) _) =>
+     exact (mk_Arrow (has_f_entry _ _)) : extractDB.
+  
+  #[export] Hint Extern 1 (CP.entry_impl_correct _ (f_entry _ _) _) =>
+     Tac.build_f_entry_impl_correct : extractDB.
+End ExtractTactics.
+Export ExtractTactics.
+
 Module Tactics.
   #[export] Hint Extern 1 (NotationsDef.FDecl _ _ _ _ _) => Tac.build_FDecl : DeriveDB.
   #[export] Hint Extern 1 (NotationsDef.LDecl     _ _ _) => Tac.build_LDecl : DeriveDB.
@@ -1816,7 +1866,7 @@ Declare Custom Entry vprog_spec_1.
 Declare Custom Entry vprog_spec_2.
 
 Module Notations.
-  Export NotationsDef Tactics.
+  Export NotationsDef.
 
   (* vprop notation *)
 
