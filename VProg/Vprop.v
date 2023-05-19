@@ -1,5 +1,5 @@
 From SLFun Require Import Util SL.
-From Coq   Require Import Lists.List.
+Import Util.List.
 
 Import SLNotations ListNotations.
 
@@ -217,6 +217,27 @@ Module CTX.
 
   Definition sub : forall c : t, Sub.t c -> t := Sub.sub.
 
+  Definition sl_opt (h : SLprop.t) (b : bool) : SLprop.t :=
+    if b then h else SLprop.emp.
+
+  Fixpoint sl_sub (c : CTX.t) {struct c} : forall (s : Sub.t c), SLprop.t.
+  Proof.
+    case c as [|a c].
+    - exact (fun _ => SLprop.emp).
+    - intros [b s]%Vector.uncons.
+      exact (sl_opt (sla a) b ** sl_sub c s)%slprop.
+  Defined.
+
+  Lemma sl_sub_eq (c : CTX.t) (s : Sub.t c):
+    SLprop.eq (sl (sub c s)) (sl_sub c s).
+  Proof.
+    induction c as [|a c]; cbn.
+    - reflexivity.
+    - case s as [hd s] using Vector.caseS'; cbn.
+      case hd; cbn; rewrite IHc; SL.normalize; reflexivity.
+  Qed.
+
+
   Lemma sl_split (c : t) (s : Sub.t c):
     SLprop.eq (sl c) (sl (sub c s) ** sl (sub c (Sub.neg s))).
   Proof.
@@ -228,6 +249,18 @@ Module CTX.
       + reflexivity.
       + apply SLprop.star_comm12.
   Qed.
+
+  Section Trf.
+    Variable (c0 c1 : CTX.t) (rev_f : Sub.t c1 -> (Sub.t c0 * CTX.t (* rem *))).
+    Local Set Implicit Arguments.
+
+    Record trf : Prop := {
+      trf_fwd : SLprop.imp (sl c0) (sl c1);
+      trf_bwd : forall s1 : Sub.t c1, let r := rev_f s1 in
+                SLprop.imp (sl (sub c1 s1)) (sl (sub c0 (fst r)) ** sl (snd r))
+    }.
+  End Trf.
+  Global Arguments trf : clear implicits.
 
   Module Inj.
     Inductive ieq (c0 c1 : CTX.t) (img : Sub.t c1) :=
@@ -254,6 +287,9 @@ Module CTX.
       apply beq_iff, BEQ.
     Qed.
 
+    Definition itrf (c0 c1 : CTX.t) (add : CTX.t) (rev_f : Sub.t (c0 ++ add) -> (Sub.t c1 * CTX.t)) : Prop :=
+      trf c1 (c0 ++ add) rev_f.
+
     (* Tactic to build an [ieq].
        We solve goals of the form:
 
@@ -262,66 +298,166 @@ Module CTX.
              ?img
 
        and instantiate [?sel0]...[?sel5] and [?img] in the process.
-       To do so, we find an ordered subset of [c1] with matches [c0].
+       To do so, we find an ordered subset of [c1] that matches [c0].
     *)
 
     (* An ordered subset is described by associating an index (order) to the elements of the subset. *)
     Definition osub (c1 : CTX.t) := Vector.t (option nat) (length c1).
 
-    Fixpoint n_insert (n : nat) (x : atom) (xs : list (nat * atom)) : list (nat * atom) :=
-      match xs with
-      | nil => [(n, x)]
-      | (n', x') :: tl => if Nat.leb n n' then (n, x) :: xs
-                          else (n', x') :: n_insert n x tl
-      end.
+    Section OSub_IEq.
+      Fixpoint n_insert (n : nat) (x : atom) (xs : list (nat * atom)) : list (nat * atom) :=
+        match xs with
+        | nil => [(n, x)]
+        | (n', x') :: tl => if Nat.leb n n' then (n, x) :: xs
+                            else (n', x') :: n_insert n x tl
+        end.
 
-    Lemma n_insert_eq n x xs:
-      SLprop.eq (sl (map snd (n_insert n x xs))) (sla x ** sl (map snd xs)).
-    Proof.
-      revert n x; induction xs as [|(n', x') tl]; intros; simpl.
-      - reflexivity.
-      - case Nat.leb; simpl.
-        + reflexivity.
-        + rewrite IHtl, SLprop.star_comm12; reflexivity.
-    Qed.
+      Lemma n_insert_eq n x xs:
+        SLprop.eq (sl (map snd (n_insert n x xs))) (sla x ** sl (map snd xs)).
+      Proof.
+        revert n x; induction xs as [|(n', x') tl]; intros; simpl.
+        - reflexivity.
+        - case Nat.leb; simpl.
+          + reflexivity.
+          + rewrite IHtl, SLprop.star_comm12; reflexivity.
+      Qed.
 
-    Fixpoint n_list_of_osub (c1 : CTX.t) : osub c1 -> list (nat * atom).
-    Proof.
-      case c1 as [|a c1].
-      - intros _. exact nil.
-      - intros [[n|] sb]%Vector.uncons.
-        + exact (n_insert n a (n_list_of_osub c1 sb)).
-        + exact (n_list_of_osub c1 sb).
-    Defined.
+      Fixpoint n_list_of_osub (c1 : CTX.t) : osub c1 -> list (nat * atom).
+      Proof.
+        case c1 as [|a c1].
+        - intros _. exact nil.
+        - intros [[n|] sb]%Vector.uncons.
+          + exact (n_insert n a (n_list_of_osub c1 sb)).
+          + exact (n_list_of_osub c1 sb).
+      Defined.
 
-    (* [c0 : CTX.t] and [img] associated to an ordered subset. *)
-    Definition c0_of_osub (c1 : CTX.t) (sb : osub c1) : CTX.t :=
-      map snd (n_list_of_osub c1 sb).
+      (* [c0 : CTX.t] and [img] associated to an ordered subset. *)
+      Definition c0_of_osub (c1 : CTX.t) (sb : osub c1) : CTX.t :=
+        map snd (n_list_of_osub c1 sb).
 
-    Global Arguments c0_of_osub _ !_/.
+      Global Arguments c0_of_osub _ !_/.
 
-    Definition img_of_osub (c1 : CTX.t) : osub c1 -> Sub.t c1 :=
-      Vector.map (fun o => match o with Some _ => true | None => false end).
+      Definition img_of_osub (c1 : CTX.t) : osub c1 -> Sub.t c1 :=
+        Vector.map (fun o => match o with Some _ => true | None => false end).
 
-    (* By construction, the [ieq] relation is satisfied. *)
-    Lemma osub_ieq (c1 : CTX.t) (sb : osub c1):
-      ieq (c0_of_osub c1 sb) c1 (img_of_osub c1 sb).
-    Proof.
-      constructor; induction c1.
-      - simpl; reflexivity.
-      - case sb as [[]] using Vector.caseS'; simpl.
-        + rewrite n_insert_eq.
-          apply SLprop.star_morph_eq. reflexivity.
-          apply IHc1.
-        + apply IHc1.
-    Qed.
+      (* By construction, the [ieq] relation is satisfied. *)
+      Lemma osub_ieq (c1 : CTX.t) (sb : osub c1):
+        ieq (c0_of_osub c1 sb) c1 (img_of_osub c1 sb).
+      Proof.
+        constructor; induction c1.
+        - simpl; reflexivity.
+        - case sb as [[]] using Vector.caseS'; simpl.
+          + rewrite n_insert_eq.
+            apply SLprop.star_morph_eq. reflexivity.
+            apply IHc1.
+          + apply IHc1.
+      Qed.
+    End OSub_IEq.
+
+    (* Alternatively We can also build a [trf] *)
+    Section OSub_Trf.
+      Definition nat_opt_le (n0 n1 : option nat) : bool :=
+        match n1, n0 with
+        | None,    _       => true
+        | Some n1, Some n0 => Nat.leb n0 n1
+        | Some _,  None    => false
+        end.
+
+      Fixpoint trf_insert (n : option nat) (x : atom) (l : list (option nat * atom)) {struct l}:
+        { l' : list (option nat * atom) & Sub.t (List.map snd l') -> Sub.t (x :: List.map snd l) }.
+      Proof.
+        case l as [|(n', x') l].
+        - exists [(n,x)].
+          exact (fun s => s).
+        - case (nat_opt_le n n').
+          + exists ((n, x) :: (n', x') :: l).
+            exact (fun s => s).
+          + case (trf_insert n x l) as [l' f].
+            exists ((n', x') :: l').
+            intros [b' [b bl]%f%Vector.uncons]%Vector.uncons.
+            exact (Vector.cons _ b _ (Vector.cons _ b' _ bl)).
+      Defined.
+
+      Lemma trf_insert_correct n x l:
+        let '(existT _ l' f) := trf_insert n x l in
+        SLprop.eq (sl (x :: map snd l)) (sl (map snd l')) /\
+        forall s, SLprop.eq (sl_sub (map snd l') s) (sl_sub (x :: map snd l) (f s)).
+      Proof.
+        induction l as [|(n', x') l IH]; cbn; [|case nat_opt_le]; cbn.
+        1,2:split; reflexivity.
+        destruct trf_insert as [l' f]; cbn; split.
+        - rewrite <- (proj1 IH); cbn.
+          apply SLprop.star_comm12.
+        - intro s.
+          rewrite (proj2 IH); cbn.
+          apply SLprop.star_comm12.
+      Qed.
+
+      Fixpoint trf_sort_list (c1 : CTX.t) { struct c1 } :
+        forall sb : osub c1,
+        { l : list (option nat * atom) & Sub.t (List.map snd l) -> Sub.t c1 }.
+      Proof.
+        case c1 as [|x c1].
+        - exact (fun _ => existT _ nil (fun _ => Vector.nil _)).
+        - intros (n, sb)%Vector.uncons.
+          case (trf_sort_list c1 sb) as [l0 f0].
+          case (trf_insert   n x l0) as [l1 f1].
+          exists l1.
+          exact (fun s1 => let (b, s0) := Vector.uncons (f1 s1) in Vector.cons _ b _ (f0 s0)).
+      Defined.
+
+      Lemma trf_sort_list_correct c1 sb:
+        let '(existT _ l' f) := trf_sort_list c1 sb in
+        SLprop.eq (sl c1) (sl (map snd l')) /\
+        forall s, SLprop.eq (sl_sub (map snd l') s) (sl_sub c1 (f s)).
+      Proof.
+        induction c1 as [|x c1 IH]; cbn.
+        - split; reflexivity.
+        - case sb as [n sb] using Vector.caseS'; cbn.
+          specialize (IH sb).
+          destruct trf_sort_list as [l0 f0].
+          specialize (trf_insert_correct n x l0) as IC.
+          destruct trf_insert    as [l1 f1].
+          split.
+          + rewrite <- (proj1 IC); cbn.
+            rewrite <- (proj1 IH); reflexivity.
+          + intro s; cbn.
+            rewrite (proj2 IC); cbn.
+            rewrite (proj2 IH); reflexivity.
+      Qed.
+
+      Variables (c1 : CTX.t) (sb : osub c1).
+
+      Definition trf_c0_of_osub : CTX.t :=
+        List.map snd (projT1 (trf_sort_list c1 sb)).
+
+      Definition trf_rev_f_of_osub (s : Sub.t trf_c0_of_osub) : Sub.t c1 * CTX.t :=
+        (projT2 (trf_sort_list c1 sb) s, nil).
+
+      Lemma osub_trf:
+        trf c1 trf_c0_of_osub trf_rev_f_of_osub.
+      Proof.
+        unfold trf_rev_f_of_osub, trf_c0_of_osub.
+        specialize (trf_sort_list_correct c1 sb).
+        pattern (trf_sort_list c1 sb).
+        destruct trf_sort_list as [c0 f]; cbn.
+        intros [FWD BWD].
+        split.
+        - rewrite FWD; reflexivity.
+        - intro s; cbn.
+          rewrite !sl_sub_eq, BWD.
+          SL.normalize.
+          reflexivity.
+      Qed.
+    End OSub_Trf.
+
 
     (* To find an ordered subset of [c1] that matches [c0], we generate a dummy goal:
 
          H9 : ieq_asm (mka vp9' sel9') ?n9
            ...
          H0 : ieq_asm (mka vp0' sel0') ?n0
-         =================================
+         ===============================================
          ieq_goal k [mka vp0 ?sel0; ... ; mka vp5 ?sel5]
 
        We than consider the elements of [c0] in sequence.
@@ -360,9 +496,25 @@ Module CTX.
     Definition ieq_unification_goal (c0 c1 : CTX.t) (sb : osub c1): Prop :=
       ieq_unification_goal_aux (ieq_goal O c0) c1 sb.
 
-    Lemma ieqI_osub [c0 c1 : CTX.t]
+    (* solves a goal [ieq_unification_goal c0 c1 ?sb] *)
+    Ltac build_ieq_unification_goal :=
+      clear; cbn; intros;
+      repeat lazymatch goal with
+      | H : CTX.Inj.ieq_asm (existT _ ?v _) _ |- CTX.Inj.ieq_goal _ (existT _ ?v _ :: _) =>
+          refine (Ieq_Cons H _); clear H
+      | |- ieq_goal _ nil =>
+          clear_ieq_asm; exact (Ieq_Done _)
+      | |- ieq_goal _ (existT _ ?v _ :: _) =>
+          idtac "FAILURE: Inj.build failed to find" v ". Remaining context:";
+          try match goal with
+           _ : CTX.Inj.ieq_asm (existT _ ?v0 _) _ |- _ => idtac "-" v0; fail
+          end;
+          fail 1 "Inj.build" v
+      end.
+
+    Local Lemma build_ieq_by_osub [c0 c1 : CTX.t]
       (sb : osub c1)
-      (U : ieq_unification_goal c0 c1 sb)
+      (U  : ieq_unification_goal c0 c1 sb)
       (C0 : c0 = c0_of_osub c1 sb)
       [img : Sub.t c1] (IMG : img = img_of_osub c1 sb):
       ieq c0 c1 img.
@@ -370,26 +522,50 @@ Module CTX.
       subst; apply osub_ieq.
     Qed.
 
-    Global Ltac build :=
-      simple refine (CTX.Inj.ieqI_osub _ _ _ _);
-      [ (* sb *)
-        Vector.build_shape
-      | (* U *)
-        clear; cbn; intros;
-        repeat lazymatch goal with
-          | H : CTX.Inj.ieq_asm (existT _ ?v _) _ |- CTX.Inj.ieq_goal _ (existT _ ?v _ :: _) =>
-              refine (Ieq_Cons H _); clear H
-          | |- ieq_goal _ nil =>
-              clear_ieq_asm; exact (Ieq_Done _)
-          | |- ieq_goal _ (existT _ ?v _ :: _) =>
-              idtac "FAILURE: Inj.build failed to find" v ". Remaining context:";
-              try match goal with
-               _ : CTX.Inj.ieq_asm (existT _ ?v0 _) _ |- _ => idtac "-" v0; fail
-              end;
-              fail 1 "Inj.build" v
-        end
+    (* solves a goal [ieq c0 c1 img]
+       The selectors of [c0] must be evars.
+       [img] can be an evar. *)
+    Global Ltac build_ieq :=
+      simple refine (build_ieq_by_osub _ _ _ _);
+      [ (* sb  *) Vector.build_shape
+      | (* U   *) build_ieq_unification_goal  
       | (* C0  *) cbn; reflexivity
       | (* IMG *) cbn; reflexivity ].
+
+    (* This builds an injection then checks that it consumes everything. *)
+    Global Ltac build_beq := build_ieq.
+
+    Local Lemma build_itrf_by_osub [c0 c1 : CTX.t]
+      (sb : osub c1)
+      (U : ieq_unification_goal c0 c1 sb)
+      [add : CTX.t] (C0 : c0 ++ add = trf_c0_of_osub c1 sb):
+      itrf c0 c1 add (eq_rect_r (fun c0a => Sub.t c0a -> _) (trf_rev_f_of_osub c1 sb) C0).
+    Proof.
+      unfold itrf.
+      specialize (osub_trf c1 sb).
+      generalize (trf_rev_f_of_osub c1 sb) as rev_f.
+      case C0; cbn.
+      auto.
+    Qed.
+
+    (* solves a goal [itrf c0 c1 ?add ?rev_f]
+       The selectors of [c0] must be evars. *)
+    Global Ltac build_itrf :=
+      simple refine (build_itrf_by_osub _ _ _);
+      [ (* sb *) Vector.build_shape
+      | (* U  *) build_ieq_unification_goal
+      | (* C0 *) cbn; reflexivity ].
+
+    Section Test.
+      Variable v : nat -> Vprop.p nat.
+
+      Goal exists sl0 sl1 add rev_f,
+        itrf [mka (v 0, sl0); mka (v 1, sl1)] [mka (v 1, 1); mka (v 2, 2); mka (v 0, 0)]
+          add rev_f.
+      Proof.
+        do 4 eexists. build_itrf.
+      Qed.
+    End Test.
   End Inj.
 End CTX.
 
@@ -445,6 +621,6 @@ Module VpropList.
 
   Definition app_of_ctx c0 c1:
     VpropList.of_ctx (c0 ++ c1) = VpropList.of_ctx c0 ++ VpropList.of_ctx c1
-    := ListTransp.map_app _ c0 c1.
+    := List.Transp.map_app _ c0 c1.
 End VpropList.
 

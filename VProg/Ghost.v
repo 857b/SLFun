@@ -143,49 +143,46 @@ End Impp.
 Section GGet.
   Context [CT : CP.context] [A : Type] (v : Vprop.p A).
 
-  Inductive GGet_Spec (ctx : CTX.t) : i_spec_t A ctx -> Prop
+  Inductive GGet_Spec (ctx : CTX.t) (F : i_spec_t A ctx) : Prop
     := GGet_SpecI
-    (a : A) (csm : Sub.t ctx)
-    (ij : CTX.Inj.ieq [CTX.mka (v, a)] ctx csm):
-    GGet_Spec ctx {|
-      sf_csm  := Sub.const ctx false;
+    (a : A)
+    (IJ : InjPre_Frame_Spec [CTX.mka (v, a)] ctx {|
+      sf_csm  := Vector.cons _ false _ (Vector.nil _) <: Sub.t [_];
       sf_prd  := fun _ => nil;
       sf_spec := FP.Ret (TF.mk _ a Tuple.tt)
-    |}.
+    |} F).
 
   Program Definition gGet : instr CT A := {|
     i_impl := CP.Oracle A;
     i_spec := fun ctx => GGet_Spec ctx;
   |}.
   Next Obligation.
-    destruct SP; do 2 intro; simpl in *.
+    destruct SP.
+    apply (Tr_InjPre_Frame IJ); clear IJ.
+    do 2 intro; cbn in *.
     apply SP.COracle with (x := a).
     Apply tt.
-    Apply. assumption.
-    unfold Sub.neg, Sub.const; rewrite Vector.map_const; cbn.
-    rewrite Sub.sub_const_true.
+    Apply PRE.
     reflexivity.
   Qed.
 End GGet.
 
 Local Ltac build_GGet :=
   simple refine (GGet_SpecI _ _ _ _ _);
-  [ shelve | shelve | CTX.Inj.build ].
+  [ shelve | Tac.build_InjPre_Frame; Tac.cbn_refl ].
 
 Section Assert.
   Context [CT : CP.context] [A : Type] (P : A -> CTX.t * Prop).
 
-  Inductive Assert_Spec (ctx : CTX.t) : i_spec_t unit ctx -> Prop
+  Inductive Assert_Spec (ctx : CTX.t) (F : i_spec_t unit ctx) : Prop
     := Assert_SpecI
     (p : A)
-    (img : Sub.t ctx)
-    (ij : CTX.Inj.ieq (fst (P p)) ctx img):
-    Assert_Spec ctx {|
-      sf_csm  := Sub.const ctx false;
+    (IJ : InjPre_Frame_Spec (fst (P p)) ctx {|
+      sf_csm  := Sub.const (fst (P p)) false;
       sf_prd  := fun _ => nil;
       sf_spec := FP.Bind (FP.Assert (snd (P p)))
                          (TF.of_fun (fun _ => FP.Ret (TF.mk _ tt Tuple.tt)))
-    |}.
+    |} F).
   
   Program Definition Assert : instr CT unit := {|
     i_impl := SP.sl_assert (SLprop.ex A (fun p =>
@@ -193,37 +190,35 @@ Section Assert.
     i_spec := fun ctx => Assert_Spec ctx;
   |}.
   Next Obligation.
-    destruct SP; do 2 intro; simpl in *.
+    destruct SP.
+    apply (Tr_InjPre_Frame IJ); clear IJ.
+    do 2 intro; cbn in *.
     case PRE as (PRE & POST).
-    eapply SP.CFrame with (fr := CTX.sl (CTX.sub ctx (Sub.neg img))).
+    eapply SP.Cons.
     - apply SP.Assert_imp with (Q := CTX.sl (fst (P p))).
       Apply p.
       Apply PRE.
       reflexivity.
-    - eenough (SLprop.eq (CTX.sl ctx) _) as sl_eq.
-      split; unfold sf_post, sf_post_ctx, sf_rsel; simpl.
-      + rewrite sl_eq; reflexivity.
+    - split; cbn.
+      + reflexivity.
       + intros []; SL.normalize.
         Apply POST.
-        unfold Sub.neg, Sub.const; rewrite Vector.map_const; simpl.
-        rewrite Sub.sub_const_true.
-        rewrite sl_eq; reflexivity.
-      + rewrite CTX.sl_split with (s := img).
-        setoid_rewrite (CTX.Inj.ieqE ij).
+        unfold Sub.neg, Sub.const;
+          rewrite Vector.map_const, Sub.sub_const_true.
         reflexivity.
   Qed.
 End Assert.
 
 Local Ltac build_Assert :=
-  simple refine (@Assert_SpecI _ _ _ _ _ _);
-  [ shelve | shelve |
+  simple refine (Assert_SpecI _ _ _ _ _);
+  [ shelve
+  | (* IJ *)
     cbn;
     (* [p : A] can be a tuple let-matched by [P] *)
-    repeat lazymatch goal with |- CTX.Inj.ieq (fst ?x) _ _ =>
+    repeat lazymatch goal with |- InjPre_Frame_Spec (fst ?x) _ _ _ =>
       Tac.build_matched_shape x; cbn
     end;
-    (* ij *)
-    CTX.Inj.build ].
+    Tac.build_InjPre_Frame; Tac.cbn_refl ].
 
 Module Tactics.
   #[export] Hint Extern 1 (GGet_Spec    _ _ _) => build_GGet   : HasSpecDB.

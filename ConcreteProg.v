@@ -424,7 +424,7 @@ Global Arguments impl_context : clear implicits.
 Global Arguments spec_context : clear implicits.
 
 Section ListRepresentation.
-  Import Coq.Lists.List List.ListNotations.
+  Import Util.List ListNotations.
 
   Definition context := {SIG : sig_context & spec_context SIG}.
 

@@ -20,9 +20,12 @@ Module TF.
 
   Definition mk_p (p_val : Type) (p_sel : p_val -> list Type) : p :=
     Pcons p_val (fun x => p_tu (p_sel x)).
+  
+  Definition mk_t (p_val : Type) (p_sel : p_val -> list Type) : Type :=
+DTuple.t (mk_p p_val p_sel).
 
   Definition mk [p_val : Type] (p_sel : p_val -> list Type)
-    (v_val : p_val) (v_sel : Tuple.t (p_sel v_val)) : t (mk_p p_val p_sel)
+    (v_val : p_val) (v_sel : Tuple.t (p_sel v_val)) : mk_t p_val p_sel
     := pair v_val (of_tu v_sel).
   Global Arguments mk _ _ _ _/.
 
@@ -452,14 +455,17 @@ Qed.
 
 (* Transformation *)
 
+Definition TrSpecH [A : Type] [ctx0 ctx1 : CTX.t] (s0 : i_spec_t A ctx0) (s1 : i_spec_t A ctx1) : Prop :=
+  forall (i : @CP.instr SIG A) (S0 : sound_spec i ctx0 s0), sound_spec i ctx1 s1.
+
 Inductive TrSpec [A : Type] [ctx : CTX.t] (s0 s1 : i_spec_t A ctx) : Prop :=
-  TrSpecI (T : forall i : @CP.instr SIG A, sound_spec i ctx s0 -> sound_spec i ctx s1).
+  TrSpecI (T : TrSpecH s0 s1).
 
 Global Instance TrSpec_PreOrder A ctx : PreOrder (@TrSpec A ctx).
 Proof.
   split.
-  - constructor; auto.
-  - intros ? ? ? [] []; constructor; auto.
+  - constructor; unfold TrSpecH; auto.
+  - intros ? ? ? [] []; constructor; unfold TrSpecH in *; auto.
 Qed.
 
 Lemma transform_spec [A ctx i s0 s1]
@@ -579,6 +585,105 @@ Proof.
     apply Tr_change_prd, (TF.to_fun RSEL).
 Qed.
 
+Section AddFrame.
+  Context [A : Type] [ctx : CTX.t] (s : i_spec_t A ctx) (frame : CTX.t).
+
+  Definition add_frame : i_spec_t A (ctx ++ frame) := {|
+    sf_csm  := Sub.app (sf_csm s) (Sub.const frame false);
+    sf_prd  := sf_prd s;
+    sf_spec := sf_spec s
+  |}.
+
+  Lemma Tr_add_frame:
+    TrSpecH s add_frame.
+  Proof.
+    intros i S0 post WLP.
+    eapply SP.CFrame with (fr := CTX.sl frame).
+      { apply S0, WLP. }
+    split; unfold sf_post, sf_post_ctx; cbn.
+    - rewrite CTX.sl_app; reflexivity.
+    - intro x; SL.normalize.
+      Intro sel. Intro POST.
+      Apply sel. Apply POST.
+      unfold Sub.neg, Sub.const.
+      rewrite Sub.map_app, Sub.sub_app, Vector.map_const, Sub.sub_const_true, !CTX.sl_app.
+      SL.normalize. reflexivity.
+  Qed.
+
+End AddFrame.
+
+Section InjPre.
+  Context (m : CTX.t) (ctx : CTX.t).
+
+  Section Full.
+    Context (add : CTX.t) [A] (F : i_spec_t A (m ++ add)) (F' : i_spec_t A ctx).
+
+    Inductive InjPre_Spec : Prop
+      := InjPre_SpecI
+      (rev_f : Sub.t (m ++ add) -> (Sub.t ctx * CTX.t))
+      (ij : CTX.Inj.itrf m ctx add rev_f)
+      (E  : F' =
+        let (ncsm, rem) := rev_f (Sub.neg (sf_csm F)) in
+        {|
+          sf_csm  := Sub.neg ncsm;
+          sf_prd  := fun x : A => sf_prd F x ++ VpropList.of_ctx rem;
+          sf_spec := FP.Bind (sf_spec F) (TF.of_fun (T := sf_rvar F) (fun r =>
+                     FP.Ret (TF.mk _ (TF.v_val r) (VpropList.app_sel (TF.v_sel r) (VpropList.sel_of_ctx rem)))))
+        |}).
+
+    Local Opaque DTuple.to_fun.
+    Local Set Implicit Arguments.
+
+    Lemma Tr_InjPre (SP : InjPre_Spec):
+      TrSpecH F F'.
+    Proof.
+      case SP as [rev_f [FWD BWD] E].
+      specialize (BWD (Sub.neg (sf_csm F)));
+        destruct rev_f as (ncsm, rem) in BWD, E;
+        cbn in BWD; subst F'.
+      intros i S0 post WLP; cbn in post, WLP.
+      eapply SP.Cons.
+        { apply S0, WLP. }
+      clear WLP.
+      split; unfold sf_post, sf_post_ctx; cbn.
+      - exact FWD.
+      - intro x.
+        Intro sel; cbn.
+        rewrite TF.to_of_fun; cbn.
+        rewrite TF.to_of_tu;  cbn.
+        Intro POST.
+        EApply. Apply POST.
+        unfold sf_prd_ctx; cbn.
+        rewrite !TF.to_of_tu, VpropList.inst_app, VpropList.inst_of_ctx, !CTX.sl_app.
+        SL.normalize.
+        apply SLprop.star_morph_imp. reflexivity.
+        rewrite BWD, SLprop.star_comm.
+        apply Util.R_refl. reflexivity. do 3 f_equal.
+        unfold Sub.neg.
+        rewrite Vector.map_map, <- Vector.map_id at 1.
+        apply Vector.map_ext.
+        intros []; reflexivity.
+    Qed.
+  End Full.
+  Section Frame.
+    Context [A] (F : i_spec_t A m) (F' : i_spec_t A ctx).
+
+    Inductive InjPre_Frame_Spec : Prop
+      := InjPre_Frame_SpecI
+      (frame : CTX.t)
+      (ij : InjPre_Spec frame (add_frame F frame) F').
+
+    Local Set Implicit Arguments.
+
+    Lemma Tr_InjPre_Frame (SP : InjPre_Frame_Spec):
+      TrSpecH F F'.
+    Proof.
+      case SP as [frame ij].
+      intros i S0.
+      eapply (Tr_InjPre ij), Tr_add_frame, S0.
+    Qed.
+  End Frame.
+End InjPre.
 
 (* Function definition *)
 
@@ -808,29 +913,31 @@ Section Ret.
   Section Impl.
     Context [A : Type] (x : A) (pt : A -> list Vprop.t).
 
-    Inductive Ret_Spec (ctx : CTX.t) : i_spec_t A ctx -> Prop
+    Inductive Ret_Spec (ctx : CTX.t) (F : i_spec_t A ctx) : Prop
       := Ret_SpecI
-      (sels : Tuple.t (map Vprop.ty (pt x)))
-      (csm : Sub.t ctx)
-      (ij : CTX.Inj.ieq (VpropList.inst (pt x) sels) ctx csm) :
-      Ret_Spec ctx {|
-        sf_csm  := csm;
+      (sels : Tuple.t (map Vprop.ty (pt x))):
+      let pre := VpropList.inst (pt x) sels in forall
+      (IJ : InjPre_Frame_Spec pre ctx {|
+        sf_csm  := Sub.const pre true;
         sf_prd  := pt;
         sf_spec := FP.Ret (TF.mk (fun x => VpropList.sel (pt x)) x sels);
-      |}.
+      |} F),
+      Ret_Spec ctx F.
 
     Program Definition Ret0 : instr A := {|
       i_impl := CP.Ret x;
       i_spec := fun ctx => Ret_Spec ctx;
     |}.
     Next Obligation.
-      destruct SP; do 2 intro; simpl in *.
+      destruct SP; apply (Tr_InjPre_Frame IJ).
+      do 2 intro; cbn.
       apply SP.CRet.
       Apply sels.
       Apply. assumption.
-      rewrite CTX.sl_split with (s := csm), (CTX.Inj.ieqE ij),
+      unfold Sub.neg, Sub.const;
+      rewrite Vector.map_const, Sub.sub_const_false,
               CTX.sl_app, TF.to_of_tu.
-      reflexivity.
+      SL.normalize; reflexivity.
     Qed.
   End Impl.
 
@@ -1045,35 +1152,31 @@ Section Call.
       apply VpropList.of_inst.
     Defined.
 
-    Inductive Call_Spec (ctx : CTX.t) : i_spec_t AG ctx -> Prop
+    Inductive Call_Spec (ctx : CTX.t) (F : i_spec_t AG ctx) : Prop
       := Call_SpecI
-      (sel0 : Spec.sel0_t s)
-      (csm_pre : Sub.t ctx)
-      (ij_pre : CTX.Inj.ieq (Spec.pre (s sel0)) ctx csm_pre):
-      let ctx1 := CTX.sub ctx (Sub.neg csm_pre) in forall
-      (csm_prs : Sub.t ctx1)
-      (ij_prs : CTX.Inj.ieq (Spec.prs (s sel0)) ctx1 csm_prs),
-      let TF_A := TF.mk_p AG (fun x => Spec.sel1_t (s sel0 x)) in
+      (sel0 : Spec.sel0_t s):
+      let ppre := Spec.pre (s sel0) ++ Spec.prs (s sel0)                      in
+      let TF_A := TF.mk_p AG (fun x => Spec.sel1_t (s sel0 x))                in
       let TF_B := TF.mk_p AG (fun x => VpropList.sel (Spec.vpost (s sel0 x))) in
       forall
-      (sf : FP.instr TF_B)
-      (SF : sf =
-        FP.Bind
-          (@FP.Call TF_A {|
-              FP.Spec.pre  := Spec.req (s sel0);
-              FP.Spec.post := TF.of_fun (fun (r : TF.t TF_A) =>
-                Spec.ens (s sel0 (TF.v_val r) (TF.v_sel r)));
-           |})
-          (TF.of_fun (T := TF_A) (fun r =>
-           FP.Ret (TF.mk _ (TF.v_val r)
-            (eq_rect _ VpropList.sel_t
-                     (VpropList.sel_of_ctx (Spec.post (s sel0 (TF.v_val r) (TF.v_sel r))))
-                     _ (vpost_eq sel0 (TF.v_val r) (TF.v_sel r))))))),
-      Call_Spec ctx {|
-        sf_csm  := csm_pre;
+      (IJ : InjPre_Frame_Spec ppre ctx {|
+        sf_csm  := Sub.app (Sub.const (Spec.pre (s sel0)) true)
+                           (Sub.const (Spec.prs (s sel0)) false);
         sf_prd  := fun xG => Spec.vpost (s sel0 xG);
-        sf_spec := sf;
-      |}.
+        sf_spec :=
+          FP.Bind
+            (@FP.Call TF_A {|
+                FP.Spec.pre  := Spec.req (s sel0);
+                FP.Spec.post := TF.of_fun (fun (r : TF.t TF_A) =>
+                  Spec.ens (s sel0 (TF.v_val r) (TF.v_sel r)));
+             |})
+            (TF.of_fun (T := TF_A) (fun r =>
+             FP.Ret (TF.mk _ (TF.v_val r)
+              (eq_rect _ VpropList.sel_t
+                       (VpropList.sel_of_ctx (Spec.post (s sel0 (TF.v_val r) (TF.v_sel r))))
+                       _ (vpost_eq sel0 (TF.v_val r) (TF.v_sel r))))))
+      |} F),
+      Call_Spec ctx F.
   End Spec.
   Section Impl.
     Context (f : fid) [sg : f_sig] (HSIG : SIG f = Some sg) (sgh : f_sigh sg)
@@ -1123,28 +1226,29 @@ Section Call.
       i_spec := fun ctx => Call_Spec (s gi) ctx;
     |}.
     Next Obligation.
-      destruct SP; do 2 intro; subst sf; simpl in *.
+      destruct SP.
+      apply (Tr_InjPre_Frame IJ); clear IJ.
+      do 2 intro; cbn in *.
       case PRE as (REQ & POST).
-      eapply SP.CFrame with (fr := CTX.sl (CTX.sub ctx1 (Sub.neg csm_prs))).
-      { apply Call_impl_sls. }
-      split; simpl.
-      - SL.normalize.
-        Apply REQ.
-        rewrite (CTX.sl_split ctx  csm_pre), (CTX.Inj.ieqE ij_pre); fold ctx1.
-        rewrite (CTX.sl_split ctx1 csm_prs), (CTX.Inj.ieqE ij_prs).
+      eapply SP.Cons.
+        { apply Call_impl_sls. }
+      split; cbn.
+      - Apply REQ.
+        unfold ppre; rewrite CTX.sl_app.
         reflexivity.
-      - intro rx; unfold Expanded.tr_post; simpl; SL.normalize.
+      - intro rx; unfold Expanded.tr_post; cbn; SL.normalize.
         Intro sel1.
         Intro ENS.
         specialize (POST (TF.mk _ rx sel1)).
           rewrite !TF.to_of_fun in POST; simpl in POST; rewrite TF.to_of_tu in POST.
         EApply.
         Apply (POST ENS).
-        clear post0 REQ ENS POST; subst TF_A TF_B; simpl.
-        case (vpost_eq (s gi) sel0 rx sel1); simpl.
+        clear post0 REQ ENS POST; subst TF_A TF_B; cbn.
+        case (vpost_eq (s gi) sel0 rx sel1); cbn.
         rewrite TF.to_of_tu, VpropList.inst_of_ctx, CTX.sl_app.
-        fold ctx1.
-        rewrite (CTX.sl_split ctx1 csm_prs), (CTX.Inj.ieqE ij_prs).
+        unfold Sub.neg, Sub.const, ppre; cbn.
+        rewrite Sub.map_app, !Vector.map_const, Sub.sub_app,
+                Sub.sub_const_true, Sub.sub_const_false.
         reflexivity.
     Qed.
   End Impl.
@@ -1164,27 +1268,13 @@ Section Call.
       i_spec := fun ctx => Call_Spec (s x tt) ctx;
     |}.
     Next Obligation.
-      destruct SP; do 2 intro; subst sf; cbn in *.
-      case PRE as (REQ & WLP).
-      apply L in REQ as LEM.
-      eapply SP.CFrame with (fr := CTX.sl (CTX.sub ctx1 (Sub.neg csm_prs))) (s0 := SP.Spec.mk _ _);
-      cycle 1.
-      - split; cbn.
-        + rewrite (CTX.sl_split ctx  csm_pre), (CTX.Inj.ieqE ij_pre); fold ctx1.
-          rewrite (CTX.sl_split ctx1 csm_prs), (CTX.Inj.ieqE ij_prs).
-          rewrite <- SLprop.star_assoc.
-          apply SLprop.star_morph_imp. 2:reflexivity.
-          rewrite CTX.sl_app in LEM.
-          exact LEM.
-        + intro.
-          setoid_rewrite CTX.sl_app at 2.
-          setoid_rewrite <- SLprop.star_assoc at 2.
-          setoid_rewrite <- SLprop.exists_star at 2.
-          fold ctx1.
-          setoid_rewrite (CTX.sl_split ctx1 csm_prs) at 2.
-          setoid_rewrite <- SLprop.star_assoc at 2.
-          reflexivityR.
-      - clear REQ LEM.
+      destruct SP.
+      apply (Tr_InjPre_Frame IJ); clear IJ.
+      do 2 intro; cbn in *.
+      case PRE as (LEM%L & WLP).
+      eapply SP.Cons with (s0 := SP.Spec.mk _ _); cycle 1.
+      - split; [cbn; exact LEM | intro;reflexivityR].
+      - clear LEM.
         apply SP.ExistsE; intro res.
         apply SP.ExistsE; intro sel1.
         specialize (WLP (TF.mk _ res sel1)).
@@ -1192,13 +1282,14 @@ Section Call.
         rewrite !TF.to_of_fun, TF.to_of_tu in WLP.
         Intro ENS%WLP; clear WLP.
         cbn in ENS.
-        rewrite CTX.sl_app, (CTX.Inj.ieqE ij_prs).
-        apply SLprop.star_morph_imp. 2:reflexivity.
         EApply; Apply ENS.
         clear.
         rewrite TF.to_of_tu.
         destruct vpost_eq; cbn.
-        rewrite VpropList.inst_of_ctx; reflexivity.
+        unfold Sub.neg, Sub.const, ppre.
+        rewrite VpropList.inst_of_ctx, Sub.map_app, !Vector.map_const, Sub.sub_app,
+                Sub.sub_const_true, Sub.sub_const_false.
+        reflexivity.
     Qed.
   End Ghost.
 End Call.
@@ -1402,8 +1493,20 @@ Module Tac.
     | (* CSM  *) Tac.cbn_refl
     | (* S1   *) Tac.cbn_refl
     | (* rsel *) cbn; repeat intro; Tuple.build_shape
-    | (* RSEL *) cbn; repeat intro; CTX.Inj.build
+    | (* RSEL *) cbn; repeat intro; CTX.Inj.build_beq
     | (* F1   *) Tac.cbn_refl ].
+
+  (* solves a goal [InjPre_Spec m ctx ?add F ?F']
+     Leaves a goal [?F' = _]. *)
+  Ltac build_InjPre :=
+    refine (InjPre_SpecI _ _ _ _ _ _ _ _);
+    [ (* ij *) CTX.Inj.build_itrf |].
+
+  (* solves a goal [InjPre_Frame_Spec m ctx F ?F']
+     Leaves a goal [?F' = _] *)
+  Ltac build_InjPre_Frame :=
+    refine (InjPre_Frame_SpecI _ _ _ _ _ _);
+    build_InjPre.
 
 
   (* Tactics to build the instruction specifications. *)
@@ -1412,8 +1515,9 @@ Module Tac.
   Global Hint Variables Opaque : HasSpecDB.
 
   Ltac build_Ret :=
-    simple refine (@Ret_SpecI _ _ _ _ _ _ _);
-    [ Tuple.build_shape | shelve | CTX.Inj.build ].
+    simple refine (Ret_SpecI _ _ _ _ _ _);
+    [ (* sels *) Tuple.build_shape
+    | (* IJ   *) build_InjPre_Frame; cbn_refl ].
 
   Ltac build_Bind_init :=
     simple refine (Bind_SpecI1 _ _ _ _ _ _ _ _ _ _);
@@ -1431,16 +1535,14 @@ Module Tac.
     | (* SPEC  *) cbn_refl ].
 
   Ltac build_Call :=
-    simple refine (Call_SpecI _ _ _ _ _ _ _ _ _);
-    [ shelve | shelve
-    | (* ij_pre *)
+    simple refine (Call_SpecI _ _ _ _ _);
+    [ shelve
+    | (* IJ *)
       cbn;
-      repeat lazymatch goal with |- CTX.Inj.ieq (Spec.pre ?x) _ _ =>
+      repeat lazymatch goal with |- InjPre_Frame_Spec (Spec.pre ?x ++ _) _ _ _ =>
         build_matched_shape x; cbn
       end;
-      CTX.Inj.build
-    | shelve | (* ij_prs *) cbn; CTX.Inj.build
-    | shelve | (* SF     *) cbn_refl ].
+      build_InjPre_Frame; cbn_refl ].
 
   (* TODO: be more careful about the dependencies on the matched term in the vprog and in the context *)
 

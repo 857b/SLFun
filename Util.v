@@ -257,27 +257,95 @@ Proof.
   unfold fset; case e; congruence.
 Qed.
 
-(* Transparent lemmas about lists *)
 
-Module ListTransp.
-  Lemma map_map [A B C] (f : A -> B) (g : B -> C) (l : list A):
-    map g (map f l) = map (fun x => g (f x)) l.
+(* Extensions of the Coq libraries *)
+
+Module List.
+  Include Coq.Lists.List.
+
+  Fixpoint mapi [A B : Type] (f : nat -> A -> B) (u : list A) : list B :=
+    match u with
+    | nil     => nil
+    | x :: xs => f O x :: mapi (fun i => f (S i)) xs
+    end.
+
+  (* Transparent lemmas *)
+
+  Module Transp.
+    Lemma map_length [A B] (f : A -> B) (l : list A):
+      length (map f l) = length l.
+    Proof.
+      induction l; cbn; f_equal; auto.
+    Defined.
+
+    Lemma map_map [A B C] (f : A -> B) (g : B -> C) (l : list A):
+      map g (map f l) = map (fun x => g (f x)) l.
+    Proof.
+      induction l; simpl; f_equal; auto.
+    Defined.
+
+    Lemma map_app [A B] (f : A -> B) (u v : list A):
+      map f (u ++ v) = map f u ++ map f v.
+    Proof.
+      induction u; simpl; f_equal; auto.
+    Defined.
+  End Transp.
+End List.
+
+Module Vector.
+  Include Coq.Vectors.Vector.
+
+  Lemma ext A n (u v : Vector.t A n)
+    (E : forall i : Fin.t n, Vector.nth u i = Vector.nth v i):
+    u = v.
   Proof.
-    induction l; simpl; f_equal; auto.
-  Defined.
+    apply eq_nth_iff.
+    intros ? ? <-; apply E.
+  Qed.
 
-  Lemma map_app [A B] (f : A -> B) (u v : list A):
-    map f (u ++ v) = map f u ++ map f v.
+  Lemma map_const A B f v n:
+    @map A B f n (const v n) = const (f v) n.
   Proof.
-    induction u; simpl; f_equal; auto.
-  Defined.
-End ListTransp.
+    induction n; simpl; f_equal; auto.
+  Qed.
+  
+  Lemma map2_const_l A B C n f u v:
+    @map2 A B C f n (const v n) u = map (f v) u.
+  Proof.
+    induction n; simpl.
+    - destruct u using case0.
+      reflexivity.
+    - destruct u using caseS'.
+      simpl; f_equal; auto.
+  Qed.
+  
+  Lemma map2_const_r A B C n f u v:
+    @map2 A B C f n u (const v n) = map (fun x => f x v) u.
+  Proof.
+    induction n; simpl.
+    - destruct u using case0.
+      reflexivity.
+    - destruct u using caseS'.
+      simpl; f_equal; auto.
+  Qed.
+  
+  Lemma to_list_inj A n (v0 v1 : t A n)
+    (E : to_list v0 = to_list v1):
+    v0 = v1.
+  Proof.
+    induction v0; simpl in *.
+    - case v1 using case0. reflexivity.
+    - case v1 using caseS'.
+      injection E as -> E.
+      rewrite (IHv0 _ E).
+      reflexivity.
+  Qed.
 
-Fixpoint mapi [A B : Type] (f : nat -> A -> B) (u : list A) : list B :=
-  match u with
-  | nil     => nil
-  | x :: xs => f O x :: mapi (fun i => f (S i)) xs
-  end.
+  (* Tactic *)
+
+  Global Ltac build_shape :=
+    repeat (refine (Vector.cons _ _ _ _); [shelve|]); exact (Vector.nil _).
+End Vector.
 
 (* propositions *)
 
@@ -891,59 +959,3 @@ Module DTuple.
   End Notations.
 End DTuple.
 
-(* Extension of the Coq.Vector library *)
-
-Module Vector.
-  Include Coq.Vectors.Vector.
-
-  Lemma ext A n (u v : Vector.t A n)
-    (E : forall i : Fin.t n, Vector.nth u i = Vector.nth v i):
-    u = v.
-  Proof.
-    apply eq_nth_iff.
-    intros ? ? <-; apply E.
-  Qed.
-
-  Lemma map_const A B f v n:
-    @map A B f n (const v n) = const (f v) n.
-  Proof.
-    induction n; simpl; f_equal; auto.
-  Qed.
-  
-  Lemma map2_const_l A B C n f u v:
-    @map2 A B C f n (const v n) u = map (f v) u.
-  Proof.
-    induction n; simpl.
-    - destruct u using case0.
-      reflexivity.
-    - destruct u using caseS'.
-      simpl; f_equal; auto.
-  Qed.
-  
-  Lemma map2_const_r A B C n f u v:
-    @map2 A B C f n u (const v n) = map (fun x => f x v) u.
-  Proof.
-    induction n; simpl.
-    - destruct u using case0.
-      reflexivity.
-    - destruct u using caseS'.
-      simpl; f_equal; auto.
-  Qed.
-  
-  Lemma to_list_inj A n (v0 v1 : t A n)
-    (E : to_list v0 = to_list v1):
-    v0 = v1.
-  Proof.
-    induction v0; simpl in *.
-    - case v1 using case0. reflexivity.
-    - case v1 using caseS'.
-      injection E as -> E.
-      rewrite (IHv0 _ E).
-      reflexivity.
-  Qed.
-
-  (* Tactic *)
-
-  Global Ltac build_shape :=
-    repeat (refine (Vector.cons _ _ _ _); [shelve|]); exact (Vector.nil _).
-End Vector.
