@@ -1,9 +1,8 @@
 From SLFun Require Import Util Values SL VProg.Main.
-From Coq   Require Import Lists.List.
 
+Import Util.List.
 Import SLNotations ListNotations VProg.Main.Notations.
 Import SL.Tactics.
-
 
 (* Singly linked lists *)
 
@@ -69,18 +68,18 @@ Proof.
 Qed.
 
 Definition intro_lseg_nil_spec : LDecl ptr unit
-  FOR p FOR tt [] [] True
-  RET _ FOR tt [lseg p p ~> nil] True.
+  SPEC p 'tt [] [] True
+  '_ tt [lseg p p ~> nil] True.
 Proof. Derived. Defined.
 Lemma intro_lseg_nil : intro_lseg_nil_spec.
 Proof.
-  init_lemma p [] _; unfold lseg; SL.normalize.
+  init_lemma p [] ?; unfold lseg; SL.normalize.
   Apply; reflexivity.
 Qed.
 
 Definition elim_lseg_nil_spec : LDecl (ptr * ptr) unit
-  FOR (p0, p1) FOR l [] [lseg p0 p1 ~> l] (l = nil)
-  RET _ FOR tt [] (p0 = p1).
+  SPEC (p0, p1) 'l [] [lseg p0 p1 ~> l] (l = nil)
+  '_ tt [] (p0 = p1).
 Proof. Derived. Defined.
 Lemma elim_lseg_nil : elim_lseg_nil_spec.
 Proof.
@@ -89,8 +88,8 @@ Proof.
 Qed.
 
 Definition intro_lseg_cons_spec : LDecl (ptr * ptr * ptr) unit
-  FOR (p0, p1, pn) FOR (hd, tl) [] [lcell p0 ~> hd; lseg p1 pn ~> tl] (v_next hd = p1)
-  RET _ FOR tt [lseg p0 pn ~> ((p0, v_data hd) :: tl)] True.
+  SPEC (p0, p1, pn) '(hd, tl) [] [lcell p0 ~> hd; lseg p1 pn ~> tl] (v_next hd = p1)
+  '_ tt [lseg p0 pn ~> ((p0, v_data hd) :: tl)] True.
 Proof. Derived. Defined.
 Lemma intro_lseg_cons : intro_lseg_cons_spec.
 Proof.
@@ -101,23 +100,23 @@ Proof.
 Qed.
 
 Definition elim_lseg_cons_spec : LDecl (ptr * ptr) ptr
-  FOR (p0, pn) FOR l [] [lseg p0 pn ~> l] (match l with nil => False | cons _ _ => True end)
-  RET p1 FOR (dt, tl) [lcell p0 ~> (mk_lcell dt p1); lseg p1 pn ~> tl]
-    (match l with nil => False | (p0', dt') :: tl' => p0' = p0 /\ dt = dt' /\ tl = tl' end).
+  SPEC (p0, pn) 'l [] [lseg p0 pn ~> l] (is_cons l)&REQ
+  'p1 tt [lcell p0 ~> (mk_lcell (snd (hd_tot l REQ)) p1); lseg p1 pn ~> tl_tot l REQ]
+    (p0 = fst (hd_tot l REQ)).
 Proof. Derived. Defined.
 Lemma elim_lseg_cons : elim_lseg_cons_spec.
 Proof.
   init_lemma (p0, pn) [|[p0' dt] tl] [].
   unfold lseg; cbn; Intro ->.
-  Apply (lseg_entry tl pn); Apply (dt, (tl, tt)); cbn.
-  Apply. repeat split.
+  Apply (lseg_entry tl pn); cbn.
+  Apply. reflexivity.
   SL.normalize.
   Apply; reflexivity.
 Qed.
 
 Definition elim_llist_nnull_spec : LDecl ptr ptr
-  FOR p0 FOR l [] [llist p0 ~> l] (p0 <> NULL)
-  RET p1 FOR (dt, tl) [lcell p0 ~> (mk_lcell dt p1); llist p1 ~> tl] (l = (p0, dt) :: tl).
+  SPEC p0 'l [] [llist p0 ~> l] (p0 <> NULL)
+  'p1 (dt, tl) [lcell p0 ~> (mk_lcell dt p1); llist p1 ~> tl] (l = (p0, dt) :: tl).
 Proof. Derived. Defined.
 Lemma elim_llist_nnull : elim_llist_nnull_spec.
 Proof.
@@ -170,12 +169,12 @@ Proof.
 Qed.
 
 Definition lseg_app_spec : LDecl (ptr * ptr * ptr) unit
-  FOR (p0, p1, p2) FOR (l0, l1) [] [lseg p0 p1 ~> l0; lseg p1 p2 ~> l1] True
-  RET _ FOR tt [lseg p0 p2 ~> (l0 ++ l1)] True.
+  SPEC (p0, p1, p2) '(l0, l1) [] [lseg p0 p1 ~> l0; lseg p1 p2 ~> l1] True
+  '_ tt [lseg p0 p2 ~> (l0 ++ l1)] True.
 Proof. Derived. Defined.
 Lemma lseg_app : lseg_app_spec.
 Proof.
-  init_lemma ((p0, p1), p2) (l0, l1) _.
+  init_lemma ((p0, p1), p2) (l0, l1) ?.
   unfold lseg.
   rewrite lseg_entry_app, lseg_sl_app; SL.normalize.
   Intro [<- <-].
@@ -188,9 +187,9 @@ Section Program.
   Variable CT : ConcreteProg.context.
 
 Definition Length_spec : FDecl ptr _ nat _
-  FOR p
-  FOR l [llist p ~> l] [] True
-  RET n FOR tt [] (n = length l).
+  SPEC p
+  'l [llist p ~> l] [] True
+  'n tt [] (n = length l).
 Proof. Derived. Defined.
 Variable Length : Length_spec CT.
 
@@ -210,12 +209,12 @@ Definition Length_impl : FImpl Length := fun p0 =>
     gLem intro_lseg_cons (p0, p1, NULL);;
     Ret (S n).
 Lemma Length_correct : FCorrect Length_impl.
-Proof. by_wlp. Qed.
+Proof. solve_by_wlp. Qed.
 
 Definition Rev_spec : FDecl (ptr * ptr) _ ptr _
-  FOR (p, pr)
-  FOR l [] [llist p ~> l] True
-  RET r FOR tt [lseg r pr ~> rev l] True.
+  SPEC (p, pr)
+  'l [] [llist p ~> l] True
+  'r tt [lseg r pr ~> rev l] True.
 Proof. Derived. Defined.
 Variable Rev : Rev_spec CT.
 
@@ -238,12 +237,43 @@ Definition Rev_impl : FImpl Rev := fun '(p0, pr) =>
     gLem lseg_app (r, p0, pr);;
     Ret r (pt := fun r => [lseg r pr ~>]).
 Lemma Rev_correct : FCorrect Rev_impl.
-Proof. by_wlp. Qed.
+Proof. solve_by_wlp. Qed.
+
+Definition Seg_Next_spec : FDecl (ptr * nat) (Some (fun _ => ptr)) ptr _
+  SPEC (p, n) & pn
+  'l [lseg p pn ~> l] [] (n = length l)
+  'r tt [] (r = pn).
+Proof. Derived. Defined.
+Variable Seg_Next : Seg_Next_spec CT.
+
+Definition Seg_Next_impl : FImpl Seg_Next := fun '(p, n) pn =>
+  gExploit [lseg p pn~>];;
+  match n with
+  | O   => Ret p
+  | S n =>
+      'g_p1 <- gLem elim_lseg_cons (p, pn);
+      gUnfold (lcell_def p);;
+      'p1 <- Read (p_next p);
+      gFold (lcell_def p);;
+      gLem replace1 (lseg g_p1 pn, lseg p1 pn);;
+      'r <- Seg_Next (p1, n) pn;
+      gLem intro_lseg_cons (p, p1, pn);;
+      Ret r
+  end.
+Lemma Seg_Next_correct : FCorrect Seg_Next_impl.
+Proof.
+  by_wlp.
+  case n as [|n]; destruct sel0; simplify_eq 1; FunProg.solve_wlp.
+  - apply H0; unfold lseg; SL.normalize.
+    Intro E; auto.
+  - destruct p0; reflexivity.
+Qed.
 
 End Program.
 
 Derive prog SuchThat (ConcreteProg.of_entries [
-  f_entry Length_spec Length_correct;
-  f_entry Rev_spec    Rev_correct
+  f_entry Length_spec    Length_correct;
+  f_entry Rev_spec       Rev_correct;
+  f_entry Seg_Next_spec  Seg_Next_correct
 ] prog) As prog_correct.
 Proof. Derived. Qed.

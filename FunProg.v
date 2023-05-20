@@ -32,7 +32,7 @@ Module Spec.
 
   Record t (A : DTuple.p) := {
     pre  : Prop;
-    post : DTuple.arrow A (fun _ => Prop);
+    post : DTuple.arrow A (fun _ => pre -> Prop);
   }.
 End Spec.
 
@@ -56,11 +56,11 @@ Inductive wlpA [A : DTuple.p] (i : instr A) (post : DTuple.arrow A (fun _ => Pro
 
 Lemma wlpA_eqv [pre A i0 i1 post]
   (E : @eqv A i0 i1)
-  (C : pre -> wlpA i1 post)
-  (P : pre) : wlpA i0 post.
+  (C : forall PRE : pre, wlpA i1 (post PRE))
+  (PRE : pre) : wlpA i0 (post PRE).
 Proof.
   constructor.
-  apply E, C, P.
+  apply E, C.
 Qed.
 
 
@@ -102,8 +102,13 @@ Section Instr.
     reflexivity.
   Qed.
 
-  Program Definition Call [A : DTuple.p] (s : Spec.t A) : instr A
-    := fun post => Spec.pre s /\ forall x : DTuple.t A, DTuple.to_fun (Spec.post s) x -> post x.
+  Program Definition Call [A : DTuple.p] (s : Spec.t A) : instr (DTuple.Pcons (Spec.pre s) (fun _ => A))
+    := fun post => exists PRE : Spec.pre s, forall x : DTuple.t A,
+      DTuple.to_fun (Spec.post s) x PRE -> post (DTuple.pair PRE x).
+  Next Obligation.
+    intros [PRE].
+    exists PRE; auto.
+  Qed.
 
   Program Definition Assert (P : Prop) : instr DTuple.unit
     := fun post => P /\ post DTuple.tt.
@@ -150,18 +155,44 @@ Section WLP_Formula.
 
   Lemma wlp_formula_Call [A] s:
     wlp_formula (@Call A s)
-      (fun post => Spec.pre s /\ DTuple.all A (fun x => DTuple.to_fun (Spec.post s) x -> post x)).
+      (fun post => exists PRE : Spec.pre s,
+        DTuple.all A (fun x => DTuple.to_fun (Spec.post s) x PRE ->
+        post (DTuple.pair PRE x))).
   Proof.
     constructor; setoid_rewrite DTuple.all_iff; auto.
   Qed.
 End WLP_Formula.
 
+(* Must be called on a goal [f a b].
+   Destructs the the first occurence of [x] in [a] and [b]. *)
+Ltac case_2heads x f a b :=
+  let fld0 := fresh "fld" in
+  pose (fld0 := f); change (fld0 a b);
+  let x0 := fresh "case_x" in
+  set (x0 := x) at 1; (* head of [a] *)
+  let fld1 := fresh "fld" in
+  lazymatch goal with |- fld0 ?a' _ =>
+    pose (fld1 := fld0 a'); change (fld1 b)
+  end;
+  let x1 := fresh "case_x'" in
+  set (x1 := x) at 1; (* head of [b] *)
+  change x1 with x0;
+  unfold fld1, fld0; clear x1 fld0 fld1; clearbody x0;
+  refine (elim_boxP _);
+  case x0; clear x0;
+  cbn; intros;
+  constructor.
+
 (* build a formula [match x with ... end] *)
 Ltac build_wlp_formula_match build_f x :=
   lazymatch goal with |- wlp_formula _ ?f =>
-  Tac.build_term f ltac:(fun _ => intro (* post *); destruct x; shelve);
-  destruct x; build_f
-  end.
+  Tac.build_term f ltac:(fun _ => intro (* post *); case x; shelve)
+  end;
+  cbn;
+  lazymatch goal with |- @wlp_formula ?A ?i ?f =>
+  case_2heads x (@wlp_formula A) i f
+  end;
+  build_f.
 
 (* destructive let *)
 Ltac build_wlp_formula_dlet build_f x :=
@@ -195,15 +226,15 @@ Ltac build_wlp_formula_branch build_f x :=
 (* solves a goal [wlp_formula i ?f] *)
 Ltac build_wlp_formula_ dmatch :=
   let rec build :=
-  cbn;
+  cbn; clear;
   lazymatch goal with
   | |- wlp_formula (Ret _) _ =>
       refine (wlp_formula_def _)
   | |- wlp_formula (Bind _ _) _ =>
       refine (wlp_formula_Bind _ _);
       [ build | cbn; repeat intro; build ]
-  | |- wlp_formula (Call _) _ =>
-      refine (wlp_formula_Call _)
+  | |- wlp_formula (@Call ?A ?s) _ =>
+      exact (@wlp_formula_Call A s)
   | |- wlp_formula (Assert _) _ =>
       refine (wlp_formula_def _)
   | |- wlp_formula (match ?x with _ => _ end) _ =>
@@ -219,22 +250,22 @@ Ltac build_wlp_formula_ dmatch :=
   end
   in build.
 
-Ltac build_wlp_formula := build_wlp_formula_ true.
+Ltac build_wlp_formula := build_wlp_formula_ false.
 
 Local Lemma by_wlp_lem [pre : Prop] [A] [i : instr A] [post f]
   (F : wlp_formula i f)
-  (C : pre -> f (DTuple.to_fun post))
-  (P : pre): wlpA i post.
+  (C : forall PRE : pre, f (DTuple.to_fun (post PRE)))
+  (PRE : pre): wlpA i (post PRE).
 Proof.
   constructor; case F as [F].
-  apply F, C, P.
+  apply F, C.
 Qed.
 
 Ltac by_wlp_ dmatch :=
   refine (by_wlp_lem _ _);
   [ build_wlp_formula_ dmatch | cbn].
 
-Ltac by_wlp := by_wlp_ true.
+Ltac by_wlp := by_wlp_ false.
 
 Ltac decompose' H :=
   lazymatch goal with | H : ?T |- _ =>
@@ -260,17 +291,21 @@ Ltac decompose' H :=
 (* decompose a generated wlp *)
 Ltac solve_wlp :=
   lazymatch goal with
-  | |- ?A /\ ?B =>
+  | |- _ /\ _ =>
       split; solve_wlp
   | |- _ -> _ =>
       let H := fresh "H" in intro H; decompose' H; solve_wlp
   | |- forall _, _ =>
       let H := fresh "H" in intro H; decompose' H; solve_wlp
-  | |- _ = _ => try reflexivity
-  | |- True  => exact Logic.I
-  | |- context[match ?x with _ => _ end] =>
-      destruct x; solve_wlp 
-  | _ => idtac
+  | |- @ex ?A _ =>
+      tryif constr_eq_strict ltac:(type of A) Prop
+      then unshelve eexists; solve_wlp
+      else idtac
+  | _ =>
+      try solve [split];
+      try lazymatch goal with |- context[match ?x with _ => _ end] =>
+      destruct x; solve_wlp
+      end
   end.
 
 (* Program simplification *)
@@ -366,14 +401,22 @@ Ltac build_simpl_cont :=
     | |- simpl_cont (match ?x with _ => _ end) _ ?r =>
         tryif Tac.is_single_case x
         then (
-          Tac.build_term r ltac:(fun tt => destruct x; shelve);
-          destruct x; build tt
+          Tac.build_term r ltac:(fun tt => case x; shelve);
+          cbn;
+          lazymatch goal with |- @simpl_cont ?A ?B ?i ?k ?r =>
+          let i' := fresh "i" in
+          case_2heads x (fun i' => @simpl_cont A B i' k) i r
+          end;
+          build tt
         ) else (
           refine (simpl_cont_morph _ _);
-          match goal with |- eqv _ ?r =>
-          Tac.build_term r ltac:(fun tt => destruct x; shelve)
+          lazymatch goal with |- eqv _ ?r =>
+          Tac.build_term r ltac:(fun _ => case x; shelve)
           end;
-          destruct x; refine (eqv_by_simpl_cont _); build tt
+          lazymatch goal with |- @eqv ?A ?i ?r =>
+          case_2heads x (@eqv A) i r
+          end;
+          refine (eqv_by_simpl_cont _); build tt
         )
     | |- ?g => fail "build_simpl_cont" g
     end
@@ -384,4 +427,3 @@ Ltac simpl_prog :=
   [ refine (eqv_by_simpl_cont _);
     build_simpl_cont
   | cbn ].
-  

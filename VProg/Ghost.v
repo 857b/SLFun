@@ -10,7 +10,7 @@ Section Admit.
     (fun '(V0, V1) _ =>
      Spec.mk_r0 (Tuple.force_match (VpropList.sel V0) (fun sel0 =>
      Spec.mk_r1 (GO := None) [] (VpropList.inst V0 sel0) False (fun x =>
-     Spec.mk_r2 _ (V1 x) (Tuple.of_fun (fun sel1 =>
+     Spec.mk_r2 _ (V1 x) (Tuple.of_fun (fun sel1 _ =>
      Spec.mk_r3 _ sel1 True)))))).
   Proof.
     init_lemma (?, ?) ?.
@@ -26,14 +26,14 @@ Section Equivalence.
       fun _ _ =>
       Spec.mk_r0 (Tuple.force_match (VpropList.sel V0) (fun sel0 =>
       Spec.mk_r1 [] (VpropList.inst V0 sel0) True (fun _ =>
-      Spec.mk_r2 [] V1 (
+      Spec.mk_r2 [] V1 (fun _ =>
       Spec.mk_r3 _ (f sel0) True)))).
     
     Definition eqv_lem2_spec : ghost_spec (mk_f_sig unit unit) :=
       fun _ _ =>
       Spec.mk_r0 (Tuple.force_match (VpropList.sel V1) (fun sel1 =>
       Spec.mk_r1 [] (VpropList.inst V1 sel1) True (fun _ =>
-      Spec.mk_r2 [] V0 (
+      Spec.mk_r2 [] V0 (fun _ =>
       Spec.mk_r3 _ (g sel1) True)))).
 
     Hypothesis (GF : forall x, g (f x) = x)
@@ -41,17 +41,19 @@ Section Equivalence.
  
     Lemma eqv_lem1 : ghost_lem eqv_lem1_spec.
     Proof.
-      init_lemma _ sel0 _.
-      rewrite Tuple.to_of_fun; cbn; SL.normalize.
-      rewrite !CTX.sl_app, <- E, GF.
+      init_lemma _ sel0.
+      rewrite Tuple.to_of_fun.
+      intro; SL.normalize.
+      rewrite !List.app_nil_r, <-E, GF.
       reflexivity.
     Qed.
     
     Lemma eqv_lem2 : ghost_lem eqv_lem2_spec.
     Proof.
-      init_lemma _ sel1 _.
-      rewrite Tuple.to_of_fun; cbn; SL.normalize.
-      rewrite !CTX.sl_app, E.
+      init_lemma _ sel1.
+      rewrite Tuple.to_of_fun.
+      intro; SL.normalize.
+      rewrite !List.app_nil_r, E.
       reflexivity.
     Qed.
   End Proof.
@@ -87,8 +89,8 @@ Global Arguments gUnfold [_ _ _ _] {_} L.
 Global Arguments gFold   [_ _ _ _] {_} L.
 Section Replace.
   Definition replace1_spec A : LDecl (Vprop.p A * Vprop.p A) unit
-    FOR (v0, v1) FOR x [] [v0 ~> x] (v0 = v1)
-    RET _ FOR tt [v1 ~> x] True.
+    SPEC (v0, v1) 'x [] [v0 ~> x] (v0 = v1)
+    '_ tt [v1 ~> x] True.
   Proof. Derived. Defined.
   Lemma replace1 {A} : replace1_spec A.
   Proof.
@@ -100,7 +102,7 @@ Section Replace.
      Spec.mk_r0 (Tuple.force_match (VpropList.sel V0) (fun sel0 =>
      Spec.mk_r1 [] (VpropList.inst V0 sel0)
        (eq_rect _ (fun st => Tuple.t st -> CTX.t) (VpropList.inst V0) _ E = VpropList.inst V1) (fun _ =>
-     Spec.mk_r2 [] V1 (
+     Spec.mk_r2 [] V1 (fun _ =>
      Spec.mk_r3 _ (eq_rect _ Tuple.t sel0 _ E) True))))).
   Proof.
     init_lemma E sel0.
@@ -114,11 +116,11 @@ Section Impp.
   Context [sel_t A : Type] (spc : sel_t -> (CTX.t * Prop * (A -> Prop))).
 
   Definition impp_lemma_spec : ghost_spec (mk_f_sig unit A) :=
-      fun _ _ =>
-      Spec.mk_r0 (fun (sel : sel_t) => let '(sl, pre, post) := spc sel in
-      Spec.mk_r1 (GO := None) sl [] pre (fun (x : A) =>
-      Spec.mk_r2 [] [] (
-      Spec.mk_r3 [] tt (post x)))).
+    fun _ _ =>
+    Spec.mk_r0 (fun (sel : sel_t) => let '(sl, pre, post) := spc sel in
+    Spec.mk_r1 (GO := None) sl [] pre (fun (x : A) =>
+    Spec.mk_r2 [] [] (fun _ =>
+    Spec.mk_r3 [] tt (post x)))).
 
   Definition impp_lemma := ghost_lem impp_lemma_spec.
 
@@ -139,6 +141,30 @@ Section Impp.
     reflexivity.
   Qed.
 End Impp.
+Section Exploit.
+  Context [CT : CP.context] (vs : VpropList.t).
+
+  Definition exploit_hyp (sel : VpropList.sel_t vs) : Prop :=
+    forall P : Prop, SLprop.impp (CTX.sl (VpropList.inst vs sel)) P -> P.
+
+  Definition exploit_spec : ghost_spec (mk_f_sig unit unit) :=
+    fun _ _ =>
+    Spec.mk_r0 (Tuple.force_match (VpropList.sel vs) (fun sel =>
+    Spec.mk_r1 (GO := None) (VpropList.inst vs sel) [] True (fun _ =>
+    Spec.mk_r2 [] [] (fun _ =>
+    Spec.mk_r3 [] tt (exploit_hyp sel))))).
+  Lemma exploit_correct : ghost_lem exploit_spec.
+  Proof.
+    init_lemma [] sel.
+    rewrite Tuple.to_of_fun; cbn; intro.
+    SL.normalize.
+    eapply SLprop.cut_pure. 2:intro H; Apply H; reflexivity.
+    unfold exploit_hyp.
+    intros m M P I; eapply I, M.
+  Qed.
+
+  Definition gExploit : instr CT unit := gLem exploit_correct tt.
+End Exploit.
 
 Section GGet.
   Context [CT : CP.context] [A : Type] (v : Vprop.p A).

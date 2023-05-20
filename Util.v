@@ -6,20 +6,22 @@ Import ListNotations.
 
 (* Tactics *)
 
-Global Create HintDb DeriveDB discriminated.
-Global Hint Constants Opaque : DeriveDB.
-Global Hint Variables Opaque : DeriveDB.
-Ltac Derived := solve [auto 1 with DeriveDB nocore].
+(* Inductive types used by tactics *)
+Section TacTy.
+  Inductive Arrow (A B : Type) :=
+    mk_Arrow (H : A -> B).
+  Global Arguments mk_Arrow [_ _].
 
-Inductive Arrow (A B : Type) :=
-  mk_Arrow (H : A -> B).
-Global Arguments mk_Arrow [_ _].
+  Lemma cut_Arrow [goal0 goal1]
+    (S : Arrow goal1 goal0)
+    (C : goal1):
+    goal0.
+  Proof. apply S, C. Defined.
 
-Local Lemma cut_Arrow [goal0 goal1]
-  (S : Arrow goal1 goal0)
-  (C : goal1):
-  goal0.
-Proof. apply S, C. Defined.
+  Inductive BoxP (P : Prop) : Prop := mk_boxP (x : P).
+  Global Arguments mk_boxP [P] _.
+  Definition elim_boxP [P] (b : BoxP P) : P := let '(mk_boxP x) := b in x.
+End TacTy.
 
 (* solves a goal [Arrow ?A B]
    [tc] should solve [B] possibly leaving a single goal [H].
@@ -29,6 +31,12 @@ Ltac mk_Arrow_tac tc :=
   let H := fresh "H" in intro H;
   tc tt;
   exact H.
+
+
+Global Create HintDb DeriveDB discriminated.
+Global Hint Constants Opaque : DeriveDB.
+Global Hint Variables Opaque : DeriveDB.
+Ltac Derived := solve [auto 1 with DeriveDB nocore].
 
 (* DB for [Intro].
    Should solve goals [Arrow ?goal1 goal0] and instantiate [?goal1] to [forall _, _] *)
@@ -90,13 +98,17 @@ Module Tac.
   Ltac revert_exec f :=
    inv_fail ltac:(inv_fail f).
 
-  (* detects inductive terms whith only one case *)
+  (* detects inductive terms with only one case *)
   Ltac is_single_case x :=
     revert_exec ltac:(assert (x = x); [clear; case x; [ ]; constructor|]).
 
-  (* detects inductive terms whith only one case and no arguments *)
+  (* detects inductive terms with only one case and no arguments, like [unit] and [True] *)
   Ltac is_unit_case x :=
     Tac.revert_exec ltac:(assert (x = x); [clear; case x; [ ]; Tac.inv_fail intro; constructor|]).
+
+  (* detects inductive terms with only one case and no arguments *)
+  Ltac is_unit_type t :=
+    Tac.revert_exec ltac:(assert t; [clear; solve [split]|]).
 
   Ltac nondep_case t :=
     lazymatch goal with |- ?g =>
@@ -268,6 +280,34 @@ Module List.
     | nil     => nil
     | x :: xs => f O x :: mapi (fun i => f (S i)) xs
     end.
+
+  Definition is_cons [A] (l : list A) : Prop :=
+    match l with
+    | nil    => False
+    | _ :: _ => True
+    end.
+
+  Definition hd_tot [A] (l : list A) : is_cons l -> A :=
+    match l with
+    | nil     => False_rect _
+    | hd :: _ => fun _ => hd
+    end.
+
+  Definition tl_tot [A] (l : list A) : is_cons l -> list A :=
+    match l with
+    | nil     => False_rect _
+    | _ :: tl => fun _ => tl
+    end.
+
+  Fixpoint nth_tot [A] (n : nat) (l : list A) {struct l}: n < length l -> A.
+  Proof.
+    case l as [|x l].
+    - intro LT; exfalso. exact (PeanoNat.Nat.nlt_0_r _ LT).
+    - case n as [|n].
+      + exact (fun _ => x).
+      + intros LT%le_S_n.
+        exact (nth_tot _ n l LT).
+  Defined.
 
   (* Transparent lemmas *)
 

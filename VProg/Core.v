@@ -83,12 +83,14 @@ Section Spec.
     ens   : Prop;               (* ensures *)
   }.
 
-  Record t_r2 : Type := mk_r2 {
+  Record t_r2 (req : Prop) : Type := mk_r2 {
     sel1_t : list Type;
     vpost  : VpropList.t; (* post condition vprops *)
-    f_r3 : Tuple.arrow sel1_t (fun _ => t_r3 vpost);
+    f_r3 : Tuple.arrow sel1_t (fun _ => req -> t_r3 vpost);
   }.
-  Definition f_r3_f (s : t_r2) : forall (sel1 : Tuple.t (sel1_t s)), t_r3 (vpost s) :=
+  Global Arguments mk_r2 [req] _ _ _.
+  Definition f_r3_f (req : Prop) (s : t_r2 req):
+    forall (sel1 : Tuple.t (sel1_t s)) (REQ : req), t_r3 (vpost s) :=
     Tuple.to_fun (f_r3 s).
   Coercion f_r3_f : t_r2 >-> Funclass.
 
@@ -96,8 +98,9 @@ Section Spec.
     prs : CTX.t; (* preserved *)
     pre : CTX.t; (* pre condition *)
     req : Prop;  (* requires *)
-    f_r2 :> opt_sigG -> t_r2;
+    f_r2 :> opt_sigG -> t_r2 req;
   }.
+  Global Arguments mk_r1 : clear implicits.
 
   Record t_r0 : Type := mk_r0 {
     sel0_t : Type;
@@ -119,17 +122,18 @@ Module Expanded. Section Expanded.
     ens  : Prop;
   }.
 
-  Record t_r2 : Type := mk_r2 {
+  Record t_r2 (req : Prop) : Type := mk_r2 {
     sel1_t : Type;
-    f_r3 :> sel1_t -> t_r3;
+    f_r3 :> sel1_t -> req -> t_r3;
   }.
 
   Record t_r1 : Type := mk_r1 {
     prs : CTX.t;
     pre : CTX.t;
     req : Prop;
-    f_r2 :> opt_sigG GO -> t_r2;
+    f_r2 :> opt_sigG GO -> t_r2 req;
   }.
+  Global Arguments mk_r1 : clear implicits.
 
   Record t_r0 : Type := mk_r0 {
     sel0_t : Type;
@@ -139,34 +143,33 @@ Module Expanded. Section Expanded.
   Definition t : Type := ghin_t GI -> t_r0.
 
 
-  Definition tr_post (e : Expanded.t_r2) : SLprop.t :=
+  Definition tr_post [req] (e : Expanded.t_r2 req) (REQ : req) : SLprop.t :=
     SLprop.ex (sel1_t e) (fun sel1 =>
-      SLprop.pure (ens (e sel1)) **
-      CTX.sl (post (e sel1)))%slprop.
+      SLprop.pure (ens (e sel1 REQ)) **
+      CTX.sl (post (e sel1 REQ)))%slprop.
 
   Definition tr_1
     [B] (PT : (opt_sigG GO -> SLprop.t) -> B -> SLprop.t)
-    (vs : Expanded.t_r1) : SP.Spec.t B :=
+    (vs : Expanded.t_r1) (REQ : req vs) : SP.Spec.t B :=
     {|
       SP.Spec.pre  :=
-        SLprop.pure (req vs) **
         CTX.sl (pre vs) **
         CTX.sl (prs vs);
       SP.Spec.post := PT (fun xG =>
-        tr_post (vs xG) **
+        tr_post (vs xG) REQ **
         CTX.sl (prs vs));
     |}%slprop.
 
   Definition tr (vs : t) (ss : SP.Spec.t A) : Prop :=
-    exists (gi : ghin_t GI) (sel0 : sel0_t (vs gi)),
+    exists (gi : ghin_t GI) (sel0 : sel0_t (vs gi)) (REQ : req (vs gi sel0)),
     SP.Spec.eq ss
       (tr_1 (fun pt x => SLprop.ex (ghout_t GO x) (fun go => pt (to_opt_sigG (CP.existG _ x go))))
-            (vs gi sel0)).
+            (vs gi sel0) REQ).
 
 
-  Definition to_expanded2 (s : Spec.t_r2) : Expanded.t_r2 :=
-    @mk_r2 (Tuple.t (Spec.sel1_t s)) (fun sel1 =>
-    mk_r3 (Spec.post (s sel1)) (Spec.ens (s sel1))).
+  Definition to_expanded2 [req] (s : Spec.t_r2 req) : Expanded.t_r2 req :=
+    @mk_r2 req (Tuple.t (Spec.sel1_t s)) (fun sel1 REQ =>
+    mk_r3 (Spec.post (s sel1 REQ)) (Spec.ens (s sel1 REQ))).
 
   Definition to_expanded (s : Spec.t GI GO) : Expanded.t :=
     fun gi =>
@@ -178,7 +181,7 @@ Module Expanded. Section Expanded.
     := of_expanded3I:
     of_expanded3 e (Spec.mk_r3 _ (VpropList.sel_of_ctx (post e)) (ens e)).
 
-  Inductive of_expanded2 (e : Expanded.t_r2) : Spec.t_r2 -> Prop
+  Inductive of_expanded2 [req] (e : Expanded.t_r2 req) : Spec.t_r2 req -> Prop
     := of_expanded2I
     (* changing [sel1_t] into a tuple *)
     (sel1_tu   : list Type)
@@ -191,18 +194,20 @@ Module Expanded. Section Expanded.
     (vpost : VpropList.t)
     (VPOST : Tuple.arrow sel1_tu (fun sel1' =>
       let sel1 : sel1_t e := sel1_tu_g sel1' in
-      VpropList.of_ctx (post (e sel1)) = vpost))
-    (s3 : Tuple.arrow sel1_tu (fun _ => Spec.t_r3 vpost))
+      forall REQ : req,
+      VpropList.of_ctx (post (e sel1 REQ)) = vpost))
+    (s3 : Tuple.arrow sel1_tu (fun _ => req -> Spec.t_r3 vpost))
     (S3 : Tuple.arrow sel1_tu (fun sel1' =>
       let sel1 : sel1_t e := sel1_tu_g sel1' in
-      of_expanded3 (e sel1)
-        (eq_rect_r Spec.t_r3 (Tuple.to_fun s3 sel1')
-                   (Tuple.to_fun VPOST sel1')))):
-    of_expanded2 e (@Spec.mk_r2 sel1_tu vpost s3).
+      forall REQ : req,
+      of_expanded3 (e sel1 REQ)
+        (eq_rect_r Spec.t_r3 (Tuple.to_fun s3 sel1' REQ)
+                   (Tuple.to_fun VPOST sel1' REQ)))):
+    of_expanded2 e (@Spec.mk_r2 req sel1_tu vpost s3).
 
   Inductive of_expanded1 (e : Expanded.t_r1) : Spec.t_r1 GO -> Prop
     := of_expanded1I
-    (s2 : opt_sigG GO -> Spec.t_r2)
+    (s2 : opt_sigG GO -> Spec.t_r2 (req e))
     (S2 : forall (xG : opt_sigG GO), of_expanded2 (e xG) (s2 xG)):
     of_expanded1 e (@Spec.mk_r1 A GO (prs e) (pre e) (req e) s2).
 
@@ -215,9 +220,9 @@ Module Expanded. Section Expanded.
   Definition of_expanded (e : Expanded.t) (s : Spec.t GI GO) : Prop :=
     forall gi : ghin_t GI, of_expanded0 (e gi) (s gi).
 
-  Lemma of_expanded2_equiv e s
-    (E : of_expanded2 e s):
-    SLprop.eq (tr_post e) (tr_post (to_expanded2 s)).
+  Lemma of_expanded2_equiv [req] e s REQ
+    (E : @of_expanded2 req e s):
+    SLprop.eq (tr_post e REQ) (tr_post (to_expanded2 s) REQ).
   Proof.
     destruct E; unfold tr_post, to_expanded2; cbn.
     eenough (forall sel1' : Tuple.t sel1_tu, SLprop.eq _ _) as C.
@@ -230,10 +235,10 @@ Module Expanded. Section Expanded.
         rewrite C, (proj1 sel1_TU). reflexivity.
     - intro sel1'.
       apply R_refl. reflexivity.
-      set (x_S3 := Tuple.to_fun S3 sel1'); clearbody x_S3; clear S3.
-      set (x_s3 := Tuple.to_fun s3 sel1') in *.
+      set (x_S3 := Tuple.to_fun S3 sel1' REQ); clearbody x_S3; clear S3.
+      set (x_s3 := Tuple.to_fun s3 sel1' REQ) in *.
         simpl in x_s3, x_S3; fold x_s3 in x_S3; clearbody x_s3; clear s3.
-      set (x_VPOST := Tuple.to_fun VPOST sel1') in *; clearbody x_VPOST; clear VPOST.
+      set (x_VPOST := Tuple.to_fun VPOST sel1' REQ) in *; clearbody x_VPOST; clear VPOST.
       destruct x_VPOST; cbn in *.
       case x_S3; cbn.
       rewrite VpropList.inst_of_ctx.
@@ -249,7 +254,7 @@ Module Expanded. Section Expanded.
     case (E gi) as [s1 S1]; cbn.
     apply Morphisms_Prop.ex_iff_morphism; intro sel0.
     case (S1 sel0) as [s2 S2]; cbn.
-    setoid_rewrite (fun xG => of_expanded2_equiv (S2 xG)).
+    setoid_rewrite (fun REQ xG => of_expanded2_equiv REQ (S2 xG)).
     reflexivity.
   Qed.
 End Expanded. End Expanded.
@@ -367,11 +372,11 @@ Section GhostLemma.
   Definition ghost_lem (s : ghost_spec) : Prop :=
     forall (x    : f_arg_t    sg), let s  := s x tt in
     forall (sel0 : Spec.sel0_t s), let s0 := s sel0 in
-    Spec.req s0 ->
+    forall REQ : Spec.req s0,
     SLprop.imp
       (CTX.sl (Spec.pre s0 ++ Spec.prs s0))
       (SLprop.ex (f_ret_t sg) (fun res => let s := s0 res  in
-       SLprop.ex (Tuple.t (Spec.sel1_t s)) (fun sel1 => let s := s sel1 in
+       SLprop.ex (Tuple.t (Spec.sel1_t s)) (fun sel1 => let s := s sel1 REQ in
        SLprop.pure (Spec.ens s) **
        CTX.sl (Spec.post s ++ Spec.prs s0))))%slprop.
 End GhostLemma.
@@ -698,35 +703,34 @@ Section FunImpl.
   Import Spec.
 
   Definition impl_match :=
-    forall (gi : ghin_t GI) (sel0 : sel0_t (spec gi)),
+    forall (gi : ghin_t GI) (sel0 : sel0_t (spec gi)) (REQ : req (spec gi sel0)),
     SP.sls SPC (i_impl (OptTy.to_fun' body gi))
       (Spec.Expanded.tr_1
         (fun pt xG => pt xG)
-        (Spec.Expanded.f_r1 (Spec.Expanded.to_expanded spec gi) sel0)).
+        (Spec.Expanded.f_r1 (Spec.Expanded.to_expanded spec gi) sel0)
+        REQ).
 
   Lemma intro_impl_match
-    (H : forall (gi : ghin_t GI) (sel0 : Spec.sel0_t (spec gi)),
+    (H : forall (gi : ghin_t GI) (sel0 : Spec.sel0_t (spec gi)) (REQ : Spec.req (spec gi sel0)),
          let ctx : CTX.t := Spec.pre (spec gi sel0) ++ Spec.prs (spec gi sel0) in
          exists f : i_spec_t AG ctx,
          sf_csm f = Sub.const ctx true /\
          sound_spec (i_impl (OptTy.to_fun' body gi)) ctx f /\
-         forall REQ : Spec.req (spec gi sel0),
          FP.wlp (sf_spec f) (fun r =>
            let xG     := TF.v_val r in
            let f_post := VpropList.inst (sf_prd f (TF.v_val r)) (TF.v_sel r) in
            exists sel1 : Tuple.t (Spec.sel1_t (spec gi sel0 xG)),
-           CTX.Inj.beq (Spec.post (spec gi sel0 xG sel1) ++ Spec.prs (spec gi sel0)) f_post /\
-           Spec.ens (spec gi sel0 xG sel1)
+           CTX.Inj.beq (Spec.post (spec gi sel0 xG sel1 REQ) ++ Spec.prs (spec gi sel0)) f_post /\
+           Spec.ens (spec gi sel0 xG sel1 REQ)
          )):
     impl_match.
   Proof.
-    intros gi sel0.
+    intros gi sel0 REQ.
     unfold Expanded.tr_1; cbn.
-    apply SP.PureE; intro REQ.
-    case (H gi sel0) as (f & F_CSM & F_SPEC & WLP); clear H.
+    case (H gi sel0 REQ) as (f & F_CSM & F_SPEC & WLP); clear H.
     eapply SP.Cons.
-      { apply F_SPEC, WLP, REQ. }
-    clear F_SPEC WLP REQ.
+      { apply F_SPEC, WLP. }
+    clear F_SPEC WLP.
     unfold sf_post, sf_post_ctx; split; cbn.
     - rewrite CTX.sl_app; reflexivity.
     - intro xG.
@@ -744,15 +748,15 @@ Section FunImpl.
   Section Impl_Match.
     Variables (body_1 : instr AG) (s_1 : Spec.t_r1 GO).
 
-  Let s_post (xG : AG) (sel1 : Tuple.t (Spec.sel1_t (s_1 xG))) :=
-    Spec.post (s_1 xG sel1) ++ Spec.prs s_1.
+  Let s_post (xG : AG) (sel1 : Tuple.t (Spec.sel1_t (s_1 xG))) (REQ : Spec.req s_1) :=
+    Spec.post (s_1 xG sel1 REQ) ++ Spec.prs s_1.
   Let s_vpost (xG : AG) :=
     Spec.vpost (s_1 xG) ++ VpropList.of_ctx (Spec.prs s_1).
   Let rvar :=
     TF.mk_p AG (fun xG => VpropList.sel (s_vpost xG)).
 
-  Local Lemma s_vpost_eq (xG : AG) (sel1 : Tuple.t (Spec.sel1_t (s_1 xG))):
-    VpropList.of_ctx (s_post xG sel1) = s_vpost xG.
+  Local Lemma s_vpost_eq (xG : AG) (sel1 : Tuple.t (Spec.sel1_t (s_1 xG))) (REQ : Spec.req s_1):
+    VpropList.of_ctx (s_post xG sel1 REQ) = s_vpost xG.
   Proof.
     unfold s_post, s_vpost, post.
     rewrite VpropList.app_of_ctx, VpropList.of_inst.
@@ -769,19 +773,19 @@ Section FunImpl.
       (* simplification of the existential quantification on sel1.
          Maybe we could expend the wlp of add_csm to remove the equalities on
          non consumed vprops ? *)
-      (ex_sel1 : forall (x : AG) (P : Tuple.t (Spec.sel1_t (s_1 x)) -> Prop),
+      (ex_sel1 : forall (x : AG) (REQ : Spec.req s_1) (P : Tuple.t (Spec.sel1_t (s_1 x)) -> Prop),
               Tuple.arrow (VpropList.sel (s_vpost x)) (fun _ => Prop))
-      (EX_SEL1 : forall (x : AG) (P : Tuple.t (Spec.sel1_t (s_1 x)) -> Prop),
+      (EX_SEL1 : forall (x : AG) (REQ : Spec.req s_1) (P : Tuple.t (Spec.sel1_t (s_1 x)) -> Prop),
               Tuple.arrow (VpropList.sel (s_vpost x)) (fun rsel =>
               Tuple.ex (sel1_t (s_1 x)) (fun sel1 =>
-              Tuple.typed_eq (VpropList.sel_of_ctx (s_post x sel1))
-                             (eq_rect_r VpropList.sel_t rsel (s_vpost_eq x sel1)) /\
-              P sel1) <-> Tuple.to_fun (ex_sel1 x P) rsel))
+              Tuple.typed_eq (VpropList.sel_of_ctx (s_post x sel1 REQ))
+                             (eq_rect_r VpropList.sel_t rsel (s_vpost_eq x sel1 REQ)) /\
+              P sel1) <-> Tuple.to_fun (ex_sel1 x REQ P) rsel))
       (* VC *)
       (WLP : forall REQ : Spec.req s_1,
              FP.wlpA f (TF.of_fun (T := rvar) (fun r =>
                let x := TF.v_val r in
-               Tuple.to_fun (ex_sel1 x (fun sel1 => Spec.ens (s_1 x sel1))) (TF.v_sel r)))),
+               Tuple.to_fun (ex_sel1 x REQ (fun sel1 => Spec.ens (s_1 x sel1 REQ))) (TF.v_sel r)))),
       Impl_Match.
   End Impl_Match.
 
@@ -790,16 +794,16 @@ Section FunImpl.
     impl_match.
   Proof.
     apply intro_impl_match.
-    intros gi sel0 ctx.
+    intros gi sel0 REQ ctx.
     destruct (H gi sel0); clear H.
     eexists. split. 2:split.
       2:apply F.
     - reflexivity.
-    - clear F; intro REQ.
-      eapply FP.wlp_monotone, WLP, REQ.
+    - clear F.
+      eapply FP.wlp_monotone, WLP.
       intro r; rewrite TF.to_of_fun.
-      clear WLP REQ; simpl.
-      intros (sel1 & [SEQ] & ENS)%(proj2 (Tuple.to_fun (EX_SEL1 _ _) _))%Tuple.ex_iff.
+      clear WLP; simpl.
+      intros (sel1 & [SEQ] & ENS)%(proj2 (Tuple.to_fun (EX_SEL1 _ REQ _) _))%Tuple.ex_iff.
       clear ex_sel1 EX_SEL1.
       exists sel1.
       split. 2:exact ENS.
@@ -846,7 +850,7 @@ Section FunImplBody.
   Lemma f_ebody_tr:
     match_f_spec spec (fun x => SP.sls SPC (f_ebody x)).
   Proof.
-    intros arg s (gi & sel0 & S).
+    intros arg s (gi & sel0 & REQ & S).
     do 2 esplit. { setoid_rewrite S; reflexivity. }
     clear S.
     cbv delta [f_ebody].
@@ -863,7 +867,7 @@ Section FunImplBody.
         cbn. exact PRJ.
       + destruct gi.
         eapply SP.Bind.
-        { exact (@M arg tt sel0). }
+        { exact (@M arg tt sel0 REQ). }
         exact PRJ.
     - subst prj; clear.
       unfold f_spec, sigh_spec_t in *.
@@ -1146,8 +1150,9 @@ Section Call.
 
     Local Lemma vpost_eq
       (sel0 : Spec.sel0_t s) (xG : AG)
-      (sel1 : Tuple.t (Spec.sel1_t (s sel0 xG))):
-      VpropList.of_ctx (post (s sel0 xG sel1)) = Spec.vpost (s sel0 xG).
+      (sel1 : Tuple.t (Spec.sel1_t (s sel0 xG)))
+      (REQ  : Spec.req (s sel0)):
+      VpropList.of_ctx (post (s sel0 xG sel1 REQ)) = Spec.vpost (s sel0 xG).
     Proof.
       apply VpropList.of_inst.
     Defined.
@@ -1167,14 +1172,14 @@ Section Call.
           FP.Bind
             (@FP.Call TF_A {|
                 FP.Spec.pre  := Spec.req (s sel0);
-                FP.Spec.post := TF.of_fun (fun (r : TF.t TF_A) =>
-                  Spec.ens (s sel0 (TF.v_val r) (TF.v_sel r)));
+                FP.Spec.post := TF.of_fun (fun (r : TF.t TF_A) (REQ : Spec.req (s sel0)) =>
+                  Spec.ens (s sel0 (TF.v_val r) (TF.v_sel r) REQ));
              |})
-            (TF.of_fun (T := TF_A) (fun r =>
+            (fun REQ => TF.of_fun (T := TF_A) (fun r =>
              FP.Ret (TF.mk _ (TF.v_val r)
               (eq_rect _ VpropList.sel_t
-                       (VpropList.sel_of_ctx (Spec.post (s sel0 (TF.v_val r) (TF.v_sel r))))
-                       _ (vpost_eq sel0 (TF.v_val r) (TF.v_sel r))))))
+                       (VpropList.sel_of_ctx (Spec.post (s sel0 (TF.v_val r) (TF.v_sel r) REQ)))
+                       _ (vpost_eq sel0 (TF.v_val r) (TF.v_sel r) REQ)))))
       |} F),
       Call_Spec ctx F.
   End Spec.
@@ -1197,13 +1202,14 @@ Section Call.
     Variables (gi : OptTy.t (f_ghin_t_x sgh x)) (s : sigh_spec_t sgh x).
     Hypothesis (HSPC : fun_has_spec CT f HSIG s).
 
-    Lemma Call_impl_sls sel0:
+    Lemma Call_impl_sls sel0 REQ:
       SP.sls SPC Call_impl
         (Expanded.tr_1 (fun pt xG => pt xG)
-          (Expanded.f_r1 (Expanded.to_expanded s gi) sel0)).
+          (Expanded.f_r1 (Expanded.to_expanded s gi) sel0)
+          REQ).
     Proof.
       ecase HSPC as (ss & LEss & Hss).
-        { exists gi, sel0; reflexivity. }
+        { exists gi, sel0, REQ. reflexivity. }
       clear HSPC. unfold Call_impl, sigh_spec_t in *.
       destruct f_ghout_t.
       - eapply SP.Bind.
@@ -1219,8 +1225,6 @@ Section Call.
         intro; Intro; reflexivity.
     Qed.
 
-    Local Opaque TF.of_fun TF.to_fun.
-
     Program Definition Call : instr AG := {|
       i_impl := Call_impl;
       i_spec := fun ctx => Call_Spec (s gi) ctx;
@@ -1233,18 +1237,18 @@ Section Call.
       eapply SP.Cons.
         { apply Call_impl_sls. }
       split; cbn.
-      - Apply REQ.
-        unfold ppre; rewrite CTX.sl_app.
+      - unfold ppre; rewrite CTX.sl_app.
         reflexivity.
       - intro rx; unfold Expanded.tr_post; cbn; SL.normalize.
         Intro sel1.
         Intro ENS.
-        specialize (POST (TF.mk _ rx sel1)).
-          rewrite !TF.to_of_fun in POST; simpl in POST; rewrite TF.to_of_tu in POST.
+        specialize (POST (TF.mk _ rx sel1));
+          cbn in POST;
+          rewrite !TF.to_of_fun, TF.to_of_tu in POST.
         EApply.
         Apply (POST ENS).
-        clear post0 REQ ENS POST; subst TF_A TF_B; cbn.
-        case (vpost_eq (s gi) sel0 rx sel1); cbn.
+        clear post0 ENS POST; subst TF_A TF_B; cbn.
+        case (vpost_eq (s gi) sel0 rx sel1 REQ); cbn.
         rewrite TF.to_of_tu, VpropList.inst_of_ctx, CTX.sl_app.
         unfold Sub.neg, Sub.const, ppre; cbn.
         rewrite Sub.map_app, !Vector.map_const, Sub.sub_app,
@@ -1260,7 +1264,7 @@ Section Call.
     :=
     OptTy.of_fun (fun gi =>
       Call (fd_id fd) (fd_Hsig (fd_H fd)) sgh x gi (s x) (fd_Hspec (fd_H fd) x)).
-  
+ 
   Section Ghost.
     Context [sg : f_sig] [s : ghost_spec sg] (L : ghost_lem s) (x : f_arg_t sg).
     Program Definition gLem : instr (f_ret_t sg) := {|
@@ -1271,10 +1275,11 @@ Section Call.
       destruct SP.
       apply (Tr_InjPre_Frame IJ); clear IJ.
       do 2 intro; cbn in *.
-      case PRE as (LEM%L & WLP).
+      case PRE as (REQ & WLP).
+      specialize (L _ _ REQ).
       eapply SP.Cons with (s0 := SP.Spec.mk _ _); cycle 1.
-      - split; [cbn; exact LEM | intro;reflexivityR].
-      - clear LEM.
+      - split; [cbn; exact L | intro;reflexivityR].
+      - clear L.
         apply SP.ExistsE; intro res.
         apply SP.ExistsE; intro sel1.
         specialize (WLP (TF.mk _ res sel1)).
@@ -1433,7 +1438,8 @@ Module Tac.
   Ltac build_FSpec :=
     refine (mk_red_FSpec _ _);
     [ cbn;
-      do 2 intro (* arg, gi *); of_expanded_arg;
+      intro (* arg  *); of_expanded_arg;
+      intro (* gi   *); of_expanded_arg;
       refine (Spec.Expanded.of_expanded0I _ _ _); cbn;
       intro (* sel0 *); of_expanded_arg;
       refine (Spec.Expanded.of_expanded1I _ _ _); cbn;
@@ -1680,6 +1686,11 @@ Module Tac.
     ].
 
   Ltac build_impl_match_init :=
+    (* destruct arg *)
+    cbn;
+    repeat lazymatch goal with
+    |- impl_match _ _ (match ?x with _ => _ end) => destruct x; cbn
+    end;
     refine (intro_impl_match1 _ _ _ _); cbn;
     (* intro and destruct gi *)
     intro;
@@ -1689,15 +1700,15 @@ Module Tac.
     (* intro and destruct sel0 *)
     intro;
     repeat lazymatch goal with
-    |- Impl_Match _ _ (match ?x with _ => _ end) => destruct x
+    |- Impl_Match _ _ (match ?x with _ => _ end) => destruct x; cbn
     end;
 
     simple refine (@Impl_MatchI _ _ _ _ _ _ _ _ _ _);
-    [ shelve | (* F *) cbn | shelve
-    | (* EX_SEL1 *) solve [cbn; repeat intro; simplify_ex_eq_tuple]
+    [ (* f *) shelve | (* F *) cbn | (* ex_sel1 *) shelve
+    | (* EX_SEL1 *) cbn; repeat intro; simplify_ex_eq_tuple
     | (* WLP *) ].
 
-  (* change a goal [impl_match CT vprog spec] into a condition [req -> wlp f post] *)
+  (* change a goal [impl_match CT vprog spec] into a condition [forall (REQ : req), wlp f post] *)
   Ltac build_impl_match :=
     build_impl_match_init;
     [ (* F   *) build_HasSpec_exact
@@ -1716,7 +1727,7 @@ Module Tac.
     lazymatch goal with
     | |- @CP.extract_cont ?SG ?A ?B (i_impl ?v) ?k ?i =>
         lazymatch v with
-        | (match ?x with _ => _ end) =>
+        | context[match ?x with _ => _ end] =>
             simple refine (extract_cont_change _ _ _);
             [ (* r0 *)
               destruct x; shelve
@@ -1728,7 +1739,7 @@ Module Tac.
               first [ destruct x; [reflexivity] | reflexivity ] ]
         | _ =>
             let v' := eval hnf in v in
-            change (@CP.extract_cont SG A B (i_impl v') k i);
+            progress change (@CP.extract_cont SG A B (i_impl v') k i);
             build_extract_cont
         end
     | _ => CP.build_extract_cont_k build_extract_cont
@@ -1778,8 +1789,12 @@ Module Tactics.
     Tac.build_impl_match;
     FP.simpl_prog.
 
-  (* Changes a goal [f_body_match impl spec] into a WLP and starts solving it *)
+  (* Changes a goal [f_body_match impl spec] into a WLP *)
   Ltac by_wlp :=
+    build_fun_spec;
+    FP.by_wlp_ false.
+
+  Ltac solve_by_wlp :=
     build_fun_spec;
     FP.by_wlp_ false;
     FP.solve_wlp;
@@ -1835,13 +1850,14 @@ Module Notations.
   Definition mk_f_r0_Some [arg_t ghin_t res_t ghout_t]
     (f : forall (x : arg_t) (y : ghin_t x), @Spec.Expanded.t_r0 res_t ghout_t):
     f_spec_exp (mk_f_sigh (mk_f_sig arg_t res_t) (Some ghin_t) ghout_t)
-    := fun arg gi => f arg gi.
+    := fun arg => f arg.
 
-  Definition mk_f_r2_None [A : Type] (f : A -> Spec.Expanded.t_r2)
-    (x : @Spec.opt_sigG A None) : Spec.Expanded.t_r2 :=
+  Definition mk_f_r2_None [A : Type] [req : Prop] (f : A -> Spec.Expanded.t_r2 req)
+    (x : @Spec.opt_sigG A None) : Spec.Expanded.t_r2 req :=
     f x.
-  Definition mk_f_r2_Some [A : Type] [GO : A -> Type] (f : forall (x : A) (y : GO x), Spec.Expanded.t_r2)
-    (x : @Spec.opt_sigG A (Some GO)) : Spec.Expanded.t_r2 :=
+  Definition mk_f_r2_Some [A : Type] [req : Prop] [GO : A -> Type]
+    (f : forall (x : A) (y : GO x), Spec.Expanded.t_r2 req)
+    (x : @Spec.opt_sigG A (Some GO)) : Spec.Expanded.t_r2 req :=
     CP.split_sigG f x.
 
   Global Arguments mk_f_r0_None/.
@@ -1849,27 +1865,48 @@ Module Notations.
   Global Arguments mk_f_r2_None/.
   Global Arguments mk_f_r2_Some/.
 
-  Notation "'FOR' arg s" := (mk_f_r0_None (fun arg => s))
-    (at level 0, arg pattern at level 0, s custom vprog_spec_0 at level 0) : vprog_spec_scope.
-  Notation "'FOR' arg & gi s" := (mk_f_r0_Some (fun arg gi => s))
-    (at level 0, arg pattern at level 0, gi pattern at level 0, s custom vprog_spec_0 at level 0) : vprog_spec_scope.
-  Notation "'FOR' sel0 prs pre req s" :=
+  Notation "'SPEC' arg s" := (mk_f_r0_None (fun arg => s))
+    (at level 0,
+     arg pattern at level 0,
+     s custom vprog_spec_0 at level 0) : vprog_spec_scope.
+  Notation "'SPEC' arg & gi s" := (mk_f_r0_Some (fun arg gi => s))
+    (at level 0,
+     arg pattern at level 0, gi pattern at level 0,
+     s custom vprog_spec_0 at level 0) : vprog_spec_scope.
+
+  Notation "' sel0 prs pre req s" :=
     (Spec.Expanded.mk_r0 (fun sel0 =>
      Spec.Expanded.mk_r1 prs pre req s))
     (in custom vprog_spec_0 at level 0,
      sel0 pattern at level 0, prs constr at level 0, pre constr at level 0, req constr at level 0,
      s custom vprog_spec_1 at level 0).
-  Notation "'RET' res s" := (mk_f_r2_None (fun res => s))
+
+  Notation "& REQ ' res & go sel1 s" :=
+    (mk_f_r2_Some (fun res go =>
+     Spec.Expanded.mk_r2 (fun sel1 REQ => s)))
     (in custom vprog_spec_1 at level 0,
-     res pattern at level 0,
+     REQ name, res name, go name, sel1 pattern at level 0,
      s custom vprog_spec_2 at level 0).
-  Notation "'RET' res & go s" := (mk_f_r2_Some (fun res go => s))
+  Notation "& REQ ' res sel1 s" :=
+    (mk_f_r2_None (fun res =>
+     Spec.Expanded.mk_r2 (fun sel1 REQ => s)))
     (in custom vprog_spec_1 at level 0,
-     res pattern at level 0, go pattern at level 0,
+     REQ name, res name, sel1 pattern at level 0,
      s custom vprog_spec_2 at level 0).
-  Notation "'FOR' sel1 post ens" :=
-    (Spec.Expanded.mk_r2 (fun sel1 =>
-     Spec.Expanded.mk_r3 post ens))
+  Notation "' res & go sel1 s" :=
+    (mk_f_r2_Some (fun res go =>
+     Spec.Expanded.mk_r2 (fun sel1 _ => s)))
+    (in custom vprog_spec_1 at level 0,
+     res name, go name, sel1 pattern at level 0,
+     s custom vprog_spec_2 at level 0).
+  Notation "' res sel1 s" :=
+    (mk_f_r2_None (fun res =>
+     Spec.Expanded.mk_r2 (fun sel1 _ => s)))
+    (in custom vprog_spec_1 at level 0,
+     res name, sel1 pattern at level 0,
+     s custom vprog_spec_2 at level 0).
+
+  Notation "post ens" := (Spec.Expanded.mk_r3 post ens)
     (in custom vprog_spec_2 at level 0,
-     sel1 pattern at level 0, post constr at level 0, ens constr at level 0).
+     post constr at level 0, ens constr at level 0).
 End Notations.
