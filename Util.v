@@ -84,6 +84,8 @@ Module Tac.
   End Notations.
   Export Notations.
 
+  Inductive display [A : Type] (x : A) : Prop := mk_display.
+
   Ltac cbn_refl := cbn; repeat intro; reflexivity.
 
   Ltac build_term t build :=
@@ -270,6 +272,15 @@ Proof.
 Qed.
 
 
+Lemma BoolSpec_of_iff [b : bool] [P : Prop] (H : b = true <-> P):
+BoolSpec P (~P) b.
+Proof.
+destruct b; constructor.
+- apply H; reflexivity.
+- intros A%H; discriminate A.
+Qed.
+
+
 (* Extensions of the Coq libraries *)
 
 Module List.
@@ -308,6 +319,19 @@ Module List.
       + intros LT%le_S_n.
         exact (nth_tot _ n l LT).
   Defined.
+
+  Inductive ForallT [A : Type] (P : A -> Type) : list A -> Type :=
+    | ForallT_nil : ForallT P []
+    | ForallT_cons (x : A) (l : list A) (H0 : P x) (H1 : ForallT P l) : ForallT P (x :: l).
+  Global Arguments ForallT_cons [A] [P] x [l] _ _.
+
+  Definition ForallT_join [A P B] (f : forall x : A, P x -> B)
+    : forall (xs : list A) (ys : @ForallT A P xs), list B
+    := fix rec xs ys {struct ys} :=
+    match ys with
+    | ForallT_nil  _      => nil
+    | ForallT_cons x y ys => f x y :: rec _ ys
+    end.
 
   (* Transparent lemmas *)
 
@@ -379,6 +403,25 @@ Module Vector.
       injection E as -> E.
       rewrite (IHv0 _ E).
       reflexivity.
+  Qed.
+
+  Fixpoint allb [n : nat] (u : Vector.t bool n) {struct u}: bool.
+  Proof.
+    case u as [|b ? u].
+    - exact true.
+    - exact (andb b (allb _ u)).
+  Defined.
+
+  Lemma allb_iff_const [n] u:
+    allb u = true <-> u = Vector.const true n.
+  Proof.
+    induction u; cbn.
+    - split; reflexivity.
+    - case h; cbn.
+      + rewrite IHu; split.
+        * congruence.
+        * intros [_ ->]%cons_inj; reflexivity.
+      + split; discriminate 1.
   Qed.
 
   (* Tactic *)

@@ -536,8 +536,8 @@ Section ChangePrd.
           (prd : A -> VpropList.t)
           (rsel : forall r : sf_rvar_t s, VpropList.sel_t (prd (TF.v_val r)))
           (RSEL : forall r : sf_rvar_t s,
-                  CTX.Inj.beq (VpropList.inst (prd (TF.v_val r)) (rsel r))
-                              (sf_prd_ctx s r)).
+                  CTX.Trf.t (sf_prd_ctx s r)
+                            (VpropList.inst (prd (TF.v_val r)) (rsel r))).
   Definition change_prd : i_spec_t A ctx
     :=
     {|
@@ -564,9 +564,10 @@ Section ChangePrd.
     Intro sel.
     Apply (rsel (TF.mk _ x sel)).
     rewrite TF.to_of_fun.
-    cbn; rewrite !CTX.sl_app.
-    rewrite (CTX.Inj.beqE (RSEL (TF.mk _ x sel))), !TF.to_of_tu.
-    reflexivity.
+    cbn; rewrite !CTX.sl_app, !TF.to_of_tu.
+    apply SLprop.star_morph_imp. reflexivity.
+    apply SLprop.star_morph_imp. 2:reflexivity.
+    refine (CTX.Trf.t_fwd (RSEL _)).
   Qed.
 End ChangePrd.
 Global Arguments change_prd _ _ !_ _ _/.
@@ -576,8 +577,8 @@ Lemma Tr_change_exact [A ctx s s1 csm1 prd1] [f1 : FP.instr (TF.mk_p A (fun x =>
   (S1   : s1 = add_csm s csm1)
   (rsel : TF.arrow (sf_rvar s1) (fun r => VpropList.sel_t (prd1 (TF.v_val r))))
   (RSEL : TF.arrow (sf_rvar s1) (fun r =>
-          CTX.Inj.beq (VpropList.inst (prd1 (TF.v_val r)) (TF.to_fun rsel r))
-                      (sf_prd_ctx s1 r)))
+          CTX.Trf.t (sf_prd_ctx s1 r)
+                    (VpropList.inst (prd1 (TF.v_val r)) (TF.to_fun rsel r))))
   (F1   : f1 = sf_spec (change_prd s1 prd1 (TF.to_fun rsel))):
   @TrSpec A ctx s (mk_i_spec csm1 prd1 f1).
 Proof.
@@ -625,8 +626,8 @@ Section InjPre.
 
     Inductive InjPre_Spec : Prop
       := InjPre_SpecI
-      (rev_f : Sub.t (m ++ add) -> (Sub.t ctx * CTX.t))
-      (ij : CTX.Inj.itrf m ctx add rev_f)
+      (rev_f : CTX.Trf.rev_f_t ctx (m ++ add))
+      (ij : CTX.Trf.inj_p ctx m add rev_f)
       (E  : F' =
         let (ncsm, rem) := rev_f (Sub.neg (sf_csm F)) in
         {|
@@ -645,7 +646,8 @@ Section InjPre.
       case SP as [rev_f [FWD BWD] E].
       specialize (BWD (Sub.neg (sf_csm F)));
         destruct rev_f as (ncsm, rem) in BWD, E;
-        cbn in BWD; subst F'.
+        cbn in BWD; rewrite <-!CTX.sl_sub_eq in BWD;
+        subst F'.
       intros i S0 post WLP; cbn in post, WLP.
       eapply SP.Cons.
         { apply S0, WLP. }
@@ -720,7 +722,8 @@ Section FunImpl.
            let xG     := TF.v_val r in
            let f_post := VpropList.inst (sf_prd f (TF.v_val r)) (TF.v_sel r) in
            exists sel1 : Tuple.t (Spec.sel1_t (spec gi sel0 xG)),
-           CTX.Inj.beq (Spec.post (spec gi sel0 xG sel1 REQ) ++ Spec.prs (spec gi sel0)) f_post /\
+           SLprop.imp (CTX.sl f_post)
+                      (CTX.sl (Spec.post (spec gi sel0 xG sel1 REQ) ++ Spec.prs (spec gi sel0))) /\
            Spec.ens (spec gi sel0 xG sel1 REQ)
          )):
     impl_match.
@@ -735,14 +738,13 @@ Section FunImpl.
     - rewrite CTX.sl_app; reflexivity.
     - intro xG.
       Intro rsel.
-      Intro (sel1 & ij & ENS).
+      Intro (sel1 & IMP & ENS).
       unfold Expanded.tr_post; cbn; SL.normalize.
       Apply sel1.
       Apply ENS.
       rewrite F_CSM; unfold Sub.neg, Sub.const;
         rewrite Vector.map_const, Sub.sub_const_false, app_nil_r.
-      apply CTX.Inj.beqE in ij; rewrite CTX.sl_app in ij.
-      rewrite ij; reflexivity.
+      rewrite CTX.sl_app in IMP; exact IMP.
   Qed.
 
   Section Impl_Match.
@@ -811,7 +813,6 @@ Section FunImpl.
       set (x_VPOST := s_vpost_eq _ _ _) in SEQ; clearbody x_VPOST.
       destruct x_VPOST; cbn in *; rewrite <- SEQ.
       rewrite VpropList.inst_of_ctx.
-      apply CTX.Inj.beq_iff.
       reflexivity.
   Qed.
 End FunImpl.
@@ -1499,14 +1500,14 @@ Module Tac.
     | (* CSM  *) Tac.cbn_refl
     | (* S1   *) Tac.cbn_refl
     | (* rsel *) cbn; repeat intro; Tuple.build_shape
-    | (* RSEL *) cbn; repeat intro; CTX.Inj.build_beq
+    | (* RSEL *) cbn; repeat intro; CTX.Trf.Tac.build_t
     | (* F1   *) Tac.cbn_refl ].
 
   (* solves a goal [InjPre_Spec m ctx ?add F ?F']
      Leaves a goal [?F' = _]. *)
   Ltac build_InjPre :=
     refine (InjPre_SpecI _ _ _ _ _ _ _ _);
-    [ (* ij *) CTX.Inj.build_itrf |].
+    [ (* ij *) CTX.Trf.Tac.build_inj_p |].
 
   (* solves a goal [InjPre_Frame_Spec m ctx F ?F']
      Leaves a goal [?F' = _] *)
@@ -1607,7 +1608,7 @@ Module Tac.
 
   (* solves a goal [HasSpec i ctx ?s] *)
   Ltac build_HasSpec :=
-    let rec build _ :=
+    let build _ := build_HasSpec in
     lazymatch goal with |- @HasSpec ?C ?A ?i ?ctx ?s =>
     let i' := eval hnf in i in
     change (@HasSpec C A i' ctx s);
@@ -1627,8 +1628,7 @@ Module Tac.
         then build_HasSpec_dlet   build x s (* destructive let *)
         else build_HasSpec_branch build x   (* multiple branches *)
     | ?g => fail "HasSpec" g
-    end end
-    in build tt.
+    end end.
   
   (* solves a goal [HasSpec i ctx (mk_i_spec csm prd ?f)] *)
   Ltac build_HasSpec_exact :=
@@ -1817,13 +1817,6 @@ Declare Custom Entry vprog_spec_2.
 
 Module Notations.
   Export NotationsDef.
-
-  (* vprop notation *)
-
-  Notation "x ~> v" := (CTX.mka (x, v)) (at level 100).
-  Notation "x ~>"   := (Vprop.mk x) (at level 100).
-  Definition vptr := SLprop.cell.
-  Global Arguments vptr/.
 
   (* instruction notation *)
 

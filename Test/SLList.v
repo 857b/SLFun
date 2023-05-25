@@ -16,9 +16,16 @@ Record lcell_t := mk_lcell {
 Definition p_data (p : ptr) : ptr := p.
 Definition p_next (p : ptr) : ptr := S p.
 
-Definition lcell (p : ptr) (v : lcell_t) : SLprop.t :=
-  vptr (p_data p) (v_data v) ** vptr (p_next p) (v_next v).
+Lemma lcell_p (p : ptr):
+  VRecord.p lcell_t [vptr (p_data p) ~>; vptr (p_next p) ~>]
+    (fun v => (v_data v, v_next v))
+    (fun dt nx => mk_lcell dt nx).
+Proof.
+  constructor; cbn; reflexivity.
+Qed.
 
+Definition lcell (p : ptr) := VRecord.v (lcell_p p).
+Global Arguments lcell : simpl never.
 
 Definition lseg_t := list (ptr * memdata).
 
@@ -49,7 +56,7 @@ Section Lemmas.
 Lemma lcell_non_null p v:
   SLprop.impp (lcell p v) (p <> NULL).
 Proof.
-  unfold lcell, vptr.
+  unfold lcell; SL.normalize.
   eapply SLprop.impp_enough.
   SLprop.split_impp; [apply SLprop.cell_non_null | apply SLprop.impp_True].
   intro H; apply H.
@@ -65,6 +72,12 @@ Proof.
   - intros dt nx; cbn; unfold lcell.
     SL.normalize.
     reflexivity.
+Qed.
+
+Definition lcell_unfold p sl:
+  CTX.Trf.Tac.unfold_rule (lcell p ~> sl) (VRecord.v (lcell_p p) ~> sl).
+Proof.
+  reflexivity.
 Qed.
 
 Definition intro_lseg_nil_spec : LDecl ptr unit
@@ -186,6 +199,9 @@ End Lemmas.
 Section Program.
   Variable CT : ConcreteProg.context.
 
+Local Hint Resolve lcell_unfold | 1 : CtxTrfDB.
+Import VRecord.Tactics.
+
 Definition Length_spec : FDecl ptr _ nat _
   SPEC p
   'l [llist p ~> l] [] True
@@ -200,9 +216,7 @@ Definition Length_impl : FImpl Length := fun p0 =>
     Ret 0
   else
     'g_p1 <- gLem elim_llist_nnull p0;
-    gUnfold (lcell_def p0);;
     'p1 <- Read (p_next p0);
-    gFold (lcell_def p0);;
     gLem replace1 (llist g_p1, llist p1);;
     (* ALT: gLem (replace [llist g_p1~>] [llist p1~>]) eq_refl;; *)
     'n  <- Length p1;
@@ -227,10 +241,9 @@ Definition Rev_impl : FImpl Rev := fun '(p0, pr) =>
     Ret pr (pt := fun r => [lseg r pr ~>])
   else
     'g_p1 <- gLem elim_llist_nnull p0;
-    gUnfold (lcell_def p0);;
     'p1 <- Read (p_next p0);
     Write (p_next p0) pr;;
-    gFold (lcell_def p0);;
+    gFold (lcell_def p0);; (* TODO: removing it slow down the reduction *)
     gLem replace1 (llist g_p1, llist p1);;
     gLem intro_lseg_cons (p0, pr, pr);;
     'r <- Rev (p1, p0);
@@ -238,6 +251,20 @@ Definition Rev_impl : FImpl Rev := fun '(p0, pr) =>
     Ret r (pt := fun r => [lseg r pr ~>]).
 Lemma Rev_correct : FCorrect Rev_impl.
 Proof. solve_by_wlp. Qed.
+
+Goal forall p p0 x0 x4 x6 x7 x9, exists sl0 sl1 add rev_f,
+  CTX.Trf.inj_p
+     [lseg x4 NULL ~> x9; SLprop.cell (p_next p) ~> x6;
+      SLprop.cell (p_data p) ~> x7; lseg p0 p0 ~> x0]
+     [lcell p ~> sl0; lseg p0 p0 ~> sl1] add rev_f /\
+  Util.Tac.display (rev_f (Vector.cons _ true _ (Vector.cons _ true _ (Vector.const true (length add))))).
+Proof.
+  do 5 eexists.
+  CTX.Trf.Tac.build_inj_p.
+  (* cbn *)
+  cbv.
+  split.
+Qed.
 
 Definition Seg_Next_spec : FDecl (ptr * nat) (Some (fun _ => ptr)) ptr _
   SPEC (p, n) & pn
@@ -252,9 +279,7 @@ Definition Seg_Next_impl : FImpl Seg_Next := fun '(p, n) pn =>
   | O   => Ret p
   | S n =>
       'g_p1 <- gLem elim_lseg_cons (p, pn);
-      gUnfold (lcell_def p);;
       'p1 <- Read (p_next p);
-      gFold (lcell_def p);;
       gLem replace1 (lseg g_p1 pn, lseg p1 pn);;
       'r <- Seg_Next (p1, n) pn;
       gLem intro_lseg_cons (p, p1, pn);;

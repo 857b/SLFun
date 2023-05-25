@@ -7,5 +7,5 @@ End Tactics.
 
 Module Notations.
   Export Tactics.
-  Export VProg.Core.Notations.
+  Export VProg.Vprop.Notations VProg.Core.Notations.
 End Notations.
