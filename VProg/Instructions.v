@@ -38,7 +38,7 @@ End Read.
 
 Local Ltac build_Read :=
   simple refine (Read_SpecI _ _ _ _ _);
-  [ shelve | (*IJ *) Tac.build_InjPre_Frame; Tac.cbn_refl ].
+  [ shelve | (*IJ *) Tac.build_InjPre_Frame ].
 
 Section Write.
   Context [CT : CP.context] (p : ptr) (d : memdata).
@@ -73,7 +73,7 @@ End Write.
 
 Local Ltac build_Write :=
   simple refine (Write_SpecI _ _ _ _ _ _);
-  [ shelve | (* IJ *) Tac.build_InjPre_Frame; Tac.cbn_refl ].
+  [ shelve | (* IJ *) Tac.build_InjPre_Frame ].
 
 Module Tactics.
   #[export] Hint Extern 1 (Read_Spec    _ _ _) => build_Read   : HasSpecDB.

@@ -414,6 +414,13 @@ Module CTX.
       Qed.
     End App.
 
+    Global Arguments refl_rev_f  !c !_.
+    Global Arguments trans_rev_f !c0 !c1 !c2 _ _ !_.
+    Global Arguments atom_rev_f  !rev !c0 !c1 !_.
+    Global Arguments cons_rev_f  _ !c0 !c1 _ !_.
+    Global Arguments swap_rev_f  _ _ !c0 !c1 _ !_.
+    Global Arguments app_rev_f   !ca0 !ca1 _ !cb0 !cb1 _ !_.
+
     Module Tac.
       (* Tactic to build a [Trf.p] or a [Trf.inj_p] *)
 
@@ -720,6 +727,14 @@ Module CTX.
           let (wA, _) := wit_of_intro_A W in
           mk_trf_wit wA wB.
       End Helpers.
+
+      Global Arguments wit_Al_rev_f   !r !C !_.
+      Global Arguments wit_A_rev_f    _ !w !_.
+      Global Arguments wit_Bl_rev_f   !r !C !_.
+      Global Arguments wit_B_rev_f    _ !w !_.
+      Global Arguments trf_insert     _ _ !l.
+      Global Arguments trf_sort_list  !l.
+      Global Arguments trf_sort_rev_f !l _.
 
       Local Lemma build_trf_lem (c0 c1 : CTX.t)
         (W : intro_wit_trf c0 c1)

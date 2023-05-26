@@ -195,7 +195,7 @@ End GGet.
 
 Local Ltac build_GGet :=
   simple refine (GGet_SpecI _ _ _ _ _);
-  [ shelve | Tac.build_InjPre_Frame; Tac.cbn_refl ].
+  [ shelve | Tac.build_InjPre_Frame ].
 
 Section Assert.
   Context [CT : CP.context] [A : Type] (P : A -> CTX.t * Prop).
@@ -244,7 +244,7 @@ Local Ltac build_Assert :=
     repeat lazymatch goal with |- InjPre_Frame_Spec (fst ?x) _ _ _ =>
       Tac.build_matched_shape x; cbn
     end;
-    Tac.build_InjPre_Frame; Tac.cbn_refl ].
+    Tac.build_InjPre_Frame ].
 
 Module Tactics.
   #[export] Hint Extern 1 (GGet_Spec    _ _ _) => build_GGet   : HasSpecDB.

@@ -243,7 +243,6 @@ Definition Rev_impl : FImpl Rev := fun '(p0, pr) =>
     'g_p1 <- gLem elim_llist_nnull p0;
     'p1 <- Read (p_next p0);
     Write (p_next p0) pr;;
-    gFold (lcell_def p0);; (* TODO: removing it slow down the reduction *)
     gLem replace1 (llist g_p1, llist p1);;
     gLem intro_lseg_cons (p0, pr, pr);;
     'r <- Rev (p1, p0);
@@ -251,20 +250,6 @@ Definition Rev_impl : FImpl Rev := fun '(p0, pr) =>
     Ret r (pt := fun r => [lseg r pr ~>]).
 Lemma Rev_correct : FCorrect Rev_impl.
 Proof. solve_by_wlp. Qed.
-
-Goal forall p p0 x0 x4 x6 x7 x9, exists sl0 sl1 add rev_f,
-  CTX.Trf.inj_p
-     [lseg x4 NULL ~> x9; SLprop.cell (p_next p) ~> x6;
-      SLprop.cell (p_data p) ~> x7; lseg p0 p0 ~> x0]
-     [lcell p ~> sl0; lseg p0 p0 ~> sl1] add rev_f /\
-  Util.Tac.display (rev_f (Vector.cons _ true _ (Vector.cons _ true _ (Vector.const true (length add))))).
-Proof.
-  do 5 eexists.
-  CTX.Trf.Tac.build_inj_p.
-  (* cbn *)
-  cbv.
-  split.
-Qed.
 
 Definition Seg_Next_spec : FDecl (ptr * nat) (Some (fun _ => ptr)) ptr _
   SPEC (p, n) & pn

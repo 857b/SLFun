@@ -1509,11 +1509,14 @@ Module Tac.
     refine (InjPre_SpecI _ _ _ _ _ _ _ _);
     [ (* ij *) CTX.Trf.Tac.build_inj_p |].
 
-  (* solves a goal [InjPre_Frame_Spec m ctx F ?F']
-     Leaves a goal [?F' = _] *)
-  Ltac build_InjPre_Frame :=
+  (* solves a goal [InjPre_Frame_Spec m ctx F ?F'] *)
+  Ltac build_InjPre_Frame_ :=
     refine (InjPre_Frame_SpecI _ _ _ _ _ _);
     build_InjPre.
+
+  Ltac build_InjPre_Frame :=
+    build_InjPre_Frame_;
+    cbn_refl.
 
 
   (* Tactics to build the instruction specifications. *)
@@ -1524,7 +1527,7 @@ Module Tac.
   Ltac build_Ret :=
     simple refine (Ret_SpecI _ _ _ _ _ _);
     [ (* sels *) Tuple.build_shape
-    | (* IJ   *) build_InjPre_Frame; cbn_refl ].
+    | (* IJ   *) build_InjPre_Frame ].
 
   Ltac build_Bind_init :=
     simple refine (Bind_SpecI1 _ _ _ _ _ _ _ _ _ _);
@@ -1549,7 +1552,7 @@ Module Tac.
       repeat lazymatch goal with |- InjPre_Frame_Spec (Spec.pre ?x ++ _) _ _ _ =>
         build_matched_shape x; cbn
       end;
-      build_InjPre_Frame; cbn_refl ].
+      build_InjPre_Frame ].
 
   (* TODO: be more careful about the dependencies on the matched term in the vprog and in the context *)
 

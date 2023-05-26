@@ -10,3 +10,4 @@
 CoqMakefile
 CoqMakefile.conf
 .CoqMakefile.d
+_local
