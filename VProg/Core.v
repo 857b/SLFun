@@ -171,11 +171,13 @@ Module Expanded. Section Expanded.
     @mk_r2 req (Tuple.t (Spec.sel1_t s)) (fun sel1 REQ =>
     mk_r3 (Spec.post (s sel1 REQ)) (Spec.ens (s sel1 REQ))).
 
+  Definition to_expanded0 (s : Spec.t_r0 GO) : Expanded.t_r0 :=
+    @mk_r0 (Spec.sel0_t s) (fun sel0 =>
+    mk_r1 (Spec.prs (s sel0)) (Spec.pre (s sel0)) (Spec.req (s sel0)) (fun xG =>
+    to_expanded2 (s sel0 xG))).
+
   Definition to_expanded (s : Spec.t GI GO) : Expanded.t :=
-    fun gi =>
-    @mk_r0 (Spec.sel0_t (s gi)) (fun sel0 =>
-    mk_r1 (Spec.prs (s gi sel0)) (Spec.pre (s gi sel0)) (Spec.req (s gi sel0)) (fun xG =>
-    to_expanded2 (s gi sel0 xG))).
+    fun gi => to_expanded0 (s gi).
 
   Inductive of_expanded3 (e : Expanded.t_r3) : Spec.t_r3 (VpropList.of_ctx (post e)) -> Prop
     := of_expanded3I:
@@ -701,16 +703,20 @@ Section FunImpl.
   Definition f_body1 : Type :=
     OptTy.arrow GI (fun gi => instr AG).
 
-  Variables (body : f_body1) (spec : Spec.t GI A GO).
   Import Spec.
 
-  Definition impl_match :=
-    forall (gi : ghin_t GI) (sel0 : sel0_t (spec gi)) (REQ : req (spec gi sel0)),
-    SP.sls SPC (i_impl (OptTy.to_fun' body gi))
+  Definition impl_match_0 (impl : @CP.instr SIG AG) (spec : @Spec.t_r0 A GO) : Prop :=
+    forall (sel0 : sel0_t spec) (REQ : req (spec sel0)),
+    SP.sls SPC impl
       (Spec.Expanded.tr_1
         (fun pt xG => pt xG)
-        (Spec.Expanded.f_r1 (Spec.Expanded.to_expanded spec gi) sel0)
+        (Spec.Expanded.f_r1 (Spec.Expanded.to_expanded0 spec) sel0)
         REQ).
+
+  Variables (body : f_body1) (spec : Spec.t GI A GO).
+
+  Definition impl_match :=
+    forall (gi : ghin_t GI), impl_match_0 (i_impl (OptTy.to_fun' body gi)) (spec gi).
 
   Lemma intro_impl_match
     (H : forall (gi : ghin_t GI) (sel0 : Spec.sel0_t (spec gi)) (REQ : Spec.req (spec gi sel0)),
@@ -824,7 +830,7 @@ Section FunImplBody.
   Definition f_body : Type :=
     forall (x : f_arg_t sg), @f_body1 (f_ghin_t_x sgh x) (f_ret_t sg) (f_ghout_t sgh).
 
-  Variables (impl : f_body).
+  Variable (impl : f_body).
 
   Definition f_body_match (spec : f_spec sgh) : Prop :=
     forall x : f_arg_t sg, impl_match (impl x) (spec x).
@@ -911,6 +917,26 @@ Section FunImplBody.
     intro; apply (proj2_sig i x).
   Qed.
 End FunImplBody.
+
+(* Fragment *)
+
+Section Fragment.
+  Local Set Implicit Arguments.
+  Variables (sg : f_sig) (sgh : f_sigh sg).
+
+  Definition frag_impl : Type :=
+    forall (x : f_arg_t sg) (gi : OptTy.t (f_ghin_t_x sgh x)),
+    @CP.instr SIG (@Spec.opt_sigG (f_ret_t sg) (f_ghout_t sgh)).
+
+  Definition frag_correct (impl : frag_impl) (spec : f_spec sgh) :=
+    forall (x : f_arg_t sg) (gi : OptTy.t (f_ghin_t_x sgh x)),
+    impl_match_0 (impl x gi) (spec x gi).
+
+  Lemma impl_match_frag_correct [impl : f_body sgh] [spec : f_spec sgh]
+    (H : forall x : f_arg_t sg, impl_match (impl x) (spec x)):
+    frag_correct (fun x gi => i_impl (OptTy.to_fun' (impl x) gi)) spec.
+  Proof. exact H. Qed.
+End Fragment.
 
 (* Constructors *)
 
@@ -1203,12 +1229,16 @@ Section Call.
     Variables (gi : OptTy.t (f_ghin_t_x sgh x)) (s : sigh_spec_t sgh x).
     Hypothesis (HSPC : fun_has_spec CT f HSIG s).
 
-    Lemma Call_impl_sls sel0 REQ:
-      SP.sls SPC Call_impl
+    Definition correct_Call_impl impl : Prop :=
+      forall sel0 REQ,
+      SP.sls SPC impl
         (Expanded.tr_1 (fun pt xG => pt xG)
           (Expanded.f_r1 (Expanded.to_expanded s gi) sel0)
           REQ).
+
+    Lemma Call_impl_sls: correct_Call_impl Call_impl.
     Proof.
+      intros sel0 REQ.
       ecase HSPC as (ss & LEss & Hss).
         { exists gi, sel0, REQ. reflexivity. }
       clear HSPC. unfold Call_impl, sigh_spec_t in *.
@@ -1226,17 +1256,15 @@ Section Call.
         intro; Intro; reflexivity.
     Qed.
 
-    Program Definition Call : instr AG := {|
-      i_impl := Call_impl;
-      i_spec := fun ctx => Call_Spec (s gi) ctx;
-    |}.
-    Next Obligation.
-      destruct SP.
+    Lemma Call_spec_lem (impl : @CP.instr SIG AG) (H : correct_Call_impl impl) ctx sf:
+      Call_Spec (s gi) ctx sf -> sound_spec impl ctx sf.
+    Proof.
+      intros [].
       apply (Tr_InjPre_Frame IJ); clear IJ.
       do 2 intro; cbn in *.
       case PRE as (REQ & POST).
       eapply SP.Cons.
-        { apply Call_impl_sls. }
+        { apply H. }
       split; cbn.
       - unfold ppre; rewrite CTX.sl_app.
         reflexivity.
@@ -1255,6 +1283,15 @@ Section Call.
         rewrite Sub.map_app, !Vector.map_const, Sub.sub_app,
                 Sub.sub_const_true, Sub.sub_const_false.
         reflexivity.
+    Qed.
+
+    Program Definition Call : instr AG := {|
+      i_impl := Call_impl;
+      i_spec := fun ctx => Call_Spec (s gi) ctx;
+    |}.
+    Next Obligation.
+      apply Call_spec_lem, SP.
+      apply Call_impl_sls.
     Qed.
   End Impl.
 
@@ -1298,6 +1335,23 @@ Section Call.
         reflexivity.
     Qed.
   End Ghost.
+
+  Section Frag.
+    Context [sg : f_sig] [sgh : f_sigh sg] [impl : frag_impl sgh] [spec : f_spec sgh]
+            (F : frag_correct impl spec) (x : f_arg_t sg).
+
+    Program Definition Frag : OptTy.arrow (f_ghin_t_x sgh x) (fun _ =>
+        instr (Spec.opt_sigG (f_ghout_t sgh)))
+    :=
+    OptTy.of_fun (fun gi => {|
+      i_impl := impl x gi;
+      i_spec := fun ctx => Call_Spec (spec x gi) ctx;
+    |}).
+    Next Obligation.
+      revert SP. apply (Call_spec_lem sgh x gi).
+      apply F.
+    Qed.
+  End Frag.
 End Call.
 End VProg.
 
@@ -1307,6 +1361,7 @@ Global Arguments Bind [_ _ _] _ _.
 Global Arguments Call [_ _ _ _] _ _ _ [_] _.
 Global Arguments Call_f_decl [_ _ _ _] _ _.
 Global Arguments gLem [_ _ _] _ _.
+Global Arguments Frag [_ _ _ _ _] _ _.
 
 
 Module NotationsDef.
@@ -1350,6 +1405,32 @@ Module NotationsDef.
 
   Coercion to_f_decl      : FDecl     >-> Funclass.
   Coercion Call_to_f_decl : to_f_decl >-> Funclass.
+
+
+  Definition FragImpl [arg_t ghin_t ret_t ghout_t e]
+    (F : FDecl arg_t ghin_t ret_t ghout_t e) (CT : CP.context) : Type :=
+    f_body CT (mk_f_sigh (mk_f_sig arg_t ret_t) ghin_t ghout_t).
+
+  Record FragCorrect [arg_t ghin_t ret_t ghout_t e F CT]
+    (I : @FragImpl arg_t ghin_t ret_t ghout_t e F CT) := {
+    get_fr_correct : frag_correct (fun x gi => i_impl (OptTy.to_fun' (I x) gi)) (m_spec (fd_FSpec F))
+  }.
+  Global Arguments get_fr_correct [_ _ _ _ _ _ _ I].
+
+  Lemma intro_FragCorrect [arg_t ghin_t ret_t ghout_t e F CT I]
+    (H : forall x : arg_t, impl_match CT (I x) (m_spec (fd_FSpec F) x)):
+    @FragCorrect arg_t ghin_t ret_t ghout_t e F CT I.
+  Proof.
+    constructor.
+    apply impl_match_frag_correct, H.
+  Qed.
+
+  Definition Call_FragCorrect [arg_t ghin_t ret_t ghout_t e F CT I]
+    (C : @FragCorrect arg_t ghin_t ret_t ghout_t e F CT I)
+    (x : arg_t) : OptTy.arrow (option_map (fun gi => gi x) ghin_t) (fun _ => instr CT (Spec.opt_sigG ghout_t))
+    := Frag (impl := fun x gi => i_impl (OptTy.to_fun' (I x) gi)) (get_fr_correct C) x.
+
+  Coercion Call_FragCorrect : FragCorrect >-> Funclass.
 
 
   Record LDecl (arg_t : Type) (ret_t : Type) (e : f_spec_exp (lem_sigh (mk_f_sig arg_t ret_t)))
@@ -1786,8 +1867,13 @@ Module Tactics.
   #[export] Hint Extern 1 (f_extract _) => Tac.extract_impl : DeriveDB.
 
   (* Changes a goal [f_body_match impl spec] into a goal [pre -> FP.wlpa f post]
-     where [f : FP.instr _] is a functionnal program. *)
+     where [f : FP.instr _] is a functionnal program.
+     It can also be applied to goals [FCorrect] and [FragCorrect]. *)
   Ltac build_fun_spec :=
+    lazymatch goal with
+    | |- NotationsDef.FragCorrect _ => refine (NotationsDef.intro_FragCorrect _)
+    | _ => idtac
+    end;
     intro (* arg *);
     Tac.build_impl_match;
     FP.simpl_prog.

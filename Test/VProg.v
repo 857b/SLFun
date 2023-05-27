@@ -124,6 +124,37 @@ Definition vprog_5 : FImpl f_5 := fun p =>
 Lemma correct_5: FCorrect vprog_5.
 Proof. solve_by_wlp. Qed.
 
+
+Definition spec_f0 : FDecl ptr _ (nat * nat) _
+  SPEC p 'v [cell2 p ~> v] [] True
+  'r tt [] (@eq (nat*nat) r v).
+Proof. Derived. Defined.
+
+Definition vfrag_0_impl : FragImpl spec_f0 CT :=
+  fun p =>
+  gLem elim_cell2 p;;
+  'n0 <- Read p;
+  'n1 <- Read (S p);
+  gLem intro_cell2 p;;
+  Ret (n0, n1).
+Lemma vfrag_0 : FragCorrect vfrag_0_impl.
+Proof.
+  solve_by_wlp;
+  case sel0; reflexivity.
+Qed.
+
+Definition spec_6 : FDecl ptr _ nat _
+  SPEC p 'v [cell2 p ~> v] [] True
+  'n tt [] (n = fst v).
+Proof. Derived. Defined.
+Variable f_6 : spec_6 CT.
+
+Definition vprog_6 : FImpl f_6 := fun p =>
+  'v <- vfrag_0 p;
+  Ret (fst v).
+Lemma correct_6: FCorrect vprog_6.
+Proof. solve_by_wlp. Qed.
+
 End Program.
 
 Derive prog SuchThat (CP.of_entries [
@@ -132,7 +163,8 @@ Derive prog SuchThat (CP.of_entries [
   f_entry spec_2 correct_2;
   f_entry spec_3 correct_3;
   f_entry spec_4 correct_4;
-  f_entry spec_5 correct_5
+  f_entry spec_5 correct_5;
+  f_entry spec_6 correct_6
 ] prog) As prog_correct.
 Proof. Derived. Qed.
 
