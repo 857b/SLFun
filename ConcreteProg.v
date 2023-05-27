@@ -615,7 +615,7 @@ Ltac build_of_entries :=
           [ exists eq_refl; reflexivity |];
           Util.Tac.apply_Arrow H;
           [ (* [Arrow (CP.context_has_entry CT fid e) ?H] *)
-            solve [eauto 1 with extractDB nocore]
+            solve_db extractDB
           |];
           pose_has_entry (S f) es
       | nil => idtac
@@ -629,7 +629,7 @@ Ltac build_of_entries :=
     (refine (entry_impl_correct_change _ _);
      [ clearbody CT;
        (* [CP.entry_impl_correct CT e ?impl] *)
-       solve [eauto 1 with extractDB nocore]
+       solve_db extractDB
      | reflexivity ])
   |
     cbv; reflexivity

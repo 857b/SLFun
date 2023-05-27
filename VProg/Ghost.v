@@ -88,9 +88,9 @@ End Equivalence.
 Global Arguments gUnfold [_ _ _ _] {_} L.
 Global Arguments gFold   [_ _ _ _] {_} L.
 Section Replace.
-  Definition replace1_spec A : LDecl (Vprop.p A * Vprop.p A) unit
-    SPEC (v0, v1) 'x [] [v0 ~> x] (v0 = v1)
-    '_ tt [v1 ~> x] True.
+  Definition replace1_spec A : LDecl SPEC
+    ((v0, v1) : Vprop.p A * Vprop.p A) 'x [] [v0 ~> x] (v0 = v1)
+    '(_ : unit) tt [v1 ~> x] True.
   Proof. Derived. Defined.
   Lemma replace1 {A} : replace1_spec A.
   Proof.

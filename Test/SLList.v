@@ -80,9 +80,9 @@ Proof.
   reflexivity.
 Qed.
 
-Definition intro_lseg_nil_spec : LDecl ptr unit
-  SPEC p 'tt [] [] True
-  '_ tt [lseg p p ~> nil] True.
+Definition intro_lseg_nil_spec : LDecl SPEC
+  (p : ptr) 'tt [] [] True
+  '(_ : unit) tt [lseg p p ~> nil] True.
 Proof. Derived. Defined.
 Lemma intro_lseg_nil : intro_lseg_nil_spec.
 Proof.
@@ -90,9 +90,9 @@ Proof.
   Apply; reflexivity.
 Qed.
 
-Definition elim_lseg_nil_spec : LDecl (ptr * ptr) unit
-  SPEC (p0, p1) 'l [] [lseg p0 p1 ~> l] (l = nil)
-  '_ tt [] (p0 = p1).
+Definition elim_lseg_nil_spec : LDecl SPEC
+  ((p0, p1) : ptr * ptr) 'l [] [lseg p0 p1 ~> l] (l = nil)
+  '(_ : unit) tt [] (p0 = p1).
 Proof. Derived. Defined.
 Lemma elim_lseg_nil : elim_lseg_nil_spec.
 Proof.
@@ -100,9 +100,9 @@ Proof.
   Intro ->; Apply; reflexivity.
 Qed.
 
-Definition intro_lseg_cons_spec : LDecl (ptr * ptr * ptr) unit
-  SPEC (p0, p1, pn) '(hd, tl) [] [lcell p0 ~> hd; lseg p1 pn ~> tl] (v_next hd = p1)
-  '_ tt [lseg p0 pn ~> ((p0, v_data hd) :: tl)] True.
+Definition intro_lseg_cons_spec : LDecl SPEC
+  ((p0, p1, pn) : ptr * ptr * ptr) '(hd, tl) [] [lcell p0 ~> hd; lseg p1 pn ~> tl] (v_next hd = p1)
+  '(_ : unit) tt [lseg p0 pn ~> ((p0, v_data hd) :: tl)] True.
 Proof. Derived. Defined.
 Lemma intro_lseg_cons : intro_lseg_cons_spec.
 Proof.
@@ -112,9 +112,9 @@ Proof.
   Apply; reflexivity.
 Qed.
 
-Definition elim_lseg_cons_spec : LDecl (ptr * ptr) ptr
-  SPEC (p0, pn) 'l [] [lseg p0 pn ~> l] (is_cons l)&REQ
-  'p1 tt [lcell p0 ~> (mk_lcell (snd (hd_tot l REQ)) p1); lseg p1 pn ~> tl_tot l REQ]
+Definition elim_lseg_cons_spec : LDecl SPEC
+  ((p0, pn) : ptr * ptr) 'l [] [lseg p0 pn ~> l] (is_cons l)&REQ
+  '(p1 : ptr) tt [lcell p0 ~> (mk_lcell (snd (hd_tot l REQ)) p1); lseg p1 pn ~> tl_tot l REQ]
     (p0 = fst (hd_tot l REQ)).
 Proof. Derived. Defined.
 Lemma elim_lseg_cons : elim_lseg_cons_spec.
@@ -127,9 +127,9 @@ Proof.
   Apply; reflexivity.
 Qed.
 
-Definition elim_llist_nnull_spec : LDecl ptr ptr
-  SPEC p0 'l [] [llist p0 ~> l] (p0 <> NULL)
-  'p1 (dt, tl) [lcell p0 ~> (mk_lcell dt p1); llist p1 ~> tl] (l = (p0, dt) :: tl).
+Definition elim_llist_nnull_spec : LDecl SPEC
+  (p0 : ptr) 'l [] [llist p0 ~> l] (p0 <> NULL)
+  '(p1 : ptr) (dt, tl) [lcell p0 ~> (mk_lcell dt p1); llist p1 ~> tl] (l = (p0, dt) :: tl).
 Proof. Derived. Defined.
 Lemma elim_llist_nnull : elim_llist_nnull_spec.
 Proof.
@@ -181,9 +181,9 @@ Proof.
     SL.normalize; reflexivity.
 Qed.
 
-Definition lseg_app_spec : LDecl (ptr * ptr * ptr) unit
-  SPEC (p0, p1, p2) '(l0, l1) [] [lseg p0 p1 ~> l0; lseg p1 p2 ~> l1] True
-  '_ tt [lseg p0 p2 ~> (l0 ++ l1)] True.
+Definition lseg_app_spec : LDecl SPEC
+  ((p0, p1, p2) : ptr * ptr * ptr) '(l0, l1) [] [lseg p0 p1 ~> l0; lseg p1 p2 ~> l1] True
+  '(_ : unit) tt [lseg p0 p2 ~> (l0 ++ l1)] True.
 Proof. Derived. Defined.
 Lemma lseg_app : lseg_app_spec.
 Proof.
@@ -202,10 +202,10 @@ Section Program.
 Local Hint Resolve lcell_unfold | 1 : CtxTrfDB.
 Import VRecord.Tactics.
 
-Definition Length_spec : FDecl ptr _ nat _
-  SPEC p
+Definition Length_spec : FDecl SPEC
+  (p : ptr)
   'l [llist p ~> l] [] True
-  'n tt [] (n = length l).
+  '(n : nat) tt [] (n = length l).
 Proof. Derived. Defined.
 Variable Length : Length_spec CT.
 
@@ -225,10 +225,10 @@ Definition Length_impl : FImpl Length := fun p0 =>
 Lemma Length_correct : FCorrect Length_impl.
 Proof. solve_by_wlp. Qed.
 
-Definition Rev_spec : FDecl (ptr * ptr) _ ptr _
-  SPEC (p, pr)
+Definition Rev_spec : FDecl SPEC
+  ((p, pr) : ptr * ptr)
   'l [] [llist p ~> l] True
-  'r tt [lseg r pr ~> rev l] True.
+  '(r : ptr) tt [lseg r pr ~> rev l] True.
 Proof. Derived. Defined.
 Variable Rev : Rev_spec CT.
 
@@ -251,10 +251,10 @@ Definition Rev_impl : FImpl Rev := fun '(p0, pr) =>
 Lemma Rev_correct : FCorrect Rev_impl.
 Proof. solve_by_wlp. Qed.
 
-Definition Seg_Next_spec : FDecl (ptr * nat) (Some (fun _ => ptr)) ptr _
-  SPEC (p, n) & pn
+Definition Seg_Next_spec : FDecl SPEC
+  ((p, n) : ptr * nat) & (pn : ptr)
   'l [lseg p pn ~> l] [] (n = length l)
-  'r tt [] (r = pn).
+  '(r : ptr) tt [] (r = pn).
 Proof. Derived. Defined.
 Variable Seg_Next : Seg_Next_spec CT.
 

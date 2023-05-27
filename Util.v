@@ -33,10 +33,16 @@ Ltac mk_Arrow_tac tc :=
   exact H.
 
 
+Tactic Notation "solve_db" ident(db) :=
+  try solve [eauto 1 with db nocore];
+  lazymatch goal with |- ?g =>
+  fail "solve_db" db "failed on" g
+  end.
+
 Global Create HintDb DeriveDB discriminated.
 Global Hint Constants Opaque : DeriveDB.
 Global Hint Variables Opaque : DeriveDB.
-Ltac Derived := solve [auto 1 with DeriveDB nocore].
+Ltac Derived := solve_db DeriveDB.
 
 (* DB for [Intro].
    Should solve goals [Arrow ?goal1 goal0] and instantiate [?goal1] to [forall _, _] *)
@@ -45,7 +51,7 @@ Global Hint Constants Opaque : IntroDB.
 Global Hint Variables Opaque : IntroDB.
 
 Ltac Intro_core :=
-  refine (cut_Arrow _ _); [ solve [eauto 1 with IntroDB nocore] |].
+  refine (cut_Arrow _ _); [ solve_db IntroDB |].
 
 Global Tactic Notation "Intro" :=
   Intro_core; intro.
@@ -60,7 +66,7 @@ Global Hint Constants Opaque : ApplyDB.
 Global Hint Variables Opaque : ApplyDB.
 
 Ltac Apply_core := 
-  refine (cut_Arrow _ _); [ solve [eauto 1 with ApplyDB nocore] |].
+  refine (cut_Arrow _ _); [ solve_db ApplyDB |].
 
 Global Tactic Notation "Apply" :=
   Apply_core; unshelve eexists.
@@ -116,7 +122,7 @@ Module Tac.
     lazymatch goal with |- ?g =>
     let gl := fresh "GOAL" in
     set (gl := g);
-    case t;
+    case t; intros;
     unfold gl; clear gl
     end.
 

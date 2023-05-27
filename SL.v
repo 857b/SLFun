@@ -759,7 +759,7 @@ Global Hint Constants Opaque : NormalizeDB.
 Global Hint Variables Opaque : NormalizeDB.
 Ltac normalize :=
   refine (Util.cut_Arrow _ _);
-  [ solve [eauto 1 with NormalizeDB nocore] | try exact Logic.I].
+  [ solve_db NormalizeDB | try exact Logic.I].
 
 Global Hint Extern 1 (Arrow _ (SLprop.eq ?h0 ?h1)) =>
   mk_Arrow_tac ltac:(fun _ => first

@@ -286,6 +286,9 @@ Section F_SPEC.
   Definition f_ghin_t_x (x : f_arg_t sg) : option Type :=
     option_map (fun gi => gi x) (f_ghin_t sgh).
 
+  Definition f_retgh_t : Type :=
+    @Spec.opt_sigG (f_ret_t sg) (f_ghout_t sgh).
+
   Definition sigh_spec_t (x : f_arg_t sg) :=
     Spec.t (f_ghin_t_x x) (f_ret_t sg) (f_ghout_t sgh).
 
@@ -837,9 +840,9 @@ Section FunImplBody.
 
   Definition f_ebody : @CP.f_impl SIG sg.
   Proof.
-    assert (prj : Spec.opt_sigG (f_ghout_t sgh) -> @CP.instr SIG (f_ret_t sg)). {
+    assert (prj : f_retgh_t sgh -> @CP.instr SIG (f_ret_t sg)). {
       intro x; apply CP.Ret; revert x.
-      case f_ghout_t as [GO|].
+      unfold f_retgh_t; case f_ghout_t as [GO|].
       - exact (fun '(CP.existG _ x _) => x).
       - exact (fun x => x).
     }
@@ -926,7 +929,7 @@ Section Fragment.
 
   Definition frag_impl : Type :=
     forall (x : f_arg_t sg) (gi : OptTy.t (f_ghin_t_x sgh x)),
-    @CP.instr SIG (@Spec.opt_sigG (f_ret_t sg) (f_ghout_t sgh)).
+    @CP.instr SIG (f_retgh_t sgh).
 
   Definition frag_correct (impl : frag_impl) (spec : f_spec sgh) :=
     forall (x : f_arg_t sg) (gi : OptTy.t (f_ghin_t_x sgh x)),
@@ -1214,11 +1217,9 @@ Section Call.
     Context (f : fid) [sg : f_sig] (HSIG : SIG f = Some sg) (sgh : f_sigh sg)
             (x : f_arg_t sg).
 
-    Let AG := opt_sigG (f_ghout_t sgh).
-
-    Definition Call_impl : @CP.instr SIG AG.
+    Definition Call_impl : @CP.instr SIG (f_retgh_t sgh).
     Proof.
-      unfold AG, opt_sigG.
+      unfold f_retgh_t, opt_sigG.
       case f_ghout_t as [GO|].
       - exact (CP.Bind (CP.Call f HSIG x) (fun r =>
                CP.Bind (CP.Oracle (GO r)) (fun go =>
@@ -1256,7 +1257,7 @@ Section Call.
         intro; Intro; reflexivity.
     Qed.
 
-    Lemma Call_spec_lem (impl : @CP.instr SIG AG) (H : correct_Call_impl impl) ctx sf:
+    Lemma Call_spec_lem (impl : @CP.instr SIG (f_retgh_t sgh)) (H : correct_Call_impl impl) ctx sf:
       Call_Spec (s gi) ctx sf -> sound_spec impl ctx sf.
     Proof.
       intros [].
@@ -1285,7 +1286,7 @@ Section Call.
         reflexivity.
     Qed.
 
-    Program Definition Call : instr AG := {|
+    Program Definition Call : instr (f_retgh_t sgh) := {|
       i_impl := Call_impl;
       i_spec := fun ctx => Call_Spec (s gi) ctx;
     |}.
@@ -1298,7 +1299,7 @@ Section Call.
   Definition Call_f_decl [sg sgh s] (fd : @f_decl sg sgh CT s)
     (x : f_arg_t sg)
     : OptTy.arrow (f_ghin_t_x sgh x)
-                  (fun _ => instr (Spec.opt_sigG (f_ghout_t sgh)))
+                  (fun _ => instr (f_retgh_t sgh))
     :=
     OptTy.of_fun (fun gi =>
       Call (fd_id fd) (fd_Hsig (fd_H fd)) sgh x gi (s x) (fd_Hspec (fd_H fd) x)).
@@ -1341,7 +1342,7 @@ Section Call.
             (F : frag_correct impl spec) (x : f_arg_t sg).
 
     Program Definition Frag : OptTy.arrow (f_ghin_t_x sgh x) (fun _ =>
-        instr (Spec.opt_sigG (f_ghout_t sgh)))
+        instr (f_retgh_t sgh))
     :=
     OptTy.of_fun (fun gi => {|
       i_impl := impl x gi;
@@ -1367,29 +1368,22 @@ Global Arguments Frag [_ _ _ _ _] _ _.
 Module NotationsDef.
   (* types notation *)
 
-  Record FDecl (arg_t : Type) (ghin_t  : option (arg_t -> Type))
-               (ret_t : Type) (ghout_t : option (ret_t -> Type))
-               (e : f_spec_exp (mk_f_sigh (mk_f_sig arg_t ret_t) ghin_t ghout_t))
+  Record FDecl [sg : f_sig] [sgh : f_sigh sg] (e : f_spec_exp sgh)
     : Type := mk_FDecl {
     fd_FSpec : FSpec _ e
   }.
-  Global Arguments fd_FSpec [_ _ _ _ _].
+  Global Arguments fd_FSpec [_ _ _].
 
-  Definition fd_sig
-    [arg_t ghin_t ret_t ghout_t e] (F : @FDecl arg_t ghin_t ret_t ghout_t e)
-    : f_sig := mk_f_sig arg_t ret_t.
+  Definition fd_sig [sg sgh e] (F : @FDecl sg sgh e)
+    : f_sig := sg.
 
-  Definition fd_cp
-    [arg_t ghin_t ret_t ghout_t e] (F : @FDecl arg_t ghin_t ret_t ghout_t e)
+  Definition fd_cp [sg sgh e] (F : @FDecl sg sgh e)
     : CP.f_spec (fd_sig F) := cp_f_spec (m_spec (fd_FSpec F)).
 
-  Definition to_f_decl
-    [arg_t ghin_t ret_t ghout_t e] (F : @FDecl arg_t ghin_t ret_t ghout_t e)
-    (CT : CP.context)
+  Definition to_f_decl [sg sgh e] (F : @FDecl sg sgh e) (CT : CP.context)
     : Type := f_decl CT (m_spec (fd_FSpec F)).
 
-  Definition fd_mk (f : fid)
-    [arg_t ghin_t ret_t ghout_t e] (F : @FDecl arg_t ghin_t ret_t ghout_t e)
+  Definition fd_mk (f : fid) [sg sgh e] (F : @FDecl sg sgh e)
     (CT : CP.context)
     (HSIG : projT1 CT f = Some (fd_sig F))
     (HSPS : CP.fun_has_spec (projT2 CT) f HSIG = fd_cp F):
@@ -1398,42 +1392,38 @@ Module NotationsDef.
     exists f. unshelve eapply cp_is_declared; assumption.
   Defined.
 
-  Definition Call_to_f_decl
-    [arg_t ghin_t ret_t ghout_t e F CT] (fd : @to_f_decl arg_t ghin_t ret_t ghout_t e F CT)
-    (x : arg_t) : OptTy.arrow (option_map (fun gi => gi x) ghin_t) (fun _ => instr CT (Spec.opt_sigG ghout_t))
+  Definition Call_to_f_decl [sg sgh e F CT] (fd : @to_f_decl sg sgh e F CT)
+    (x : f_arg_t sg) : OptTy.arrow (f_ghin_t_x sgh x) (fun _ => instr CT (f_retgh_t sgh))
     := Call_f_decl fd x.
 
   Coercion to_f_decl      : FDecl     >-> Funclass.
   Coercion Call_to_f_decl : to_f_decl >-> Funclass.
 
 
-  Definition FragImpl [arg_t ghin_t ret_t ghout_t e]
-    (F : FDecl arg_t ghin_t ret_t ghout_t e) (CT : CP.context) : Type :=
-    f_body CT (mk_f_sigh (mk_f_sig arg_t ret_t) ghin_t ghout_t).
+  Definition FragImpl [sg sgh e] (F : @FDecl sg sgh e) (CT : CP.context) : Type :=
+    f_body CT sgh.
 
-  Record FragCorrect [arg_t ghin_t ret_t ghout_t e F CT]
-    (I : @FragImpl arg_t ghin_t ret_t ghout_t e F CT) := {
+  Record FragCorrect [sg sgh e F CT] (I : @FragImpl sg sgh e F CT) := {
     get_fr_correct : frag_correct (fun x gi => i_impl (OptTy.to_fun' (I x) gi)) (m_spec (fd_FSpec F))
   }.
-  Global Arguments get_fr_correct [_ _ _ _ _ _ _ I].
+  Global Arguments get_fr_correct [_ _ _ _ _ I].
 
-  Lemma intro_FragCorrect [arg_t ghin_t ret_t ghout_t e F CT I]
-    (H : forall x : arg_t, impl_match CT (I x) (m_spec (fd_FSpec F) x)):
-    @FragCorrect arg_t ghin_t ret_t ghout_t e F CT I.
+  Lemma intro_FragCorrect [sg sgh e F CT I]
+    (H : forall x : f_arg_t sg, impl_match CT (I x) (m_spec (fd_FSpec F) x)):
+    @FragCorrect sg sgh e F CT I.
   Proof.
     constructor.
     apply impl_match_frag_correct, H.
   Qed.
 
-  Definition Call_FragCorrect [arg_t ghin_t ret_t ghout_t e F CT I]
-    (C : @FragCorrect arg_t ghin_t ret_t ghout_t e F CT I)
-    (x : arg_t) : OptTy.arrow (option_map (fun gi => gi x) ghin_t) (fun _ => instr CT (Spec.opt_sigG ghout_t))
+  Definition Call_FragCorrect [sg sgh e F CT I] (C : @FragCorrect sg sgh e F CT I)
+    (x : f_arg_t sg) : OptTy.arrow (f_ghin_t_x sgh x) (fun _ => instr CT (f_retgh_t sgh))
     := Frag (impl := fun x gi => i_impl (OptTy.to_fun' (I x) gi)) (get_fr_correct C) x.
 
   Coercion Call_FragCorrect : FragCorrect >-> Funclass.
 
 
-  Record LDecl (arg_t : Type) (ret_t : Type) (e : f_spec_exp (lem_sigh (mk_f_sig arg_t ret_t)))
+  Record LDecl [arg_t : Type] [ret_t : Type] (e : f_spec_exp (lem_sigh (mk_f_sig arg_t ret_t)))
     : Type := mk_LDecl {
     ld_FSpec : FSpec _ e
   }.
@@ -1458,7 +1448,7 @@ End NotationsDef.
 Section F_ENTRY.
   Import NotationsDef.
 
-  Context [arg_t ghin_t ret_t ghout_t e] (F : FDecl arg_t ghin_t ret_t ghout_t e).
+  Context [sg sgh e] (F : @FDecl sg sgh e).
 
   Definition f_entry [A : CP.context -> Prop] (C : forall CT, A CT): CP.context_entry
     := {| CP.ce_sig := fd_sig F; CP.ce_spec := fd_cp F |}.
@@ -1704,8 +1694,7 @@ Module Tac.
         | |- Ret_Spec    _ _ _ _ => build_Ret
         | |- Bind_Spec _ _ _ _ _ => build_Bind build
         | |- Call_Spec     _ _ _ => build_Call
-        | |- ?g => try solve [eauto 1 with HasSpecDB nocore];
-                   fail "HasSpec::ct" g
+        | |- ?g => solve_db HasSpecDB
         end
     | (match ?x with _ => _ end) =>
         tryif is_single_case x
@@ -1811,16 +1800,16 @@ Module Tac.
     lazymatch goal with
     | |- @CP.extract_cont ?SG ?A ?B (i_impl ?v) ?k ?i =>
         lazymatch v with
-        | context[match ?x with _ => _ end] =>
+        | (match ?x with _ => _ end) =>
             simple refine (extract_cont_change _ _ _);
             [ (* r0 *)
-              destruct x; shelve
+              case x; try clear x; intros; shelve
             | (* C *)
-              destruct x;
+              case x; try clear x; intros;
               build_extract_cont
             | (* E *)
               (* tries to remove the match *)
-              first [ destruct x; [reflexivity] | reflexivity ] ]
+              first [ case x; intros; [reflexivity] | reflexivity ] ]
         | _ =>
             let v' := eval hnf in v in
             progress change (@CP.extract_cont SG A B (i_impl v') k i);
@@ -1829,20 +1818,63 @@ Module Tac.
     | _ => CP.build_extract_cont_k build_extract_cont
     end.
 
+  (* Since the ghost argument can depend on the concrete argument,
+     we must handle the initial destruction of the latter specially. *)
+  Local Lemma intro_f_extract_with_ghin [CT sg ghin ghout]
+    [f : @f_body CT sg (mk_f_sigh sg (Some ghin) ghout)]
+    (i : CP.f_impl sg)
+    (E : forall x : f_arg_t sg,
+         display (f x) ->
+         CP.extract (f_ebody f x) (i x)):
+    f_extract f.
+  Proof.
+    exists i.
+    intro; apply E.
+    constructor.
+  Defined.
+
+  Ltac case_f_extract_with_ghin :=
+    lazymatch goal with |- @display ?A0 ?i -> @CP.extract ?SIG ?A ?s ?e =>
+      let i' := eval hnf in i in
+      change (@display A0 i' -> @CP.extract SIG A s e);
+      lazymatch i' with
+      | match ?x with _ => _ end =>
+          build_term e ltac:(fun _ => nondep_case x; clear x; shelve);
+          refine (elim_boxP _);
+          case x; clear x; intros;
+          constructor;
+          case_f_extract_with_ghin
+      | _ => intros _(* Tac.display *)
+      end
+    end.
+
   (* solves a goal [f_extract bd] *)
   Ltac extract_impl :=
-    eexists; intro;
+    first
+      [ (* if there is a ghost argument *)
+        refine (intro_f_extract_with_ghin _ _);
+        intro;
+        case_f_extract_with_ghin
+      | eexists; intro ];
     refine (CP.extract_by_cont _ _ _);
     [ build_extract_cont
     | Tac.cbn_refl
     | try solve [ CP.build_oracle_free ] ].
+
+  (* [assumption] but with only alpha conversion *)
+  Ltac sassumption :=
+    lazymatch goal with |- ?G =>
+    lazymatch goal with H : G |- _ =>
+    exact H
+    end end.
+
 
   (* solves a goal [CP.entry_impl_correct CT (f_entry F PF) ?impl] *)
   Ltac build_f_entry_impl_correct :=
     match goal with |- CP.entry_impl_correct _ (f_entry _ ?C) _ =>
     simple refine (f_entry_extract _ _ _ _);
     [ shelve
-    | unshelve eapply C; assumption
+    | unshelve eapply C; sassumption
     | Tac.extract_impl
     | cbn; reflexivity ]
     end.
@@ -1861,8 +1893,8 @@ End ExtractTactics.
 Export ExtractTactics.
 
 Module Tactics.
-  #[export] Hint Extern 1 (NotationsDef.FDecl _ _ _ _ _) => Tac.build_FDecl : DeriveDB.
-  #[export] Hint Extern 1 (NotationsDef.LDecl     _ _ _) => Tac.build_LDecl : DeriveDB.
+  #[export] Hint Extern 1 (NotationsDef.FDecl _) => Tac.build_FDecl : DeriveDB.
+  #[export] Hint Extern 1 (NotationsDef.LDecl _) => Tac.build_LDecl : DeriveDB.
 
   #[export] Hint Extern 1 (f_extract _) => Tac.extract_impl : DeriveDB.
 
@@ -1921,23 +1953,23 @@ Module Notations.
   Declare Scope vprog_spec_scope.
   Delimit Scope vprog_spec_scope with vprog_spec.
   Global Arguments FSpec [sg] sgh e%vprog_spec.
-  Global Arguments FDecl (_ _ _ _)%type e%vprog_spec.
-  Global Arguments LDecl (_ _)%type e%vprog_spec.
+  Global Arguments FDecl [_ _] e%vprog_spec.
+  Global Arguments LDecl [_ _] e%vprog_spec.
 
 
-  Definition mk_f_r0_None [arg_t res_t ghout_t]
+  Definition mk_f_r0_None (arg_t : Type) [res_t ghout_t]
     (f : arg_t -> @Spec.Expanded.t_r0 res_t ghout_t):
     f_spec_exp (mk_f_sigh (mk_f_sig arg_t res_t) None ghout_t)
     := fun arg _ => f arg.
-  Definition mk_f_r0_Some [arg_t ghin_t res_t ghout_t]
+  Definition mk_f_r0_Some (arg_t : Type) (ghin_t : arg_t -> Type) [res_t ghout_t]
     (f : forall (x : arg_t) (y : ghin_t x), @Spec.Expanded.t_r0 res_t ghout_t):
     f_spec_exp (mk_f_sigh (mk_f_sig arg_t res_t) (Some ghin_t) ghout_t)
     := fun arg => f arg.
 
-  Definition mk_f_r2_None [A : Type] [req : Prop] (f : A -> Spec.Expanded.t_r2 req)
+  Definition mk_f_r2_None (A : Type) [req : Prop] (f : A -> Spec.Expanded.t_r2 req)
     (x : @Spec.opt_sigG A None) : Spec.Expanded.t_r2 req :=
     f x.
-  Definition mk_f_r2_Some [A : Type] [req : Prop] [GO : A -> Type]
+  Definition mk_f_r2_Some (A : Type) [req : Prop] (GO : A -> Type)
     (f : forall (x : A) (y : GO x), Spec.Expanded.t_r2 req)
     (x : @Spec.opt_sigG A (Some GO)) : Spec.Expanded.t_r2 req :=
     CP.split_sigG f x.
@@ -1947,13 +1979,16 @@ Module Notations.
   Global Arguments mk_f_r2_None/.
   Global Arguments mk_f_r2_Some/.
 
-  Notation "'SPEC' arg s" := (mk_f_r0_None (fun arg => s))
+  Notation "'SPEC' ( arg : arg_ty ) s" :=
+    (mk_f_r0_None arg_ty (fun arg => s))
     (at level 0,
-     arg pattern at level 0,
+     arg pattern at level 95, arg_ty constr at level 200,
      s custom vprog_spec_0 at level 0) : vprog_spec_scope.
-  Notation "'SPEC' arg & gi s" := (mk_f_r0_Some (fun arg gi => s))
+  Notation "'SPEC' ( arg : arg_ty ) & ( gi : gi_ty ) s" :=
+    (mk_f_r0_Some arg_ty (fun arg => gi_ty) (fun arg gi => s))
     (at level 0,
-     arg pattern at level 0, gi pattern at level 0,
+     arg pattern at level 95, arg_ty constr at level 200,
+     gi  pattern at level 95, gi_ty  constr at level 200,
      s custom vprog_spec_0 at level 0) : vprog_spec_scope.
 
   Notation "' sel0 prs pre req s" :=
@@ -1963,29 +1998,37 @@ Module Notations.
      sel0 pattern at level 0, prs constr at level 0, pre constr at level 0, req constr at level 0,
      s custom vprog_spec_1 at level 0).
 
-  Notation "& REQ ' res & go sel1 s" :=
-    (mk_f_r2_Some (fun res go =>
+  Notation "& REQ ' ( res : res_ty ) & ( go : go_ty ) sel1 s" :=
+    (mk_f_r2_Some res_ty (fun res => go_ty) (fun res go =>
      Spec.Expanded.mk_r2 (fun sel1 REQ => s)))
     (in custom vprog_spec_1 at level 0,
-     REQ name, res name, go name, sel1 pattern at level 0,
+     REQ name,
+     res name, res_ty constr at level 200,
+     go name,  go_ty  constr at level 200,
+     sel1 pattern at level 0,
      s custom vprog_spec_2 at level 0).
-  Notation "& REQ ' res sel1 s" :=
-    (mk_f_r2_None (fun res =>
+  Notation "& REQ ' ( res : res_ty ) sel1 s" :=
+    (mk_f_r2_None res_ty (fun res =>
      Spec.Expanded.mk_r2 (fun sel1 REQ => s)))
     (in custom vprog_spec_1 at level 0,
-     REQ name, res name, sel1 pattern at level 0,
+     REQ name,
+     res name, res_ty constr at level 200,
+     sel1 pattern at level 0,
      s custom vprog_spec_2 at level 0).
-  Notation "' res & go sel1 s" :=
-    (mk_f_r2_Some (fun res go =>
+  Notation "' ( res : res_ty ) & ( go : go_ty ) sel1 s" :=
+    (mk_f_r2_Some res_ty (fun res => go_ty) (fun res go =>
      Spec.Expanded.mk_r2 (fun sel1 _ => s)))
     (in custom vprog_spec_1 at level 0,
-     res name, go name, sel1 pattern at level 0,
+     res name, res_ty constr at level 200,
+     go name,  go_ty  constr at level 200,
+     sel1 pattern at level 0,
      s custom vprog_spec_2 at level 0).
-  Notation "' res sel1 s" :=
-    (mk_f_r2_None (fun res =>
+  Notation "' ( res : res_ty ) sel1 s" :=
+    (mk_f_r2_None res_ty (fun res =>
      Spec.Expanded.mk_r2 (fun sel1 _ => s)))
     (in custom vprog_spec_1 at level 0,
-     res name, sel1 pattern at level 0,
+     res name, res_ty constr at level 200,
+     sel1 pattern at level 0,
      s custom vprog_spec_2 at level 0).
 
   Notation "post ens" := (Spec.Expanded.mk_r3 post ens)
