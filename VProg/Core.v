@@ -5,7 +5,6 @@ From Coq   Require Import Lists.List Setoids.Setoid.
 Import SLNotations ListNotations.
 Import SL.Tactics SLProg.Tactics.
 
-
 Module Abbrev.
   Module CP  := SLFun.ConcreteProg.
   Module SP  := SLFun.SLProg.
@@ -13,6 +12,8 @@ Module Abbrev.
   Module Sub := CTX.Sub.
 End Abbrev.
 Import Abbrev.
+
+Local Transparent FP.Ret FP.Bind FP.Call FP.Assert.
 
 (* Type family *)
 Module TF.
@@ -496,8 +497,8 @@ Section AddCsm.
     {|
       sf_csm  := Sub.or (sf_csm s) csm;
       sf_prd  := fun x => sf_prd s x ++ VpropList.of_ctx acsm;
-      sf_spec := FP.Bind (sf_spec s) (TF.of_fun (T:=sf_rvar s) (fun x =>
-                   FP.Ret (TF.mk _ (TF.v_val x) (VpropList.app_sel (TF.v_sel x) (VpropList.sel_of_ctx acsm)))
+      sf_spec := FunProg.Bind (sf_spec s) (TF.of_fun (T:=sf_rvar s) (fun x =>
+                 FunProg.Ret (TF.mk _ (TF.v_val x) (VpropList.app_sel (TF.v_sel x) (VpropList.sel_of_ctx acsm)))
                  ))
     |}.
 
@@ -548,8 +549,8 @@ Section ChangePrd.
     {|
       sf_csm  := sf_csm s;
       sf_prd  := prd;
-      sf_spec := FP.Bind (sf_spec s) (TF.of_fun (T:=sf_rvar s) (fun r =>
-                   FP.Ret (TF.mk _ (TF.v_val r) (rsel r))
+      sf_spec := FunProg.Bind (sf_spec s) (TF.of_fun (T:=sf_rvar s) (fun r =>
+                   FunProg.Ret (TF.mk _ (TF.v_val r) (rsel r))
                  ))
     |}.
 
@@ -638,8 +639,8 @@ Section InjPre.
         {|
           sf_csm  := Sub.neg ncsm;
           sf_prd  := fun x : A => sf_prd F x ++ VpropList.of_ctx rem;
-          sf_spec := FP.Bind (sf_spec F) (TF.of_fun (T := sf_rvar F) (fun r =>
-                     FP.Ret (TF.mk _ (TF.v_val r) (VpropList.app_sel (TF.v_sel r) (VpropList.sel_of_ctx rem)))))
+          sf_spec := FunProg.Bind (sf_spec F) (TF.of_fun (T := sf_rvar F) (fun r =>
+                     FunProg.Ret (TF.mk _ (TF.v_val r) (VpropList.app_sel (TF.v_sel r) (VpropList.sel_of_ctx rem)))))
         |}).
 
     Local Opaque DTuple.to_fun.
@@ -794,7 +795,7 @@ Section FunImpl.
               P sel1) <-> Tuple.to_fun (ex_sel1 x REQ P) rsel))
       (* VC *)
       (WLP : forall REQ : Spec.req s_1,
-             FP.wlpA f (TF.of_fun (T := rvar) (fun r =>
+             FunProg.wlpA f (TF.of_fun (T := rvar) (fun r =>
                let x := TF.v_val r in
                Tuple.to_fun (ex_sel1 x REQ (fun sel1 => Spec.ens (s_1 x sel1 REQ))) (TF.v_sel r)))),
       Impl_Match.
@@ -954,7 +955,7 @@ Section Ret.
       (IJ : InjPre_Frame_Spec pre ctx {|
         sf_csm  := Sub.const pre true;
         sf_prd  := pt;
-        sf_spec := FP.Ret (TF.mk (fun x => VpropList.sel (pt x)) x sels);
+        sf_spec := FunProg.Ret (TF.mk (fun x => VpropList.sel (pt x)) x sels);
       |} F),
       Ret_Spec ctx F.
 
@@ -1010,7 +1011,7 @@ Section Bind.
     (SPEC : FP.eqv spec (
                 let TF_A     := TF.mk_p A (sf_rsel s_f) in
                 let TF_B prd := TF.mk_p B (fun y => VpropList.sel (prd y)) in
-                @FP.Bind TF_A (TF_B prd)
+                @FunProg.Bind TF_A (TF_B prd)
                     (sf_spec s_f)
                     (TF.of_fun (T := TF_A) (fun r =>
                       eq_rect _ (fun prd => FP.instr (TF_B prd))
@@ -1104,7 +1105,7 @@ Section Bind.
         let TF_A := sf_rvar s_f in
         let TF_B (prd : B -> VpropList.t) :=
           TF.mk_p B (fun y : B => VpropList.sel (prd y)) in
-        FP.Bind (sf_spec s_f)
+        FunProg.Bind (sf_spec s_f)
            (TF.of_fun (fun x =>
               eq_rect (sf_prd (TF.to_fun s_g x))
                 (fun prd0 : B -> VpropList.t => FP.instr (TF_B prd0))
@@ -1199,14 +1200,14 @@ Section Call.
                            (Sub.const (Spec.prs (s sel0)) false);
         sf_prd  := fun xG => Spec.vpost (s sel0 xG);
         sf_spec :=
-          FP.Bind
-            (@FP.Call TF_A {|
-                FP.Spec.pre  := Spec.req (s sel0);
-                FP.Spec.post := TF.of_fun (fun (r : TF.t TF_A) (REQ : Spec.req (s sel0)) =>
-                  Spec.ens (s sel0 (TF.v_val r) (TF.v_sel r) REQ));
+          FunProg.Bind
+            (@FunProg.Call TF_A {|
+                FunProg.Spec.pre_p  := Some (Spec.req (s sel0));
+                FunProg.Spec.post_p := Some (fun (REQ : Spec.req (s sel0)) => TF.of_fun (fun (r : TF.t TF_A) =>
+                  Spec.ens (s sel0 (TF.v_val r) (TF.v_sel r) REQ)));
              |})
             (fun REQ => TF.of_fun (T := TF_A) (fun r =>
-             FP.Ret (TF.mk _ (TF.v_val r)
+             FunProg.Ret (TF.mk _ (TF.v_val r)
               (eq_rect _ VpropList.sel_t
                        (VpropList.sel_of_ctx (Spec.post (s sel0 (TF.v_val r) (TF.v_sel r) REQ)))
                        _ (vpost_eq sel0 (TF.v_val r) (TF.v_sel r) REQ)))))
@@ -1840,9 +1841,7 @@ Module Tac.
       lazymatch i' with
       | match ?x with _ => _ end =>
           build_term e ltac:(fun _ => nondep_case x; clear x; shelve);
-          refine (elim_boxP _);
-          case x; clear x; intros;
-          constructor;
+          case x as []; clear x;
           case_f_extract_with_ghin
       | _ => intros _(* Tac.display *)
       end
@@ -1908,18 +1907,16 @@ Module Tactics.
     end;
     intro (* arg *);
     Tac.build_impl_match;
-    FP.simpl_prog.
+    FunProg.simpl_prog.
 
   (* Changes a goal [f_body_match impl spec] into a WLP *)
   Ltac by_wlp :=
     build_fun_spec;
-    FP.by_wlp_ false.
+    FunProg.by_wlp_ false.
 
   Ltac solve_by_wlp :=
     build_fun_spec;
-    FP.by_wlp_ false;
-    FP.solve_wlp;
-    eauto.
+    FunProg.solve_by_wlp.
 
   (* start the proof of a ghost lemma *)
   Ltac init_lemma0 :=

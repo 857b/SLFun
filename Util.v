@@ -504,6 +504,35 @@ Proof.
   apply simpl_and_list_m1; tauto.
 Qed.
 
+(* characterisation of unit types ([unit], [True]) *)
+
+Module UnitTy.
+  Inductive t (T : Type) (e : T) : Prop :=
+    I (E : forall x : T, x = e)
+      (U : E e = eq_refl).
+  Global Arguments I [_ _].
+
+  Definition tr [T e] (U : t T e) (f : T -> Type) [x : T] (y : f x) : f e :=
+    let '(I E _) := U in
+    eq_rect x f y e (E x).
+
+  Lemma tr_e T e U f y:
+    @tr T e U f e y = y.
+  Proof.
+    destruct U; cbn.
+    rewrite U; reflexivity.
+  Qed.
+
+  Ltac build :=
+    simple refine (I _ _);
+    [ intros []; reflexivity
+    | reflexivity ].
+
+  (* test *)
+  Goal exists e, t True e.
+  Proof. eexists. build. Qed.
+End UnitTy.
+
 (* optional type *)
 
 Module OptTy.
@@ -545,6 +574,80 @@ Module OptTy.
     destruct P; cbn; [|destruct x]; reflexivity.
   Qed.
 End OptTy.
+
+Module OptProp.
+  Definition p := option Prop.
+
+  Definition t (P : p) : Prop :=
+    match P with
+    | Some T => T
+    | None   => True
+    end.
+
+  (* arrow *)
+
+  Definition arrow (P : p) : forall (TRG : t P -> Type), Type :=
+    match P with
+    | Some T => fun TRG => forall x : T, TRG x
+    | None   => fun TRG => TRG I
+    end.
+
+  Definition of_fun [P] : forall [TRG : t P -> Type] (f : forall x : t P, TRG x), arrow P TRG :=
+    match P with
+    | Some T => fun TRG f x => f x
+    | None   => fun TRG f   => f I
+    end.
+  
+  Definition to_fun [P] : forall [TRG : t P -> Type] (f : arrow P TRG) (x : t P), TRG x :=
+    match P with
+    | Some T => fun TRG f  x => f x
+    | None   => fun TRG f 'I => f
+    end.
+
+  Definition to_fun' [P TRG] : forall (f : arrow P (fun _ => TRG)) (x : t P), TRG :=
+    match P with
+    | Some T => fun f x => f x
+    | None   => fun f _ => f
+    end.
+
+  Lemma to_of_fun [P TRG] (f : forall x : t P, TRG x) (x : t P):
+    to_fun (of_fun f) x = f x.
+  Proof.
+    destruct P; cbn; [|destruct x]; reflexivity.
+  Qed.
+
+  (* forall *)
+
+  Definition all (P : p) : forall (TRG : t P -> Prop), Prop :=
+    match P with
+    | Some T => fun TRG => forall x : T, TRG x
+    | None   => fun TRG => TRG I
+    end.
+
+  Lemma all_iff P TRG:
+    all P TRG <-> forall x : t P, TRG x.
+  Proof.
+    destruct P; cbn. reflexivity.
+    split; auto.
+    intros H []; exact H.
+  Qed.
+
+  (* exists *)
+
+  Definition ex (P : p) : forall (TRG : t P -> Prop), Prop :=
+    match P with
+    | Some T => fun TRG => exists x : T, TRG x
+    | None   => fun TRG => TRG I
+    end.
+
+  Lemma ex_iff P TRG:
+    ex P TRG <-> exists x : t P, TRG x.
+  Proof.
+    destruct P; cbn. reflexivity.
+    split; eauto.
+    intros [[] H]; exact H.
+  Qed.
+End OptProp.
 
 (* heterogeneous tuple *)
 
@@ -1037,6 +1140,77 @@ Module DTuple.
     - intros [x xs].
       specialize (IH x _ xs); destruct (of_app xs); rewrite IH.
       reflexivity.
+  Qed.
+
+  (* removing unit types *)
+
+  Inductive iso_p (TS0 TS1 : p)
+    (f : t TS0 -> t TS1) (g : t TS1 -> t TS0) : Prop :=
+    iso_pI (I : type_iso (t TS0) (t TS1) f g).
+
+  Lemma iso_p_nil: iso_p Pnil Pnil (fun _ => tt) (fun _ => tt).
+  Proof.
+    do 2 split; intros []; reflexivity.
+  Qed.
+
+  Lemma iso_p_cons [A TS0 TS1 f g]
+    (C : forall x : A, iso_p (TS0 x) (TS1 x) (f x) (g x)):
+    iso_p (Pcons A TS0) (Pcons A TS1)
+      (fun '(existT _ x y) => pair x (f x y))
+      (fun '(existT _ x y) => pair x (g x y)).
+  Proof.
+    do 2 split; intros [x y]; cbn; f_equal; apply C.
+  Qed.
+
+  Lemma iso_p_unit [A e TS0 TS1 f g]
+    (U : UnitTy.t A e)
+    (E : forall x, TS0 x = TS0 e)
+    (R : E e = eq_refl)
+    (C : iso_p (TS0 e) TS1 f g):
+    iso_p (Pcons A TS0) TS1
+      (fun '(existT _ x y) => f (eq_rect (TS0 x) DTuple.t y (TS0 e) (E x)))
+      (fun y => pair e (g y)).
+  Proof.
+    do 2 split.
+    - intros [x y]; destruct U as [UE _]; cbn.
+      destruct (UE x).
+      rewrite R; cbn.
+      f_equal; apply C.
+    - intro y; cbn.
+      rewrite R; cbn.
+      apply C.
+  Qed.
+
+  Ltac build_iso_p_remove_unit :=
+    lazymatch goal with
+    | |- iso_p ?TS0 ?TS1 ?f ?g =>
+        let TS0' := eval hnf in TS0 in
+        change (iso_p TS0' TS1 f g);
+        lazymatch TS0' with
+        | Pnil => exact iso_p_nil
+        | (Pcons ?A ?TS0) =>
+            let U := fresh "U" in
+            tryif
+              eassert (UnitTy.t A _) as U by UnitTy.build
+            then (
+              unshelve refine (iso_p_unit U _ _ _); try clear U;
+              [ shelve | (* E *) intro; reflexivity
+              | shelve | (* R *) reflexivity
+              | (* C *) build_iso_p_remove_unit ]
+            ) else (
+              refine (iso_p_cons _);
+              intro; build_iso_p_remove_unit
+            )
+        end
+    end.
+
+  Goal exists TS1 f g,
+    iso_p (Pcons nat (fun _ => Pcons True (fun _ => Pcons nat (fun _ => Pnil)))) TS1 f g /\
+    Tac.display (TS1, f, g).
+  Proof.
+    do 4 eexists.
+    build_iso_p_remove_unit.
+    cbn. constructor.
   Qed.
 
   (* unit *)

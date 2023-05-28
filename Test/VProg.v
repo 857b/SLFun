@@ -1,7 +1,7 @@
 From SLFun Require Import Util Values SL VProg.Main.
 From Coq   Require Import Lists.List.
 
-Import SLNotations ListNotations DTuple.Notations VProg.Core.Abbrev VProg.Main.Notations.
+Import SLNotations ListNotations FunProg.Notations VProg.Core.Abbrev VProg.Main.Notations.
 Import SL.Tactics.
 
 

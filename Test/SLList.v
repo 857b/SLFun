@@ -1,7 +1,7 @@
 From SLFun Require Import Util Values SL VProg.Main.
 
 Import Util.List.
-Import SLNotations ListNotations VProg.Main.Notations.
+Import SLNotations ListNotations VProg.Main.Notations FunProg.Notations.
 Import SL.Tactics.
 
 (* Singly linked lists *)
@@ -223,7 +223,11 @@ Definition Length_impl : FImpl Length := fun p0 =>
     gLem intro_lseg_cons (p0, p1, NULL);;
     Ret (S n).
 Lemma Length_correct : FCorrect Length_impl.
-Proof. solve_by_wlp. Qed.
+Proof.
+  build_fun_spec.
+  FunProg.solve_by_wlp.
+Qed.
+
 
 Definition Rev_spec : FDecl SPEC
   ((p, pr) : ptr * ptr)
@@ -249,7 +253,10 @@ Definition Rev_impl : FImpl Rev := fun '(p0, pr) =>
     gLem lseg_app (r, p0, pr);;
     Ret r (pt := fun r => [lseg r pr ~>]).
 Lemma Rev_correct : FCorrect Rev_impl.
-Proof. solve_by_wlp. Qed.
+Proof.
+  build_fun_spec.
+  FunProg.solve_by_wlp.
+Qed.
 
 Definition Seg_Next_spec : FDecl SPEC
   ((p, n) : ptr * nat) & (pn : ptr)
@@ -259,9 +266,10 @@ Proof. Derived. Defined.
 Variable Seg_Next : Seg_Next_spec CT.
 
 Definition Seg_Next_impl : FImpl Seg_Next := fun '(p, n) pn =>
-  gExploit [lseg p pn~>];;
   match n with
-  | O   => Ret p
+  | O   =>
+      gExploit [lseg p pn~>];;
+      Ret p
   | S n =>
       'g_p1 <- gLem elim_lseg_cons (p, pn);
       'p1 <- Read (p_next p);
@@ -272,9 +280,10 @@ Definition Seg_Next_impl : FImpl Seg_Next := fun '(p, n) pn =>
   end.
 Lemma Seg_Next_correct : FCorrect Seg_Next_impl.
 Proof.
-  by_wlp.
+  build_fun_spec.
+  FunProg.by_wlp.
   case n as [|n]; destruct sel0; simplify_eq 1; FunProg.solve_wlp.
-  - apply H0; unfold lseg; SL.normalize.
+  - apply H; unfold lseg; SL.normalize.
     Intro E; auto.
   - destruct p0; reflexivity.
 Qed.
