@@ -175,7 +175,7 @@ Section GGet.
     (IJ : InjPre_Frame_Spec [CTX.mka (v, a)] ctx {|
       sf_csm  := Vector.cons _ false _ (Vector.nil _) <: Sub.t [_];
       sf_prd  := fun _ => nil;
-      sf_spec := FP.Ret (TF.mk _ a Tuple.tt)
+      sf_spec := FP.Ret (TF.mk0 _ a Tuple.tt)
     |} F).
 
   Program Definition gGet : instr CT A := {|
@@ -207,7 +207,7 @@ Section Assert.
       sf_csm  := Sub.const (fst (P p)) false;
       sf_prd  := fun _ => nil;
       sf_spec := FP.Bind (FP.Assert (snd (P p)))
-                         (TF.of_fun (fun _ => FP.Ret (TF.mk _ tt Tuple.tt)))
+                         (TF.of_fun (fun _ => FP.Ret (TF.mk0 _ tt Tuple.tt)))
     |} F).
   
   Program Definition Assert : instr CT unit := {|

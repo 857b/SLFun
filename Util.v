@@ -118,6 +118,11 @@ Module Tac.
   Ltac is_unit_type t :=
     Tac.revert_exec ltac:(assert t; [clear; solve [split]|]).
 
+  Ltac case_intro_keep t :=
+    let _tmp := fresh "tmp" in
+    pose (_tmp := t);
+    case _tmp as [].
+
   Ltac nondep_case t :=
     lazymatch goal with |- ?g =>
     let gl := fresh "GOAL" in
@@ -435,6 +440,18 @@ Module Vector.
   Global Ltac build_shape :=
     repeat (refine (Vector.cons _ _ _ _); [shelve|]); exact (Vector.nil _).
 End Vector.
+
+
+Definition sumv [A : Type] (x : A + A) : A :=
+  match x with inl v | inr v => v end.
+
+Definition sum_map [A0 A1 B0 B1 : Type] (f0 : A0 -> B0) (f1 : A1 -> B1) (x : A0 + A1) : B0 + B1 :=
+  match x with
+  | inl x => inl (f0 x)
+  | inr x => inr (f1 x)
+  end.
+Global Arguments sum_map _ _ _ _ _ _ !x.
+
 
 (* propositions *)
 
@@ -1004,6 +1021,9 @@ Module DTuple.
     | Pnil       => Datatypes.unit
     | Pcons T TS => {x : T & t (TS x)}
     end.
+
+  Definition Psingl (T : Type) : p :=
+    Pcons T (fun _ => Pnil).
 
   Definition pair [T : Type] [TS : T -> p]
     : forall (x : T) (xs : t (TS x)), {x : T & t (TS x)}

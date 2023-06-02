@@ -26,12 +26,32 @@ Module Spec. Section Spec.
     forall (post0 post1 : A -> mem -> Prop) (LE : forall x m, post0 x m -> post1 x m) m,
     wp post0 m -> wp post1 m.
 
+  Definition wp_eq (wp0 wp1 : wp_t) : Prop :=
+    forall post m0, wp0 post m0 <-> wp1 post m0.
+
+  Global Instance wp_eq_Equivalence : Equivalence wp_eq.
+  Proof.
+    Rel.by_expr (Rel.point (A -> mem -> Prop) (Rel.point mem iff)).
+  Qed.
+
   Definition wp_le (wp0 wp1 : wp_t) : Prop :=
     forall post m0, wp1 post m0 -> wp0 post m0.
 
   Global Instance wp_le_PreOrder : PreOrder wp_le.
   Proof.
     Rel.by_expr (Rel.point (A -> mem -> Prop) (Rel.point mem (Basics.flip (Basics.impl)))).
+  Qed.
+
+  (* TODO generic le -> eq *)
+  Global Add Morphism wp_le
+    with signature wp_eq ==> wp_eq ==> iff
+    as wp_le_morph.
+  Proof.
+    unfold wp_eq, wp_le.
+    intros ? ? E0 ? ? E1.
+    setoid_rewrite E0.
+    setoid_rewrite E1.
+    reflexivity.
   Qed.
   
   Record t := mk {
@@ -65,6 +85,7 @@ Inductive instr : Type -> Type :=
   | Ret  [A] (x : A) : instr A
   | Bind [A B] (f : instr A) (g : A -> instr B) : instr B
   | Call [sg : f_sig] (f : fid) (SIG : SG f = Some sg) (x : f_arg_t sg) : instr (f_ret_t sg)
+  | Loop [A B] (ini : A + B) (f : A -> instr (A + B)) : instr B
   | Oracle (A : Type) : instr A
   | Assert (P : mem -> Prop) : instr unit
   (* Memory *)
@@ -102,6 +123,10 @@ Section Semantics.
         step (m, Bind (Ret x) g) (m, g x)
     | step_call m sg f SIG x:
         step (m, @Call sg f SIG x) (m, get_fun_body f SIG x)
+    | step_loop_l m [A B] (f : A -> instr (A + B)) (x : A):
+        step (m, @Loop A B (inl x) f) (m, Bind (f x) (fun x => Loop x f))
+    | step_loop_e m [A B] (f : A -> instr (A + B)) (x : B):
+        step (m, @Loop A B (inr x) f) (m, Ret x)
     | step_assert m (P : mem -> Prop)
         (ASSERT : P m):
         step (m, Assert P) (m, Ret tt)
@@ -125,6 +150,7 @@ Fixpoint oracle_free [A] (i : instr A) : Prop :=
   match i with
   | Oracle _ => False
   | Bind f g => oracle_free f /\ forall x, oracle_free (g x)
+  | Loop _ f => forall x, oracle_free (f x)
   | _        => True
   end.
 
@@ -163,6 +189,11 @@ Section WLP.
         exists s, fun_has_spec f SIG x s /\
           Spec.pre s m /\
           forall r m', Spec.post s m r m' -> post r m'
+    | @Loop A B x f => fun post m =>
+        exists Inv : A + B -> mem -> Prop,
+        Inv x m /\
+        (forall (x : A) m, Inv (inl x) m -> wlp (f x) Inv m) /\
+        (forall (x : B) m, Inv (inr x) m -> post x m)
     | Oracle A => fun post m =>
         exists x : A, post x m
     | Assert P => fun post m =>
@@ -185,6 +216,9 @@ Section WLP.
       intros (? & ? & ? & IMP).
       eexists; do 2 (esplit; [eassumption|]).
       intros; apply LE, IMP; assumption.
+    - (* Loop *)
+      intros (Inv & ? & ? & IMP).
+      exists Inv; eauto.
     - (* Oracle *)
       intros (? & P); eauto.
   Qed.
@@ -229,6 +263,13 @@ Section WLP_Correct.
       intros (s & SF & PRE & POST).
       eapply elim_MATCH in SF; eauto.
       eapply wlp_monotone, SF; eauto.
+    - (* Loop loop *)
+      intros (Inv & INI & PRS & ?).
+      eapply wlp_monotone, PRS, INI.
+      exists Inv; eauto.
+    - (* Loop exit *)
+      intros (Inv & INI & _ & EXIT).
+      apply EXIT, INI.
   Qed.
 
   Lemma wlp_step A m i (post : A -> mem -> Prop)
@@ -242,6 +283,8 @@ Section WLP_Correct.
     - (* Bind *)
       ecase IHi as [(? & ->)|((?,?) & STEP)]. apply WLP. apply OFREE.
       all:eauto using step.
+    - (* Loop *)
+      case ini; eauto using step.
   Qed.
 
   Hypothesis COFREE : context_oracle_free C.
@@ -303,32 +346,40 @@ Section Extraction.
   Global Arguments KDrop {_}.
   Global Arguments KFun [_ _].
 
+  Definition k_f [A B] (k : k_opt A B) : A -> B :=
+    match k with
+    | KNone  => fun x => x
+    | KDrop  => fun _ => tt
+    | KFun f => f
+    end.
+
   Definition k_apply [A B] (i : instr A) (k : k_opt A B) : instr B :=
+    Bind i (fun x => Ret (k_f k x)).
+
+  Lemma k_apply_morph [A B] (i0 i1 : instr A) (k : k_opt A B) SPEC
+    (LE : Spec.wp_le (wlp SPEC i0) (wlp SPEC i1)):
+    Spec.wp_le (wlp SPEC (k_apply i0 k)) (wlp SPEC (k_apply i1 k)).
+  Proof.
+    cbn; do 2 intro; apply LE.
+  Qed.
+
+  Definition k_apply_c [A B] (i : instr A) (k : k_opt A B) : instr B :=
     match k with
     | KNone  => i
     | KDrop  => Bind i (fun _ => Ret tt)
     | KFun f => Bind i (fun x => Ret (f x))
     end.
 
-  Lemma k_apply_morph [A B] (i0 i1 : instr A) (k : k_opt A B) SPEC
-    (LE : Spec.wp_le (wlp SPEC i0) (wlp SPEC i1)):
-    Spec.wp_le (wlp SPEC (k_apply i0 k)) (wlp SPEC (k_apply i1 k)).
+  Lemma k_apply_c_eq [A B] (i : instr A) (k : k_opt A B) SPEC:
+    Spec.wp_eq (wlp SPEC (k_apply i k)) (wlp SPEC (k_apply_c i k)).
   Proof.
-    destruct k; cbn; do 2 intro; apply LE.
+    destruct k; cbn; reflexivity.
   Qed.
+  Local Opaque k_apply_c.
 
   Definition k_apply_Ret [A B] (x : A) (k : k_opt A B) : instr B :=
-    match k with
-    | KNone  => Ret x
-    | KDrop  => Ret tt
-    | KFun f => Ret (f x)
-    end.
+    Ret (k_f k x).
 
-  Lemma k_apply_Ret_le [A B] x k SPEC:
-    Spec.wp_le (wlp SPEC (@k_apply_Ret A B x k)) (wlp SPEC (k_apply (Ret x) k)).
-  Proof.
-    destruct k; intro; cbn; auto.
-  Qed.
 
   Inductive extract_cont [A B] (i : instr A) (k : k_opt A B) (r : instr B) : Prop :=
     extract_contI (E : forall SPEC, Spec.wp_le (wlp SPEC r) (wlp SPEC (k_apply i k))).
@@ -349,9 +400,11 @@ Section Extraction.
   Qed.
 
   Lemma ERefl [A B] [i : instr A] (k : k_opt A B):
-    extract_cont i k (k_apply i k).
+    extract_cont i k (k_apply_c i k).
   Proof.
-    constructor. reflexivity.
+    constructor.
+    setoid_rewrite k_apply_c_eq.
+    reflexivity.
   Qed.
 
   Inductive edroppable {A : Type}: instr A -> Prop :=
@@ -370,10 +423,9 @@ Section Extraction.
     (D : @edroppable unit i):
     @extract_cont unit B i k (k_apply_Ret tt k).
   Proof.
-    constructor; intros SPEC post m0 W; destruct D; cbn;
-    apply k_apply_Ret_le.
-    - destruct x; auto.
-    - eapply k_apply_morph, W; intros ? ? [[] H]; exact H.
+    constructor; intros SPEC post m0; destruct D; cbn.
+    - case x; auto.
+    - intros [[] ?]; auto.
   Qed.
 
   Lemma EDropAssert [B P] k:
@@ -397,6 +449,15 @@ Section Extraction.
         (G : forall x y, g (existG _ x y) = g' x)
         : @ebind (sigG A P) B g A (KFun (fun '(existG _ x _) => x)) g'.
 
+  Lemma ebind_spec [A B g A' k g'] (E : @ebind A B g A' k g') (x : A):
+    g x = g' (k_f k x).
+  Proof.
+    case E as []; cbn; try reflexivity.
+    - (* EBind_SigG *)
+      case x as []; apply G.
+  Qed.
+
+
   Lemma EBind [A0 A1 B C] [f0 f1 g0 g1 g2] [kg kf]
     (Eg : forall x : A0, @extract_cont B C (g0 x) kg (g1 x))
     (Eb : @ebind A0 C g1 A1 kf g2)
@@ -406,17 +467,52 @@ Section Extraction.
     constructor.
     intros SPEC post m0; cbn.
     intro W0.
-    apply Ef.
-    assert (W1 : wlp SPEC (Bind f0 g1) post m0). {
-      cbn; destruct kg; cbn in W0; eapply wlp_monotone, W0;
-      cbn; intros x m1; apply Eg.
-    }
-    destruct Eb; cbn in *; try solve [apply W1].
-    - (* EBind_SigG *)
-      eapply wlp_monotone, W1; cbn.
-      intros [x y] m1.
-      rewrite G; auto.
+    apply Ef; cbn.
+    eapply wlp_monotone, W0; cbn; intros x m1.
+    rewrite <- (ebind_spec Eb).
+    apply Eg.
+  Qed.
+
+  Section K_SUM.
+    Context [A0 A1 B0 B1 : Type] (k0 : k_opt A0 B0) (k1 : k_opt A1 B1).
+
+    Definition k_sum  : k_opt (A0 + A1) (B0 + B1) :=
+      let def := @KFun (A0 + A1) (B0 + B1) (sum_map (k_f k0) (k_f k1)) in
+      match k0 in k_opt _ B0, k1 in k_opt _ B1
+      return k_opt _ (B0 + B1) -> k_opt _ (B0 + B1) with
+      | KNone, KNone => fun _   => KNone
+      | _,     _     => fun def => def
+      end def.
+
+    Lemma k_sum_f x:
+      k_f k_sum x = sum_map (k_f k0) (k_f k1) x.
+    Proof.
+      unfold k_sum.
+      case k0 as [], k1 as []; try reflexivity.
+      case x; reflexivity.
     Qed.
+  End K_SUM.
+  Local Opaque k_sum.
+
+  Lemma ELoop [A A' B C f0 f1 f2 x kl ke]
+    (El : @ebind A _ f1 A' kl f2)
+    (Ef : forall x : A, @extract_cont (A + B) (A' + C) (f0 x) (k_sum kl ke) (f1 x)):
+    @extract_cont B C (@Loop A B x f0) ke (@Loop A' C (sum_map (k_f kl) (k_f ke) x) f2).
+  Proof.
+    constructor; intros SPEC post m0; cbn.
+    intros (Inv & INI & PRS & EXIT).
+    set (km := sum_map _ _).
+    exists (fun y m => exists x, y = km x /\ Inv x m).
+    split; [|split].
+    2,3:intros y1 m1 ([x1|x1] & Y1 & INV);
+        simplify_eq Y1; intros ->; clear Y1.
+    - eauto.
+    - rewrite <- (ebind_spec El).
+      apply (Ef x1); cbn.
+      eapply wlp_monotone, PRS, INV.
+      setoid_rewrite k_sum_f; eauto.
+    - apply EXIT, INV.
+  Qed.
 End Extraction.
 
 End Concrete.
@@ -555,6 +651,14 @@ Ltac build_extract_cont_k ktac :=
           [ intro; ktac
           | cbn; build_ebind
           | ktac ]
+      | Loop _ _ =>
+          refine (ELoop _ _);
+          [ (* El *)
+            tryif apply EBind_SigG
+            then reflexivity
+            else apply EBind_Refl
+          | (* Ef *)
+            intro; ktac ]
       | _ =>
           exact (ERefl _)
       end

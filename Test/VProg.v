@@ -155,6 +155,32 @@ Definition vprog_6 : FImpl f_6 := fun p =>
 Lemma correct_6: FCorrect vprog_6.
 Proof. solve_by_wlp. Qed.
 
+
+Definition spec_7 : FDecl SPEC
+  ((p0, p1, p2) : ptr * ptr * ptr) '(v0, v1, v2) [vptr p2 ~> v2] [vptr p0 ~> v0; vptr p1 ~> v1]
+    (v0 >= 1 /\ v1 >= 1 /\ v2 >= 1)
+  '(p : ptr) (v', v1') [vptr p ~> v'; vptr p1 ~> v1'] (v1 >= 1).
+Proof. Derived. Defined.
+Variable f_7 : spec_7 CT.
+
+Definition vprog_7 : FImpl f_7 := fun '(p0, p1, p2) =>
+  Loop0 (fun p => [vptr (sumv p)~>]) None (inl p0) (fun p =>
+    'v <- Read p;
+    match v with
+    | O   => Ret (inr p) (pt := fun p => [vptr (sumv p)~>])
+    | S n =>
+        Write p n;;
+        'v2 <- Read p2;
+        Write p1 v2;;
+        Ret (inl p) (pt := fun p => [vptr (sumv p)~>])
+    end
+  ).
+Lemma correct_7 : FCorrect vprog_7.
+Proof.
+  solve_by_wlp.
+  exists (fun _ _ v1 => v1 >= 1).
+  FP.solve_wlp; auto.
+Qed.
 End Program.
 
 Derive prog SuchThat (CP.of_entries [
@@ -164,7 +190,8 @@ Derive prog SuchThat (CP.of_entries [
   f_entry spec_3 correct_3;
   f_entry spec_4 correct_4;
   f_entry spec_5 correct_5;
-  f_entry spec_6 correct_6
+  f_entry spec_6 correct_6;
+  f_entry spec_7 correct_7
 ] prog) As prog_correct.
 Proof. Derived. Qed.
 

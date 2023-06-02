@@ -228,6 +228,44 @@ Proof.
   FunProg.solve_by_wlp.
 Qed.
 
+Definition Length_impl_loop : FImpl Length := fun p0 =>
+  gLem intro_lseg_nil p0;;
+  let inv (x : ptr * nat + nat) :=
+    let p1 := match x with inl (p, _) => p | inr _ => NULL end in
+    [lseg p0 p1~>; llist p1~>]
+  in
+  'n <- Loop (inv := inv) (inl (p0, 0)) (fun '(p1, n) =>
+    if Mem.ptr_eq p1 NULL
+    then
+      gLem (replace [lseg p0 p1~>; llist p1~>] [lseg p0 NULL~>; llist NULL~>]) eq_refl;;
+      Ret (inr n) (pt := inv)
+    else
+      'g_p2 <- gLem elim_llist_nnull p1;
+      'p2 <- Read (p_next p1);
+      gLem replace1 (llist g_p2, llist p2);;
+      gLem intro_lseg_nil p2;;
+      gLem intro_lseg_cons (p1, p2, p2);;
+      gLem lseg_app (p0, p1, p2);;
+      Ret (inl (p2, (S n))) (pt := inv)
+  );
+  gLem (lseg_null_nil NULL NULL) tt;;
+  gLem elim_lseg_nil (NULL, NULL);;
+  Ret n.
+Lemma Length_loop_correct : FCorrect Length_impl_loop.
+Proof.
+  build_fun_spec.
+  FunProg.solve_by_wlp.
+  exists (fun x l0 l1 =>
+    let n := match x with inl (_, n) | inr n => n end in
+    sel0 = l0 ++ l1 /\ n = length l0
+  ).
+  FunProg.solve_wlp; cbn in *; subst; auto.
+  all:case H2 as []; subst; autorewrite with list; auto.
+  split.
+  - rewrite <- List.app_assoc; reflexivity.
+  - rewrite PeanoNat.Nat.add_comm; reflexivity.
+Qed.
+
 
 Definition Rev_spec : FDecl SPEC
   ((p, pr) : ptr * ptr)
@@ -291,7 +329,7 @@ Qed.
 End Program.
 
 Derive prog SuchThat (ConcreteProg.of_entries [
-  f_entry Length_spec    Length_correct;
+  f_entry Length_spec    Length_loop_correct;
   f_entry Rev_spec       Rev_correct;
   f_entry Seg_Next_spec  Seg_Next_correct
 ] prog) As prog_correct.

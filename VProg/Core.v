@@ -19,21 +19,33 @@ Local Transparent FP.Ret FP.Bind FP.Call FP.Assert.
 Module TF.
   Include DTuple.
 
-  Definition mk_p (p_val : Type) (p_sel : p_val -> list Type) : p :=
+  Definition mk_p0 (p_val : Type) (p_sel : p_val -> list Type) : p :=
     Pcons p_val (fun x => p_tu (p_sel x)).
+
+  Definition mk_p (p_val : Type) (p_sel : p_val -> VpropList.t) : p :=
+    mk_p0 p_val (fun x => VpropList.sel (p_sel x)).
+  Global Arguments mk_p/.
+
+  Definition mk_t0 (p_val : Type) (p_sel : p_val -> list Type) : Type :=
+    DTuple.t (mk_p0 p_val p_sel).
   
-  Definition mk_t (p_val : Type) (p_sel : p_val -> list Type) : Type :=
-DTuple.t (mk_p p_val p_sel).
+  Definition mk_t (p_val : Type) (p_sel : p_val -> VpropList.t) : Type :=
+    DTuple.t (mk_p p_val p_sel).
 
-  Definition mk [p_val : Type] (p_sel : p_val -> list Type)
-    (v_val : p_val) (v_sel : Tuple.t (p_sel v_val)) : mk_t p_val p_sel
+  Definition mk0 [p_val : Type] (p_sel : p_val -> list Type)
+    (v_val : p_val) (v_sel : Tuple.t (p_sel v_val)) : DTuple.t (mk_p0 p_val p_sel)
     := pair v_val (of_tu v_sel).
-  Global Arguments mk _ _ _ _/.
+  Global Arguments mk0 _ _ _ _/.
 
-  Definition v_val [p_val p_sel] (v : t (mk_p p_val p_sel)) : p_val :=
+  Definition mk [p_val : Type] (p_sel : p_val -> VpropList.t)
+    (v_val : p_val) (v_sel : VpropList.sel_t (p_sel v_val)) : mk_t p_val p_sel
+    := pair v_val (of_tu v_sel).
+  Global Arguments mk/.
+
+  Definition v_val [p_val p_sel] (v : t (mk_p0 p_val p_sel)) : p_val :=
     let '(existT _ x _) := v in x.
 
-  Definition v_sel [p_val p_sel] (v : t (mk_p p_val p_sel)) : Tuple.t (p_sel (v_val v)) :=
+  Definition v_sel [p_val p_sel] (v : t (mk_p0 p_val p_sel)) : Tuple.t (p_sel (v_val v)) :=
     let '(existT _ _ s) := v in to_tu s.
 
   Lemma v_sel_mk [p_val p_sel] v s:
@@ -395,9 +407,10 @@ Local Set Implicit Arguments.
 Record i_spec_t (A : Type) (ctx : CTX.t) := mk_i_spec {
   sf_csm  : Sub.t ctx;
   sf_prd  : A -> VpropList.t;
-  sf_spec : FP.instr (TF.mk_p A (fun x => VpropList.sel (sf_prd x)));
+  sf_spec : FP.instr (TF.mk_p A sf_prd);
 }.
 Local Unset Implicit Arguments.
+Global Arguments mk_i_spec [A ctx] _ _ _.
 
 Section GETTERS.
   Context [A ctx] (s : i_spec_t A ctx).
@@ -406,7 +419,7 @@ Section GETTERS.
     VpropList.sel (sf_prd s x).
 
   Definition sf_rvar : TF.p :=
-    TF.mk_p A sf_rsel.
+    TF.mk_p A (sf_prd s).
   
   Definition sf_rvar_t : Type :=
     TF.t sf_rvar.
@@ -419,7 +432,7 @@ Section GETTERS.
 
   Definition sf_post (post : sf_rvar_t -> Prop) (x : A) : SLprop.t :=
     SLprop.ex (VpropList.sel_t (sf_prd s x)) (fun sels =>
-      let r := TF.mk sf_rsel x sels in
+      let r := TF.mk (sf_prd s) x sels in
       SLprop.pure (post r) **
       CTX.sl (sf_post_ctx r))%slprop.
 End GETTERS.
@@ -578,7 +591,7 @@ Section ChangePrd.
 End ChangePrd.
 Global Arguments change_prd _ _ !_ _ _/.
 
-Lemma Tr_change_exact [A ctx s s1 csm1 prd1] [f1 : FP.instr (TF.mk_p A (fun x => VpropList.sel (prd1 x)))]
+Lemma Tr_change_exact [A ctx s s1 csm1 prd1] [f1 : FP.instr (TF.mk_p A prd1)]
   (CSM  : csm1 = Sub.or (sf_csm s) csm1)
   (S1   : s1 = add_csm s csm1)
   (rsel : TF.arrow (sf_rvar s1) (fun r => VpropList.sel_t (prd1 (TF.v_val r))))
@@ -765,7 +778,7 @@ Section FunImpl.
   Let s_vpost (xG : AG) :=
     Spec.vpost (s_1 xG) ++ VpropList.of_ctx (Spec.prs s_1).
   Let rvar :=
-    TF.mk_p AG (fun xG => VpropList.sel (s_vpost xG)).
+    TF.mk_p AG s_vpost.
 
   Local Lemma s_vpost_eq (xG : AG) (sel1 : Tuple.t (Spec.sel1_t (s_1 xG))) (REQ : Spec.req s_1):
     VpropList.of_ctx (s_post xG sel1 REQ) = s_vpost xG.
@@ -955,7 +968,7 @@ Section Ret.
       (IJ : InjPre_Frame_Spec pre ctx {|
         sf_csm  := Sub.const pre true;
         sf_prd  := pt;
-        sf_spec := FunProg.Ret (TF.mk (fun x => VpropList.sel (pt x)) x sels);
+        sf_spec := FunProg.Ret (TF.mk pt x sels);
       |} F),
       Ret_Spec ctx F.
 
@@ -1007,10 +1020,10 @@ Section Bind.
       = csm)
     (prd : B -> VpropList.t)
     (PRD : forall r, sf_prd (s_g r) = prd)
-    (spec : FP.instr (TF.mk_p B (fun y => VpropList.sel (prd y))))
+    (spec : FP.instr (TF.mk_p B prd))
     (SPEC : FP.eqv spec (
-                let TF_A     := TF.mk_p A (sf_rsel s_f) in
-                let TF_B prd := TF.mk_p B (fun y => VpropList.sel (prd y)) in
+                let TF_A     := TF.mk_p A (sf_prd s_f) in
+                let TF_B prd := TF.mk_p B prd          in
                 @FunProg.Bind TF_A (TF_B prd)
                     (sf_spec s_f)
                     (TF.of_fun (T := TF_A) (fun r =>
@@ -1100,11 +1113,10 @@ Section Bind.
                                 (sf_csm (TF.to_fun s_g x)))) = csm))
     [prd : B -> VpropList.t]
     (PRD : TF.arrow (sf_rvar s_f) (fun x => sf_prd (TF.to_fun s_g x) = prd))
-    [spec : FP.instr (TF.mk_p B (fun y => VpropList.sel (prd y)))]
+    [spec : FP.instr (TF.mk_p B prd)]
     (SPEC : spec = 
         let TF_A := sf_rvar s_f in
-        let TF_B (prd : B -> VpropList.t) :=
-          TF.mk_p B (fun y : B => VpropList.sel (prd y)) in
+        let TF_B (prd : B -> VpropList.t) := TF.mk_p B prd in
         FunProg.Bind (sf_spec s_f)
            (TF.of_fun (fun x =>
               eq_rect (sf_prd (TF.to_fun s_g x))
@@ -1191,9 +1203,9 @@ Section Call.
     Inductive Call_Spec (ctx : CTX.t) (F : i_spec_t AG ctx) : Prop
       := Call_SpecI
       (sel0 : Spec.sel0_t s):
-      let ppre := Spec.pre (s sel0) ++ Spec.prs (s sel0)                      in
-      let TF_A := TF.mk_p AG (fun x => Spec.sel1_t (s sel0 x))                in
-      let TF_B := TF.mk_p AG (fun x => VpropList.sel (Spec.vpost (s sel0 x))) in
+      let ppre := Spec.pre (s sel0) ++ Spec.prs (s sel0)        in
+      let TF_A := TF.mk_p0 AG (fun x => Spec.sel1_t (s sel0 x)) in
+      let TF_B := TF.mk_p  AG (fun x => Spec.vpost (s sel0 x))  in
       forall
       (IJ : InjPre_Frame_Spec ppre ctx {|
         sf_csm  := Sub.app (Sub.const (Spec.pre (s sel0)) true)
@@ -1273,7 +1285,7 @@ Section Call.
       - intro rx; unfold Expanded.tr_post; cbn; SL.normalize.
         Intro sel1.
         Intro ENS.
-        specialize (POST (TF.mk _ rx sel1));
+        specialize (POST (TF.mk0 _ rx sel1));
           cbn in POST;
           rewrite !TF.to_of_fun, TF.to_of_tu in POST.
         EApply.
@@ -1322,7 +1334,7 @@ Section Call.
       - clear L.
         apply SP.ExistsE; intro res.
         apply SP.ExistsE; intro sel1.
-        specialize (WLP (TF.mk _ res sel1)).
+        specialize (WLP (TF.mk0 _ res sel1)).
         apply SP.COracle with (x := res); cbn in *.
         rewrite !TF.to_of_fun, TF.to_of_tu in WLP.
         Intro ENS%WLP; clear WLP.
@@ -1550,7 +1562,7 @@ Module Tac.
   Local Lemma intro_i_spec_t_eq [A : Type] [ctx : CTX.t] [s0 : i_spec_t A ctx] [csm1 prd1] f1
     (E : csm1 = sf_csm s0 /\
          { E : prd1 = sf_prd s0
-             | f1 = eq_rect_r (fun prd => FP.instr (TF.mk_p A (fun x => VpropList.sel (prd x))))
+             | f1 = eq_rect_r (fun prd => FP.instr (TF.mk_p A prd))
                               (sf_spec s0) E}):
     s0 = mk_i_spec csm1 prd1 f1.
   Proof.
@@ -1804,9 +1816,9 @@ Module Tac.
         | (match ?x with _ => _ end) =>
             simple refine (extract_cont_change _ _ _);
             [ (* r0 *)
-              case x; try clear x; intros; shelve
+              case x as []; shelve
             | (* C *)
-              case x; try clear x; intros;
+              case x as [];
               build_extract_cont
             | (* E *)
               (* tries to remove the match *)

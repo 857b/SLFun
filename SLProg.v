@@ -262,6 +262,22 @@ Section SLS.
       exact (SLE _ M0).
     Qed.
   End Call.
+  Section Loop.
+    Context [A B : Type] [inv : A + B -> SLprop.t]
+      (ini : A + B)
+      [f : A -> CP.instr (A + B)]
+      (Sf : forall x : A, sls (f x) (Spec.mk (inv (inl x)) inv)).
+
+    Lemma Loop : sls (CP.Loop ini f) (Spec.mk (inv ini) (fun x => inv (inr x))).
+    Proof.
+      intros fr m0; cbn; intros M0.
+      exists (fun x => mem_match_sl (inv x ** fr)).
+      split; [|split]; auto.
+      - (* PRS *)
+        intros x1 m1 M1.
+        apply Sf, M1.
+    Qed.
+  End Loop.
   Section Oracle.
     Context [A : Type] (x : A).
 

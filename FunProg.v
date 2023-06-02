@@ -174,6 +174,37 @@ Section Instr.
 
   Program Definition Assert (P : Prop) : instr DTuple.unit
     := fun post => P /\ post DTuple.tt.
+
+  Program Definition Oracle (A : DTuple.p) : instr A
+    := fun post => exists x, post x.
+  Next Obligation.
+    intros [x]; eauto.
+  Qed.
+
+  Program Definition Loop [A B : Type] [C : A + B -> DTuple.p]
+    (Inv : DTuple.arrow (DTuple.Pcons (A + B) C) (fun _ => Prop))
+    (ini_x : A + B) (ini_y : DTuple.t (C ini_x))
+    (f : forall x : A, DTuple.arrow (C (inl x)) (fun _ => instr (DTuple.Pcons (A + B) C)))
+    : instr (DTuple.Pcons B (fun x => C (inr x)))
+    := fun post =>
+       DTuple.to_fun (Inv ini_x) ini_y /\
+       (forall (x : A) (y : DTuple.t (C (inl x))),
+          DTuple.to_fun (Inv (inl x)) y -> wlp (DTuple.to_fun (f x) y) (DTuple.to_fun Inv)) /\
+       (forall (x : B) (y : DTuple.t (C (inr x))),
+          DTuple.to_fun (Inv (inr x)) y -> post (DTuple.pair x y)).
+
+  Lemma Loop_morph [A B C Inv ini_x ini_y f0 f1]
+    (E : forall (x : A) (y : DTuple.t (C (inl x))),
+      eqv (DTuple.to_fun (f0 x) y)
+          (DTuple.to_fun (f1 x) y)):
+    eqv (@Loop A B C Inv ini_x ini_y f0)
+        (@Loop A B C Inv ini_x ini_y f1).
+  Proof.
+    intro; cbn.
+    unfold eqv, Spec.wp_eq in E.
+    setoid_rewrite E.
+    reflexivity.
+  Qed.
 End Instr.
 
 (* WLP formula *)
@@ -235,6 +266,30 @@ Section WLP_Formula.
   Proof.
     constructor; auto.
   Qed.
+
+  Lemma wlp_formula_Oracle A:
+    wlp_formula (Oracle A) (fun post => DTuple.ex A post).
+  Proof.
+    constructor; intro.
+    rewrite DTuple.ex_iff; auto.
+  Qed.
+
+  Lemma wlp_formula_Loop [A B C Inv ini_x ini_y f ff]
+    (Ff : forall x : A, DTuple.arrow (C (inl x)) (fun y =>
+      wlp_formula (DTuple.to_fun (f x) y) (DTuple.to_fun (ff x) y))):
+    wlp_formula (@Loop A B C Inv ini_x ini_y f)
+      (fun post =>
+       DTuple.to_fun (Inv ini_x) ini_y /\
+       (forall (x : A), DTuple.all (C (inl x)) (fun y =>
+          DTuple.to_fun (Inv (inl x)) y -> DTuple.to_fun (ff x) y (DTuple.to_fun Inv))) /\
+       (forall (x : B), DTuple.all (C (inr x)) (fun y =>
+          DTuple.to_fun (Inv (inr x)) y -> post (DTuple.pair x y)))).
+  Proof.
+    constructor; intro.
+    setoid_rewrite DTuple.all_iff.
+    cbn; intuition.
+    apply (DTuple.to_fun (Ff x) y); auto.
+  Qed.
 End WLP_Formula.
 
 (* Must be called on a goal [f a b].
@@ -260,7 +315,7 @@ Ltac case_2heads x f a b :=
 (* build a formula [match x with ... end] *)
 Ltac build_wlp_formula_match build_f x :=
   lazymatch goal with |- wlp_formula _ ?f =>
-  Tac.build_term f ltac:(fun _ => intro (* post *); case x as []; shelve)
+  Tac.build_term f ltac:(fun _ => intro (* post *); Tac.case_intro_keep x; shelve)
   end;
   cbn;
   lazymatch goal with |- @wlp_formula ?A ?i ?f =>
@@ -311,6 +366,11 @@ Ltac build_wlp_formula_ dmatch :=
       exact (@wlp_formula_Call A s)
   | |- wlp_formula (Assert _) _ =>
       refine (wlp_formula_Assert _)
+  | |- wlp_formula (Oracle _) _ =>
+      refine (wlp_formula_Oracle _)
+  | |- wlp_formula (Loop _ _ _ _) _ =>
+      refine (wlp_formula_Loop _);
+      [ cbn; intros; build ]
   | |- wlp_formula (match ?x with _ => _ end) _ =>
       lazymatch dmatch with
       | true =>
@@ -528,6 +588,17 @@ Section SimplCont.
       symmetry; apply Bind_assoc.
   Qed.
 
+  (* TODO? directly use an eqv morphism lemma *)
+  Lemma simpl_cont_Loop [A B C D Inv ini_x ini_y f rf k]
+    (F : forall x : A, DTuple.arrow (C (inl x)) (fun y =>
+        simpl_cont (DTuple.to_fun (f x) y) k_None (DTuple.to_fun (rf x) y))):
+    @simpl_cont _ D (@Loop A B C Inv ini_x ini_y f) k (k_apply (Loop Inv ini_x ini_y rf) k).
+  Proof.
+    constructor; apply k_apply_morh. 2:reflexivity.
+    apply Loop_morph; intros; symmetry.
+    apply eqv_by_simpl_cont, (DTuple.to_fun (F x) y).
+  Qed.
+
   Lemma simpl_cont_branch [A B C i r f k]
     (S : simpl_cont i (mk_k C f (DTuple.of_fun (fun x => Ret x))) r):
     @simpl_cont A B i (mk_k C f k) (Bind r k).
@@ -566,12 +637,17 @@ Ltac build_simpl_cont :=
       refine (simpl_cont_def _ _) ]
   | |- simpl_cont (Assert _) _ _ =>
       refine (simpl_cont_def _ _)
+  | |- simpl_cont (Oracle _) _ _ =>
+      refine (simpl_cont_def _ _)
+  | |- simpl_cont (Loop _ _ _ _) _ _ =>
+      refine (simpl_cont_Loop _);
+      [ cbn; intros; build_simpl_cont ]
   | |- simpl_cont (match ?x with _ => _ end) _ _ =>
       (tryif Tac.is_single_case x
        then idtac
        else refine (simpl_cont_branch _));
       lazymatch goal with |- simpl_cont _ _ ?r =>
-      Tac.build_term r ltac:(fun tt => case x as []; shelve);
+      Tac.build_term r ltac:(fun tt => Tac.case_intro_keep x; shelve);
       cbn
       end;
       lazymatch goal with |- @simpl_cont ?A ?B ?i ?k ?r =>
@@ -588,7 +664,7 @@ Ltac simpl_prog :=
     build_simpl_cont
   | cbn ].
 
-Global Opaque Ret Bind Call Assert.
+Global Opaque Ret Bind Call Assert Oracle Loop.
 
 Module Notations.
   Export DTuple.Notations.

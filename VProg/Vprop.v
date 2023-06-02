@@ -12,6 +12,9 @@ Module Vprop.
     sl : p ty;
   }.
   Global Arguments mk [ty].
+  (* TODO ? to keep the vprop in the functional representation
+  Global Arguments Vprop.ty : simpl never.
+  *)
 End Vprop.
 
 Module CTX.
@@ -49,6 +52,23 @@ Module CTX.
           if hd then x :: ys else ys
       end.
 
+    Definition nil : t [] := Vector.nil bool.
+    Global Arguments nil/.
+
+    Definition cons {a : atom} (hd : bool) {c : CTX.t} (tl : t c) : t (a :: c) :=
+      Vector.cons bool hd (length c) tl.
+    Global Arguments cons/.
+
+    Definition uncons {a : atom} {c : CTX.t}: t (a :: c) -> bool * t c :=
+      @Vector.uncons bool (length c).
+
+    Definition caseS' {a : atom} {c : CTX.t}:
+      forall (s : t (a :: c))
+             (P : t (a :: c) -> Type)
+             (H : forall (h : bool) (t : t c), P (cons h t)),
+      P s :=
+      Vector.caseS'.
+
     Definition const (c : CTX.t) (v : bool) : t c :=
       Vector.const v (List.length c).
   
@@ -59,7 +79,7 @@ Module CTX.
     Qed.
     
     Lemma sub_const_false c:
-      sub c (Sub.const c false) = nil.
+      sub c (Sub.const c false) = [].
     Proof.
       induction c; simpl; f_equal; auto.
     Qed.
@@ -81,7 +101,7 @@ Module CTX.
       case c0 as [|hd c0].
       - intros _ s1. exact s1.
       - intros s0 s1.
-        case s0 as [hd0 tl0] using Vector.caseS'.
+        case s0 as [hd0 tl0] using caseS'.
         constructor.
         + exact hd0.
         + exact (app c0 c1 tl0 s1).
@@ -92,7 +112,7 @@ Module CTX.
     Proof.
       induction c0.
       - reflexivity.
-      - destruct s0 as [[]] using Vector.caseS';
+      - destruct s0 as [[]] using caseS';
         simpl; f_equal; apply IHc0.
     Qed.
 
@@ -101,7 +121,7 @@ Module CTX.
     Proof.
       induction c0.
       - reflexivity.
-      - destruct s0 using Vector.caseS'.
+      - destruct s0 using caseS'.
         simpl; f_equal; apply IHc0.
     Qed.
 
@@ -110,8 +130,8 @@ Module CTX.
     Proof.
       induction c0.
       - reflexivity.
-      - destruct a0 using Vector.caseS'.
-        destruct b0 using Vector.caseS'.
+      - destruct a0 using caseS'.
+        destruct b0 using caseS'.
         simpl; f_equal; apply IHc0.
     Qed.
 
@@ -119,9 +139,9 @@ Module CTX.
     Proof.
       case c0 as [|? c0].
       - intro s; split. constructor. exact s.
-      - intros [hd tl]%Vector.uncons.
+      - cbn; intros [hd tl]%uncons.
         case (split c0 c1 tl) as (s0, s1).
-        exact (Vector.cons _ hd _ s0, s1).
+        exact (cons hd s0, s1).
     Defined.
   
     Lemma app_split (c0 c1 : CTX.t) (s : Sub.t (c0 ++ c1)):
@@ -130,7 +150,7 @@ Module CTX.
     Proof.
       induction c0.
       - reflexivity.
-      - case s as [hd tl] using Vector.caseS'; simpl.
+      - case s as [hd tl] using caseS'; simpl.
         specialize (IHc0 tl).
         destruct Sub.split; simpl in *.
         rewrite IHc0; reflexivity.
@@ -141,7 +161,7 @@ Module CTX.
     Proof.
       induction c0.
       - destruct s0 using Vector.case0. reflexivity.
-      - destruct s0 as [? s0] using Vector.caseS'; simpl.
+      - destruct s0 as [? s0] using caseS'; simpl.
         rewrite (IHc0 s0); reflexivity.
     Qed.
 
@@ -149,13 +169,13 @@ Module CTX.
     Fixpoint push [c : CTX.t] : forall (s0 : t c), t c -> t (sub c s0).
     Proof.
       case c as [|c0 c].
-      - intros ? _; apply Vector.nil.
+      - intros ? _; exact nil.
       - intro s0.
-        case s0 as [hd0 tl0] using Vector.caseS'.
-        intros [hd1 tl1]%Vector.uncons.
+        case s0 as [hd0 tl0] using caseS'.
+        intros [hd1 tl1]%uncons.
         pose (tl2 := @push c tl0 tl1).
         case hd0; simpl.
-        + exact (Vector.cons _ hd1 _ tl2).
+        + exact (cons hd1 tl2).
         + exact tl2.
     Defined.
 
@@ -164,7 +184,7 @@ Module CTX.
     Proof.
       induction c; simpl.
       - reflexivity.
-      - destruct s0 as [h ?] using Vector.caseS'; destruct s1 using Vector.caseS'; simpl.
+      - destruct s0 as [h ?] using caseS'; destruct s1 using caseS'; simpl.
         rewrite IHc.
         case h; reflexivity.
     Qed.
@@ -174,21 +194,21 @@ Module CTX.
     Proof.
       induction c; simpl.
       - reflexivity.
-      - destruct s0 as [h0 ?] using Vector.caseS'; destruct s1 using Vector.caseS'; simpl.
+      - destruct s0 as [h0 ?] using caseS'; destruct s1 using caseS'; simpl.
         case h0; simpl; rewrite IHc; reflexivity.
     Qed.
     
     Fixpoint pull [c : CTX.t] : forall (s0 : t c), t (sub c s0) -> t (sub c (neg s0)) -> t c.
     Proof.
       case c as [|c0 c].
-      - intros ? _ _; apply Vector.nil.
+      - intros ? _ _; exact nil.
       - intro s0.
-        case s0 as [hd0 tl0] using Vector.caseS'.
+        case s0 as [hd0 tl0] using caseS'.
         case hd0; simpl.
-        + intros [hd1 tl1]%Vector.uncons s2.
-          exact (Vector.cons _ hd1 _ (pull c tl0 tl1 s2)).
-        + intros s1 [hd2 tl2]%Vector.uncons.
-          exact (Vector.cons _ hd2 _ (pull c tl0 s1 tl2)).
+        + intros [hd1 tl1]%uncons s2.
+          exact (cons hd1 (pull c tl0 tl1 s2)).
+        + intros s1 [hd2 tl2]%uncons.
+          exact (cons hd2 (pull c tl0 s1 tl2)).
     Defined.
 
     Lemma map_pull c s0 s1 s2 f:
@@ -196,9 +216,9 @@ Module CTX.
     Proof.
       induction c as [|c0 c].
       - reflexivity.
-      - case s0 as [[] s0] using Vector.caseS'.
-        + case s1 as [] using Vector.caseS'; simpl; f_equal; apply IHc.
-        + case s2 as [] using Vector.caseS'; simpl; f_equal; apply IHc.
+      - case s0 as [[] s0] using caseS'; cbn in *.
+        + case s1 as [] using caseS'; cbn; f_equal; apply IHc.
+        + case s2 as [] using caseS'; cbn; f_equal; apply IHc.
     Qed.
 
     Lemma sl_pull c s0 s1 s2:
@@ -207,10 +227,10 @@ Module CTX.
     Proof.
       induction c as [|c0 c].
       - simpl; SL.normalize; reflexivity.
-      - case s0 as [[] s0] using Vector.caseS'.
-        + case s1 as [[]] using Vector.caseS'; simpl;
+      - case s0 as [[] s0] using caseS'.
+        + case s1 as [[]] using caseS'; simpl;
             rewrite IHc; SL.normalize; reflexivity.
-        + case s2 as [[]] using Vector.caseS'; simpl;
+        + case s2 as [[]] using caseS'; simpl;
             rewrite IHc; SL.normalize; [rewrite SLprop.star_comm12|]; reflexivity.
     Qed.
   End Sub.
@@ -224,7 +244,7 @@ Module CTX.
   Proof.
     case c as [|a c].
     - exact (fun _ => SLprop.emp).
-    - intros [b s]%Vector.uncons.
+    - intros [b s]%Sub.uncons.
       exact (sl_opt (sla a) b ** sl_sub c s)%slprop.
   Defined.
 
@@ -233,7 +253,7 @@ Module CTX.
   Proof.
     induction c as [|a c]; cbn.
     - reflexivity.
-    - case s as [hd s] using Vector.caseS'; cbn.
+    - case s as [hd s] using Sub.caseS'; cbn.
       case hd; cbn; rewrite IHc; SL.normalize; reflexivity.
   Qed.
 
@@ -243,9 +263,9 @@ Module CTX.
   Proof.
     induction c; simpl.
     - SL.normalize; reflexivity.
-    - case s as [hd tl] using Vector.caseS'; simpl.
+    - case s as [hd tl] using Sub.caseS'; cbn.
       rewrite (IHc tl).
-      case hd; simpl; SL.normalize.
+      case hd; cbn; SL.normalize.
       + reflexivity.
       + apply SLprop.star_comm12.
   Qed.
@@ -1181,6 +1201,14 @@ Module VpropList.
     | v :: vs => fun '(sel, sels) => existT _ v sel :: inst vs sels
     end.
 
+  Lemma inst_length vs sl:
+    length (VpropList.inst vs sl) = length vs.
+  Proof.
+    induction vs; cbn.
+    - reflexivity.
+    - case sl as (?, sl); cbn; f_equal; auto.
+  Defined.
+
   Definition of_ctx : CTX.t -> t :=
     map (@projT1 _ _).
 
@@ -1222,6 +1250,73 @@ Module VpropList.
   Definition app_of_ctx c0 c1:
     VpropList.of_ctx (c0 ++ c1) = VpropList.of_ctx c0 ++ VpropList.of_ctx c1
     := List.Transp.map_app _ c0 c1.
+
+  Fixpoint split_sel (v0 v1 : VpropList.t) {struct v0}:
+    sel_t (v0 ++ v1) -> sel_t v0 * sel_t v1
+    :=
+    match v0 with
+    | nil     => fun sl => (tt, sl)
+    | v :: v0 => fun '(s0, sl) =>
+                 let (sl0, sl1) := split_sel v0 v1 sl in
+                 ((s0, sl0), sl1)
+    end.
+
+  Lemma app_split_sel (v0 v1 : VpropList.t) (sl : sel_t (v0 ++ v1)):
+    let sl01 := split_sel v0 v1 sl in
+    sl = app_sel (fst sl01) (snd sl01).
+  Proof.
+    induction v0 as [|v v0]; cbn.
+    - reflexivity.
+    - case sl as (s0, sl).
+      rewrite (IHv0 sl) at 1.
+      case split_sel; reflexivity.
+  Qed.
+
+  Lemma sub_of_ctx_eq (c : CTX.t) (sl : sel_t (of_ctx c)):
+    CTX.Sub.t (inst (of_ctx c) sl) = CTX.Sub.t c.
+  Proof.
+    unfold CTX.Sub.t, of_ctx.
+    rewrite inst_length, List.Transp.map_length.
+    reflexivity.
+  Defined.
+
+  Fixpoint tr_sub_of_ctx [c : CTX.t] {struct c} :
+    forall [sl : sel_t (of_ctx c)]
+           (sb : CTX.Sub.t (inst (of_ctx c) sl)),
+           CTX.Sub.t c.
+  Proof.
+    case c as [|a c]; cbn.
+    - exact (fun _ _ => CTX.Sub.nil).
+    - intros (sl0, sl) [b sb]%CTX.Sub.uncons.
+      exact (CTX.Sub.cons b (tr_sub_of_ctx c sl sb)).
+  Defined.
+
+  Fixpoint change_ctx_sub (c : CTX.t) {struct c}:
+    forall (s : CTX.Sub.t c) (sl : sel_t (of_ctx (CTX.sub c s))),
+    sel_t (of_ctx c).
+  Proof.
+    case c as [|[v sl0] c].
+    - exact (fun _ _ => tt).
+    - cbn; intro s.
+      case s as [[|] s] using CTX.Sub.caseS'; cbn.
+      + intros (sl0', sl).
+        exact (sl0', change_ctx_sub c s sl).
+      + intro sl.
+        exact (sl0, change_ctx_sub c s sl).
+  Defined.
+
+  Lemma change_ctx_sub_sl c s sl:
+    SLprop.eq (CTX.sl (inst (of_ctx c) (change_ctx_sub c s sl)))
+              (CTX.sl (CTX.sub c (CTX.Sub.neg s)) **
+               CTX.sl (inst (of_ctx (CTX.sub c s)) sl)).
+  Proof.
+    induction c as [|[v sl0] c IH]; cbn.
+    - SL.normalize; reflexivity.
+    - case s as [[|] s] using CTX.Sub.caseS'; cbn.
+      + case sl as (sl0', sl); cbn.
+        rewrite IH, SLprop.star_comm12; reflexivity.
+      + rewrite IH; SL.normalize; reflexivity.
+  Qed.
 End VpropList.
 
 Module Notations.
