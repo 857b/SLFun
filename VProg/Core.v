@@ -1666,7 +1666,7 @@ Module Tac.
             clear sel_ty' vp';
             k sel_ty_b vp_b
           in
-          tryif is_independent_of sel_ty x
+          tryif is_independent_of sel_ty' case_x
           then (
             unfold' ltac:(fun sel_ty_b vp_b =>
             case_in_ctx x case_x ctx ltac:(fun ctx' clear_sel rev_sel =>

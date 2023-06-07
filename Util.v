@@ -156,7 +156,7 @@ Module Tac.
    Tac.revert_exec ltac:(
      let t := eval hnf in t in
      let t := eval cbn in t in
-     assert (Tac.display t);
+     assert (Tac.display t) as _;
      [ clear dependent x; split |]
    ).
 
