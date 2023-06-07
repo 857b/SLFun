@@ -1,6 +1,8 @@
 From SLFun Require Import Util.
 From Coq   Require Import Setoids.Setoid.
 
+Import List.ListNotations.
+
 
 Module Spec.
   Local Set Implicit Arguments.
@@ -24,9 +26,16 @@ Module Spec.
     Definition wp_eq (wp0 wp1 : wp_t) : Prop :=
       forall post : post_t, wp0 post <-> wp1 post.
 
-    Global Instance wp_eq_Equivalence : Equivalence wp_eq.
+    Definition wp_le (wp0 wp1 : wp_t) : Prop :=
+      forall post : post_t, wp1 post -> wp0 post.
+
+    Global Instance wp_PartialOrder : Rel.MakePartialOrder wp_eq wp_le.
     Proof.
-      apply Equivalence.pointwise_equivalence, iff_equivalence.
+      split.
+      - intros ? ?; cbn; unfold Basics.flip, wp_eq, wp_le.
+        repeat setoid_rewrite Rel.forall_and_comm.
+        tauto.
+      - Rel.by_expr (Rel.point (A -> Prop) (Basics.flip (Basics.impl))).
     Qed.
   End WLP.
 
@@ -72,9 +81,26 @@ Definition wlp_monotone [A : DTuple.p] (i : instr A) : Spec.monotone (wlp i)
 Definition eqv [A : DTuple.p] (p0 p1 : instr A) : Prop :=
   Spec.wp_eq (wlp p0) (wlp p1).
 
-Global Instance eqv_Equivalence A : Equivalence (@eqv A).
+Definition le [A : DTuple.p] (p0 p1 : instr A) : Prop :=
+  Spec.wp_le (wlp p0) (wlp p1).
+
+Definition rel (e : bool) : forall [A : DTuple.p], relation (instr A) :=
+  if e then eqv else le.
+
+Global Instance instr_PartialOrder {A : DTuple.p}: Rel.MakePartialOrder (@eqv A) (@le A).
 Proof.
-  Rel.by_expr (Rel.pull (@wlp A) (@Spec.wp_eq _)).
+  split.
+  - intros ? ?; cbn.
+    unfold Basics.flip, eqv, le.
+    setoid_rewrite (Rel.partial_order_eq_iff (@Spec.wp_eq _) (@Spec.wp_le _)).
+    reflexivity.
+  - Rel.by_expr (Rel.pull (@wlp A) (@Spec.wp_le _)).
+Qed.
+
+Lemma eqv_iff_le [A : DTuple.p] (p0 p1 : instr A):
+  eqv p0 p1 <-> le p0 p1 /\ le p1 p0.
+Proof.
+  unshelve eapply (Rel.partial_order_eq_iff (@eqv A) (@le A)); auto_tc.
 Qed.
 
 Inductive wlpA [A : DTuple.p] (i : instr A) (post : DTuple.arrow A (fun _ => Prop)) : Prop :=
@@ -103,6 +129,29 @@ Section Instr.
     apply wlp_monotone; intro; apply wlp_monotone, LE.
   Qed.
 
+  Lemma Bind_morph_le [A B f0 f1 g0 g1]
+    (Ef : le f0 f1)
+    (Eg : forall x : DTuple.t A, le (DTuple.to_fun g0 x) (DTuple.to_fun g1 x)):
+    le (@Bind A B f0 g0) (@Bind A B f1 g1).
+  Proof.
+    intro post; cbn.
+    intro H.
+    apply Ef.
+    eapply wlp_monotone, H.
+    intro; apply Eg.
+  Qed.
+
+  Lemma Bind_morph_rel [A B f0 f1 g0 g1] e
+    (Ef : rel e f0 f1)
+    (Eg : forall x : DTuple.t A, rel e (DTuple.to_fun g0 x) (DTuple.to_fun g1 x)):
+    rel e (@Bind A B f0 g0) (@Bind A B f1 g1).
+  Proof.
+    destruct e; cbn in *.
+    - apply eqv_iff_le; split;
+      (apply Bind_morph_le; [rewrite Ef|setoid_rewrite Eg]; reflexivity).
+    - apply Bind_morph_le; auto.
+  Qed.
+
   Global Add Parametric Morphism A B : (@Bind A B)
     with signature (@eqv A) ==>
       (Rel.pull (@DTuple.to_fun A (fun _ => instr B))
@@ -110,11 +159,7 @@ Section Instr.
       @eqv B
     as Bind_morph.
   Proof.
-    intros f0 f1 Ef g0 g1 Eg post; cbn.
-    etransitivity.
-    apply Ef.
-    apply Spec.wp_morph. apply wlp_monotone.
-    intro; apply Eg.
+    intros; apply (Bind_morph_rel true); auto.
   Qed.
 
   Lemma Bind_assoc [A B C] f g h:
@@ -193,19 +238,150 @@ Section Instr.
        (forall (x : B) (y : DTuple.t (C (inr x))),
           DTuple.to_fun (Inv (inr x)) y -> post (DTuple.pair x y)).
 
-  Lemma Loop_morph [A B C Inv ini_x ini_y f0 f1]
+  Lemma Loop_morph_le [A B C Inv ini_x ini_y f0 f1]
     (E : forall (x : A) (y : DTuple.t (C (inl x))),
-      eqv (DTuple.to_fun (f0 x) y)
+      le (DTuple.to_fun (f0 x) y)
           (DTuple.to_fun (f1 x) y)):
-    eqv (@Loop A B C Inv ini_x ini_y f0)
+    le (@Loop A B C Inv ini_x ini_y f0)
         (@Loop A B C Inv ini_x ini_y f1).
   Proof.
     intro; cbn.
-    unfold eqv, Spec.wp_eq in E.
-    setoid_rewrite E.
-    reflexivity.
+    intuition.
+    apply E; auto.
+  Qed.
+
+  Lemma Loop_morph_rel [A B C Inv ini_x ini_y f0 f1] e
+    (E : forall (x : A) (y : DTuple.t (C (inl x))),
+      rel e (DTuple.to_fun (f0 x) y)
+            (DTuple.to_fun (f1 x) y)):
+    rel e (@Loop A B C Inv ini_x ini_y f0)
+          (@Loop A B C Inv ini_x ini_y f1).
+  Proof.
+    destruct e; cbn in *.
+    - apply eqv_iff_le; split;
+      apply Loop_morph_le; setoid_rewrite E; reflexivity.
+    - apply Loop_morph_le; auto.
   Qed.
 End Instr.
+
+(* Morphism *)
+
+Section Morphism.
+  Inductive instr_morph [A : DTuple.p] (e : bool) (HS : list Prop) (i i' : instr A) : Prop :=
+    instr_morphI (H : and_list HS -> rel e i i').
+
+  Lemma eqv_instr_morph_lem [A HS i i']
+    (M : instr_morph true HS i i')
+    (C : and_list HS):
+    @eqv A i i'.
+  Proof.
+    apply M, C.
+  Qed.
+  
+  Lemma instr_morph_refl [A i] e:
+    @instr_morph A e nil i i.
+  Proof.
+    split; cbn.
+    case e; reflexivity.
+  Qed.
+
+  Lemma instr_morph_Bind [A B f0 f1 g0 g1] e:
+    instr_morph e 
+      [rel e f0 f1;
+       DTuple.all A (fun x => rel e (DTuple.to_fun g0 x) (DTuple.to_fun g1 x))]
+      (@Bind A B f0 g0)
+      (@Bind A B f1 g1).
+  Proof.
+    split; intros (Ef & Eg & _).
+    rewrite DTuple.all_iff in Eg.
+    apply Bind_morph_rel; auto.
+  Qed.
+
+  Lemma instr_moprh_Loop [A B C Inv ini_x ini_y f0 f1] e:
+    instr_morph e
+      [forall (x : A), DTuple.all (C (inl x)) (fun y =>
+         rel e (DTuple.to_fun (f0 x) y)
+               (DTuple.to_fun (f1 x) y))]
+      (@Loop A B C Inv ini_x ini_y f0)
+      (@Loop A B C Inv ini_x ini_y f1).
+  Proof.
+    split; intros (E & _).
+    setoid_rewrite DTuple.all_iff in E.
+    apply Loop_morph_rel; auto.
+  Qed.
+
+  Lemma instr_morph_case_next [A e i H HS i']
+    (C : instr_morph e HS i i'):
+    @instr_morph A e (H :: HS) i i'.
+  Proof.
+    split. intros (_ & pf).
+    apply C, pf.
+  Qed.
+
+  Lemma instr_morph_case_cons [A e i HS] i':
+    @instr_morph A e (rel e i i' :: HS) i i'.
+  Proof.
+    split. intros (H & _); exact H.
+  Qed.
+End Morphism.
+
+Ltac build_instr_morphism_match x :=
+  lazymatch goal with |- @instr_morph ?A ?e ?HS ?i ?r =>
+  (* A *)
+  let A_d := fresh "A'" in pose (A_d := A);
+  let case_x := fresh "case_x" in
+  set (case_x := x) in A_d;
+  let A' := eval cbv delta [A_d] in A_d in clear A_d;
+  (* i *)
+  Tac.generalize_match_args x case_x i ltac:(fun i' rev_args =>
+  (* r *)
+  let r_d := fresh "r'" in Tac.pose_build r_d (instr A') ltac:(fun _ =>
+    rev_args tt; case case_x as []; intros; shelve);
+  let r' := eval cbv delta [r_d] in r_d in clear r_d;
+  unify r r';
+
+  change (@instr_morph A' e HS i' r');
+  enough True as _;
+  [ let add_hyp _ :=
+      repeat lazymatch goal with |- instr_morph _ (_ :: _) _ _ =>
+        refine (instr_morph_case_next _)
+      end;
+      refine (instr_morph_case_cons _); shelve
+    in
+    rev_args tt; case case_x as []; intros;
+    add_hyp tt
+  | Tac.elist_end HS; split ]
+  )end.
+
+(* solves a goal [instr_morph e ?HS i ?i'] *)
+Ltac build_instr_morphism :=
+  lazymatch goal with |- instr_morph ?e _ ?i ?r =>
+  let r' := fresh "r" in set (r' := r);
+  Tac.intro_evar_args r';
+  subst r';
+  lazymatch i with
+  | Ret  _       => exact (instr_morph_refl e)
+  | Bind _ _     => refine (instr_morph_Bind e); shelve
+  | Call _       => exact (instr_morph_refl e)
+  | Assert _     => exact (instr_morph_refl e)
+  | Oracle _     => exact (instr_morph_refl e)
+  | Loop _ _ _ _ => refine (instr_moprh_Loop e); shelve
+  | _ =>
+      Tac.head_of i ltac:(fun i_head =>
+      Tac.matched_term i_head ltac:(fun x =>
+      build_instr_morphism_match x))
+  end
+  | |- ?g => fail "instr_morph" g
+  end.
+
+(* on a goal [eqv i ?i'] instantiate [i'], generate some goals [eqv f ?f'] *)
+Ltac eqv_instr_morph :=
+  refine (eqv_instr_morph_lem _ _);
+  [ build_instr_morphism
+  | cbn;
+    let rec splits := try solve [split]; (split; [| splits]) in
+    splits;
+    intros ].
 
 (* WLP formula *)
 
@@ -335,7 +511,7 @@ Ltac build_wlp_formula_branch build_f x :=
   [ (* f0 *) destruct x; shelve
   | (* F  *) destruct x; build_f tt
   | (* M  *)
-    cbn;
+   cbn;
     intro (* post *);
     let f := fresh "f" in intro f;
     case_eq x;
@@ -473,9 +649,10 @@ Section SimplCont.
 
   Local Add Parametric Morphism A B : (@k_apply A B)
     with signature (@eqv A) ==> (@eq (k_t A B)) ==> (@eqv B)
-    as k_apply_morh.
+    as k_apply_morph.
   Proof.
-    intros i0 i1 E k; unfold k_apply; rewrite E; reflexivity.
+    intros i0 i1 E k; unfold k_apply.
+    rewrite E; reflexivity.
   Qed.
 
   Inductive simpl_cont [A B] (i : instr A) (k : k_t A B) (r : instr B) : Prop :=
@@ -516,6 +693,18 @@ Section SimplCont.
     rewrite DTuple.to_of_fun; reflexivity.
   Qed.
 
+
+  Lemma simpl_cont_Call_triv [B] k:
+    @simpl_cont DTuple.Pnil B (@Call DTuple.Pnil {| Spec.pre_p := None; Spec.post_p := None |})
+      k (k_fk k tt).
+  Proof.
+    case k as []; constructor; intro; cbn.
+    split; intro H.
+    - unshelve eexists. split.
+      intros [] _; exact H.
+    - case H as (_ & H).
+      apply (H tt). split.
+  Qed.
 
   Lemma simpl_cont_Call_pre [A B post k r]
     (C : simpl_cont (Call (Spec.mk_t None (option_map (fun post => post Logic.I) post)))
@@ -590,17 +779,6 @@ Section SimplCont.
       symmetry; apply Bind_assoc.
   Qed.
 
-  (* TODO? directly use an eqv morphism lemma *)
-  Lemma simpl_cont_Loop [A B C D Inv ini_x ini_y f rf k]
-    (F : forall x : A, DTuple.arrow (C (inl x)) (fun y =>
-        simpl_cont (DTuple.to_fun (f x) y) k_None (DTuple.to_fun (rf x) y))):
-    @simpl_cont _ D (@Loop A B C Inv ini_x ini_y f) k (k_apply (Loop Inv ini_x ini_y rf) k).
-  Proof.
-    constructor; apply k_apply_morh. 2:reflexivity.
-    apply Loop_morph; intros; symmetry.
-    apply eqv_by_simpl_cont, (DTuple.to_fun (F x) y).
-  Qed.
-
   Lemma simpl_cont_branch [A B C i r f k]
     (S : simpl_cont i (mk_k C f (DTuple.of_fun (fun x => Ret x))) r):
     @simpl_cont A B i (mk_k C f k) (Bind r k).
@@ -656,32 +834,32 @@ Ltac build_simpl_cont :=
       [ DTuple.build_iso_p_remove_unit |
       cbn;
       try lazymatch goal with |- @simpl_cont _ ?B (@Call ?A ?s) ?k _ =>
-      refine (@simpl_cont_Call_pre A B _ k _ _);
-      cbn
+        refine (@simpl_cont_Call_pre A B _ k _ _);
+        cbn
       end;
       try lazymatch goal with |- @simpl_cont _ ?B (@Call ?A (Spec.mk_t ?pre _)) ?k _ =>
-      refine (@simpl_cont_Call_post A B pre k _ _);
-      cbn
+        refine (@simpl_cont_Call_post A B pre k _ _);
+        cbn
       end;
+      try refine (simpl_cont_Call_triv _);
       refine (simpl_cont_def _ _) ]
-  | Assert _ =>
-      refine (simpl_cont_def _ _)
-  | Oracle _ =>
-      refine (simpl_cont_def _ _)
-  | Loop _ _ _ _ =>
-      refine (simpl_cont_Loop _);
-      [ cbn; intros; build_simpl_cont ]
   | _ =>
       Tac.head_of i ltac:(fun i_head =>
-      Tac.matched_term i_head ltac:(fun x =>
-      (tryif Tac.is_single_case x
-       then idtac
-       else refine (simpl_cont_branch _));
-      init_simpl_cont_match x;
-      build_simpl_cont
-      ))
+      lazymatch i_head with
+      | (match ?x with _ => _ end) =>
+          (tryif Tac.is_single_case x
+           then idtac
+           else refine (simpl_cont_branch _));
+          init_simpl_cont_match x;
+          build_simpl_cont
+      | _ =>
+          refine (simpl_cont_morph _ _);
+          eqv_instr_morph;
+          refine (eqv_by_simpl_cont _);
+          build_simpl_cont
+      end)
   end
-  | |- ?g => fail "build_simpl_cont:1" g
+  | |- ?g => fail "build_simpl_cont" g
   end.
 
 Ltac simpl_prog :=

@@ -163,20 +163,22 @@ Proof. Derived. Defined.
 Variable f_7 : spec_7 CT.
 
 Definition vprog_7 : FImpl f_7 := fun '(p0, p1, p2) =>
-  Loop0 (fun p => [vptr (sumv p)~>]) None (inl p0) (fun p =>
+  let inv p := [vptr (sumv p)~>] in
+  Loop0 inv None (inl p0) (fun p =>
     'v <- Read p;
     match v with
-    | O   => Ret (inr p) (pt := fun p => [vptr (sumv p)~>])
+    | O   => Ret (inr p) (pt := inv)
     | S n =>
         Write p n;;
         'v2 <- Read p2;
         Write p1 v2;;
-        Ret (inl p) (pt := fun p => [vptr (sumv p)~>])
+        Ret (inl p) (pt := inv)
     end
   ).
 Lemma correct_7 : FCorrect vprog_7.
 Proof.
-  solve_by_wlp.
+  build_fun_spec.
+  FunProg.solve_by_wlp.
   exists (fun _ _ v1 => v1 >= 1).
   FP.solve_wlp; auto.
 Qed.
