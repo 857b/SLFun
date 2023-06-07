@@ -12,5 +12,6 @@ VProg/Instructions.v
 VProg/Main.v
 Test/ConcreteProg.v
 Test/SLProg.v
-Test/VProg.v
+Test/VProg0.v
+Test/VProg1.v
 Test/SLList.v

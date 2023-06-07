@@ -2060,12 +2060,12 @@ Module Notations.
   Global Arguments mk_f_r2_Some/.
 
   Notation "'SPEC' ( arg : arg_ty ) s" :=
-    (mk_f_r0_None arg_ty (fun arg => s))
+    (mk_f_r0_None (arg_ty <: Type)%type (fun arg => s))
     (at level 0,
      arg pattern at level 95, arg_ty constr at level 200,
      s custom vprog_spec_0 at level 0) : vprog_spec_scope.
   Notation "'SPEC' ( arg : arg_ty ) & ( gi : gi_ty ) s" :=
-    (mk_f_r0_Some arg_ty (fun arg => gi_ty) (fun arg gi => s))
+    (mk_f_r0_Some (arg_ty <: Type)%type (fun arg => (gi_ty <: Type)%type) (fun arg gi => s))
     (at level 0,
      arg pattern at level 95, arg_ty constr at level 200,
      gi  pattern at level 95, gi_ty  constr at level 200,
@@ -2079,7 +2079,7 @@ Module Notations.
      s custom vprog_spec_1 at level 0).
 
   Notation "& REQ ' ( res : res_ty ) & ( go : go_ty ) sel1 s" :=
-    (mk_f_r2_Some res_ty (fun res => go_ty) (fun res go =>
+    (mk_f_r2_Some (res_ty <: Type)%type (fun res => (go_ty <: Type)%type) (fun res go =>
      Spec.Expanded.mk_r2 (fun sel1 REQ => s)))
     (in custom vprog_spec_1 at level 0,
      REQ name,
@@ -2088,7 +2088,7 @@ Module Notations.
      sel1 pattern at level 0,
      s custom vprog_spec_2 at level 0).
   Notation "& REQ ' ( res : res_ty ) sel1 s" :=
-    (mk_f_r2_None res_ty (fun res =>
+    (mk_f_r2_None (res_ty <: Type)%type (fun res =>
      Spec.Expanded.mk_r2 (fun sel1 REQ => s)))
     (in custom vprog_spec_1 at level 0,
      REQ name,
@@ -2096,7 +2096,7 @@ Module Notations.
      sel1 pattern at level 0,
      s custom vprog_spec_2 at level 0).
   Notation "' ( res : res_ty ) & ( go : go_ty ) sel1 s" :=
-    (mk_f_r2_Some res_ty (fun res => go_ty) (fun res go =>
+    (mk_f_r2_Some (res_ty <: Type)%type (fun res => (go_ty <: Type)%type) (fun res go =>
      Spec.Expanded.mk_r2 (fun sel1 _ => s)))
     (in custom vprog_spec_1 at level 0,
      res name, res_ty constr at level 200,
@@ -2104,7 +2104,7 @@ Module Notations.
      sel1 pattern at level 0,
      s custom vprog_spec_2 at level 0).
   Notation "' ( res : res_ty ) sel1 s" :=
-    (mk_f_r2_None res_ty (fun res =>
+    (mk_f_r2_None (res_ty <: Type)%type (fun res =>
      Spec.Expanded.mk_r2 (fun sel1 _ => s)))
     (in custom vprog_spec_1 at level 0,
      res name, res_ty constr at level 200,
