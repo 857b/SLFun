@@ -94,9 +94,43 @@ Module Tac.
 
   Ltac cbn_refl := cbn; repeat intro; reflexivity.
 
+  Ltac head_of t k(* head -> ltac *) :=
+    lazymatch t with
+    | ?t _ => head_of t k
+    | _    => k t
+    end.
+
+  Ltac matched_term t k :=
+    lazymatch t with
+    | (match ?x with _ => _ end) => k x
+    | _ => fail "matched_term" t
+    end.
+
   Ltac build_term t build :=
     dummy_goal (t = _);
     [ build tt | reflexivity | ].
+
+  Ltac pose_build x ty build :=
+    evar (x : ty);
+    unshelve instantiate (1 := _) in (value of x); [build tt|].
+
+  (* [x] must be a local definition [x := ?evar arg0 ... arg9].
+     Instantiate [?evar] by introducing the arguments, changing [x] into
+     [x := ?evar']. *)
+  Ltac intro_evar_args x :=
+    let rec count_app x k(* intro_args -> ltac *) :=
+      lazymatch x with
+      | ?x _ => count_app x ltac:(fun intro_args => k ltac:(fun _ => intro; intro_args tt))
+      | _    => k ltac:(fun _ => idtac)
+      end
+    in
+    let x_def := eval cbv delta [x] in x in
+    count_app x_def ltac:(fun intro_args =>
+    unshelve instantiate (1 := _) in (value of x);
+      [cbn; intro_args tt; shelve|]
+    );
+    cbn beta in x.
+
 
   (* fails iff [f] succeeds (or fail with level > 0) *)
   Ltac inv_fail f :=
@@ -118,6 +152,14 @@ Module Tac.
   Ltac is_unit_type t :=
     Tac.revert_exec ltac:(assert t; [clear; solve [split]|]).
 
+  Ltac is_independent_of t x :=
+   Tac.revert_exec ltac:(
+     let t := eval hnf in t in
+     let t := eval cbn in t in
+     assert (Tac.display t);
+     [ clear dependent x; split |]
+   ).
+
   Ltac case_intro_keep t :=
     let _tmp := fresh "tmp" in
     pose (_tmp := t);
@@ -138,6 +180,28 @@ Module Tac.
     case t;
     repeat match goal with |- forall _, _ => intros _ end;
     unfold gl; clear gl
+    end.
+
+  (* given [t] with shape [match x with _ => _ end arg0 ... arg9],
+     continue with [k t' rev_args] where:
+     - [t'] is [match case_x with _ => _ end arg0' ... arg9']
+       where [arg'_i := arg_i]
+     - [rev_args tt] generalize [arg0' ... arg9']
+   *)
+  Ltac generalize_match_args x case_x t k(* t' -> rev_args -> ltac *) :=
+    lazymatch t with
+    | (match x with _ => _ end) =>
+        let t_d := fresh "t'" in pose (t_d := t);
+        change x with case_x in (value of t_d) at 1;
+        let t' := eval cbv delta [t_d] in t_d in clear t_d;
+        k t' ltac:(fun _ => idtac)
+    | ?t ?arg =>
+        let arg' := fresh "arg'" in pose (arg' := arg);
+        change x with case_x in (type of arg');
+        generalize_match_args x case_x t ltac:(fun t' rev_args =>
+          k (t' arg')
+            ltac:(fun _ => generalize arg'; clear arg'; rev_args tt)
+        )
     end.
 
 

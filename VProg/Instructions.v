@@ -330,17 +330,17 @@ Section Loop.
     (s    : i_spec_t B (m sel0 ++ add))
     (IJ   : InjPre_Spec (m sel0) ctx add s F)
     (L1   : Loop_Spec1 sel0 add csm1 (fun R f =>
-              let isel (x : A + B) := VpropList.sel (vinv x ++ VpropList.of_ctx (CTX.sub add csm1)) in
+              let ivp  (x : A + B) := vinv x ++ VpropList.of_ctx (CTX.sub add csm1) in
               match sinv with
               | Some sinv =>
-                  f (fun (x : A + B) => TF.of_fun (T := TF.p_tu (isel x)) (fun sel =>
+                  f (fun (x : A + B) => TF.of_fun (T := TF.p_tu (VpropList.sel (ivp x))) (fun sel =>
                      let (seli, _) := VpropList.split_sel (vinv x) (VpropList.of_ctx (CTX.sub add csm1))
                                         (DTuple.to_tu sel) in
                      Tuple.to_fun (sinv x) seli))
               | None =>
                   FunProg.Bind
                   (FunProg.Oracle (DTuple.Psingl
-                    (forall x : A + B, DTuple.arrow (DTuple.p_tu (isel x)) (fun _ => Prop))))
+                    (forall x : A + B, DTuple.arrow (DTuple.p_tu (VpropList.sel' (ivp x))) (fun _ => Prop))))
                   f
               end) s).
   

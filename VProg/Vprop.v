@@ -12,9 +12,10 @@ Module Vprop.
     sl : p ty;
   }.
   Global Arguments mk [ty].
-  (* TODO ? to keep the vprop in the functional representation
-  Global Arguments Vprop.ty : simpl never.
-  *)
+
+  (* An alias for [ty] that is not reduced in order to keep trace of the vprop *)
+  Definition sel := ty.
+  Global Arguments sel : simpl never.
 End Vprop.
 
 Module CTX.
@@ -1192,7 +1193,8 @@ End CTX.
 Module VpropList.
   Definition t := list Vprop.t.
 
-  Definition sel : t -> list Type := map Vprop.ty.
+  Definition sel  : t -> list Type := map Vprop.ty.
+  Definition sel' : t -> list Type := map Vprop.sel.
   Definition sel_t (vs : t) := Tuple.t (sel vs).
 
   Fixpoint inst (vs : t) {struct vs} : sel_t vs -> CTX.t :=

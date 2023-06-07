@@ -210,7 +210,7 @@ End Instr.
 (* WLP formula *)
 
 Section WLP_Formula. 
-  Inductive wlp_formula [A : DTuple.p] (i : instr A) (f : forall post : DTuple.t A -> Prop, Prop) : Prop :=
+  Inductive wlp_formula [A : DTuple.p] (i : instr A) (f : Spec.wp_t (DTuple.t A)) : Prop :=
     wlp_formulaI (F : forall post, f post -> wlp i post).
 
   Lemma wlp_formulaE [A i f post] (H : @wlp_formula A i f) (F : f post): wlp i post.
@@ -292,42 +292,32 @@ Section WLP_Formula.
   Qed.
 End WLP_Formula.
 
-(* Must be called on a goal [f a b].
-   Destructs the the first occurence of [x] in [a] and [b]. *)
-Ltac case_2heads x f a b :=
-  let fld0 := fresh "fld" in
-  pose (fld0 := f); change (fld0 a b);
-  let x0 := fresh "case_x" in
-  set (x0 := x) at 1; (* head of [a] *)
-  let fld1 := fresh "fld" in
-  lazymatch goal with |- fld0 ?a' _ =>
-    pose (fld1 := fld0 a'); change (fld1 b)
-  end;
-  let x1 := fresh "case_x'" in
-  set (x1 := x) at 1; (* head of [b] *)
-  change x1 with x0;
-  unfold fld1, fld0; clear x1 fld0 fld1; clearbody x0;
-  refine (elim_boxP _);
-  case x0; clear x0;
-  cbn; intros;
-  constructor.
+(* init a formula [match x with ... end] *)
+Ltac init_wlp_formula_match x :=
+  lazymatch goal with |- @FunProg.wlp_formula ?A ?i ?f =>
+  (* A *)
+  let A_d := fresh "A'" in pose (A_d := A);
+  let case_x := fresh "case_x" in
+  set (case_x := x) in A_d;
+  let A' := eval cbv delta [A_d] in A_d in clear A_d;
+  (* i *)
+  Tac.generalize_match_args x case_x i ltac:(fun i' rev_args =>
+  (* f *)
+  let f_d := fresh "f'" in Tac.pose_build f_d (FunProg.Spec.wp_t (DTuple.t A')) ltac:(fun _ =>
+    rev_args tt; case case_x as []; intros; shelve);
+  let f' := eval cbv delta [f_d] in f_d in clear f_d;
+  unify f f';
 
-(* build a formula [match x with ... end] *)
-Ltac build_wlp_formula_match build_f x :=
-  lazymatch goal with |- wlp_formula _ ?f =>
-  Tac.build_term f ltac:(fun _ => intro (* post *); Tac.case_intro_keep x; shelve)
-  end;
-  cbn;
-  lazymatch goal with |- @wlp_formula ?A ?i ?f =>
-  case_2heads x (@wlp_formula A) i f
-  end;
-  build_f.
+  change (@FunProg.wlp_formula A' i' f'); cbn beta;
+  rev_args tt;
+  case case_x as []; intros
+  )end.
 
 (* destructive let *)
 Ltac build_wlp_formula_dlet build_f x :=
   simple refine (wlp_formula_imp _ _ _);
   [ (* f0 *) destruct x; shelve
-  | (* F  *) destruct x; build_f
+  | (* F  *) destruct x; build_f tt
   | (* M  *)
     intro (* post *);
     let f := fresh "f" in intro f;
@@ -343,7 +333,7 @@ Ltac conj_proj_last H :=
 Ltac build_wlp_formula_branch build_f x :=
   simple refine (wlp_formula_imp _ _ _);
   [ (* f0 *) destruct x; shelve
-  | (* F  *) destruct x; build_f
+  | (* F  *) destruct x; build_f tt
   | (* M  *)
     cbn;
     intro (* post *);
@@ -354,35 +344,47 @@ Ltac build_wlp_formula_branch build_f x :=
 
 (* solves a goal [wlp_formula i ?f] *)
 Ltac build_wlp_formula_ dmatch :=
-  let rec build :=
+  let build _ := build_wlp_formula_ dmatch in
   cbn; clear;
-  lazymatch goal with
-  | |- wlp_formula (Ret _) _ =>
+  lazymatch goal with |- wlp_formula ?i ?f =>
+  let f' := fresh "f" in set (f' := f);
+  Tac.intro_evar_args f';
+  subst f';
+
+  lazymatch i with
+  | Ret _ =>
       refine (wlp_formula_Ret _)
-  | |- wlp_formula (Bind _ _) _ =>
+  | Bind _ _ =>
       refine (wlp_formula_Bind _ _);
-      [ build | cbn; repeat intro; build ]
-  | |- wlp_formula (@Call ?A ?s) _ =>
+      [ build tt | cbn; repeat intro; build tt ]
+  | @Call ?A ?s =>
       exact (@wlp_formula_Call A s)
-  | |- wlp_formula (Assert _) _ =>
+  | Assert _ =>
       refine (wlp_formula_Assert _)
-  | |- wlp_formula (Oracle _) _ =>
+  | Oracle _ =>
       refine (wlp_formula_Oracle _)
-  | |- wlp_formula (Loop _ _ _ _) _ =>
+  | Loop _ _ _ _ =>
       refine (wlp_formula_Loop _);
-      [ cbn; intros; build ]
-  | |- wlp_formula (match ?x with _ => _ end) _ =>
+      [ cbn; intros; build tt ]
+  | _ =>
       lazymatch dmatch with
       | true =>
+          (* TODO? handle more general matches *)
+          Tac.matched_term i ltac:(fun x =>
           tryif Tac.is_single_case x
           then build_wlp_formula_dlet   build x
           else build_wlp_formula_branch build x
+          )
       | false =>
-          build_wlp_formula_match build x
+          Tac.head_of i ltac:(fun i_head =>
+          Tac.matched_term i_head ltac:(fun x =>
+          init_wlp_formula_match x;
+          build tt
+          ))
       end
-  | |- ?g => fail "build_wlp_formula: " g
   end
-  in build.
+  | |- ?g => fail "build_wlp_formula:1" g
+  end.
 
 Ltac build_wlp_formula := build_wlp_formula_ false.
 
@@ -612,17 +614,44 @@ Section SimplCont.
   Qed.
 End SimplCont.
 
+Ltac init_simpl_cont_match x :=
+  lazymatch goal with |- (@FunProg.simpl_cont ?A ?B ?i ?k ?r) =>
+  (* A, B, k *)
+  let i_v := fresh "i" in
+  let F_d := fresh "F'" in
+  pose (F_d := fun i_v => @FunProg.simpl_cont A B i_v k);
+  let case_x := fresh "case_x" in
+  set (case_x := x) in F_d;
+  let F' := eval cbv delta [F_d] in F_d in clear F_d;
+  (* i *)
+  Tac.generalize_match_args x case_x i ltac:(fun i' rev_args =>
+  (* r *)
+  let r_d := fresh "r'" in Tac.pose_build r_d (FunProg.instr B) ltac:(fun _ =>
+    rev_args tt; case case_x as []; intros; shelve);
+  let r' := eval cbv delta [r_d] in r_d in clear r_d;
+  unify r r';
+
+  change (F' i' r'); cbn beta;
+  rev_args tt;
+  case case_x as []; intros
+  )end.
+
+(* solves a goal [simpl_cont i k ?r] *)
 Ltac build_simpl_cont :=
   cbn;
-  lazymatch goal with
-  | |- simpl_cont (Ret _) _ _ =>
+  lazymatch goal with | |- @simpl_cont ?A ?B ?i ?k ?r =>
+  let r' := fresh "r" in set (r' := r);
+  Tac.intro_evar_args r';
+  subst r';
+  lazymatch i with
+  | Ret _ =>
       refine (simpl_cont_Ret _ _)
-  | |- simpl_cont (Bind _ _) _ _ =>
+  | Bind _ _ =>
       refine (simpl_cont_Bind _ _ _);
       [ cbn; repeat intro; build_simpl_cont
       | DTuple.build_iso_p_remove_unit
       | build_simpl_cont ]
-  | |- @simpl_cont _ ?B (@Call ?A ?s) ?k _ =>
+  | @Call ?A ?s =>
       refine (@simpl_cont_Call A _ B s k _ _ _ _ _);
       [ DTuple.build_iso_p_remove_unit |
       cbn;
@@ -635,27 +664,24 @@ Ltac build_simpl_cont :=
       cbn
       end;
       refine (simpl_cont_def _ _) ]
-  | |- simpl_cont (Assert _) _ _ =>
+  | Assert _ =>
       refine (simpl_cont_def _ _)
-  | |- simpl_cont (Oracle _) _ _ =>
+  | Oracle _ =>
       refine (simpl_cont_def _ _)
-  | |- simpl_cont (Loop _ _ _ _) _ _ =>
+  | Loop _ _ _ _ =>
       refine (simpl_cont_Loop _);
       [ cbn; intros; build_simpl_cont ]
-  | |- simpl_cont (match ?x with _ => _ end) _ _ =>
+  | _ =>
+      Tac.head_of i ltac:(fun i_head =>
+      Tac.matched_term i_head ltac:(fun x =>
       (tryif Tac.is_single_case x
        then idtac
        else refine (simpl_cont_branch _));
-      lazymatch goal with |- simpl_cont _ _ ?r =>
-      Tac.build_term r ltac:(fun tt => Tac.case_intro_keep x; shelve);
-      cbn
-      end;
-      lazymatch goal with |- @simpl_cont ?A ?B ?i ?k ?r =>
-      let i' := fresh "i" in
-      case_2heads x (fun i' => @simpl_cont A B i' k) i r
-      end;
+      init_simpl_cont_match x;
       build_simpl_cont
-  | |- ?g => fail "build_simpl_cont" g
+      ))
+  end
+  | |- ?g => fail "build_simpl_cont:1" g
   end.
 
 Ltac simpl_prog :=

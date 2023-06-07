@@ -1638,67 +1638,147 @@ Module Tac.
       end;
       build_InjPre_Frame ].
 
-  (* TODO: be more careful about the dependencies on the matched term in the vprog and in the context *)
+  (* match *)
+
+  Ltac case_in_A_instr x case_x CT A i k(* A' -> i' -> rev_args -> ltac *) :=
+    (* A *)
+    let A_d := fresh "A'" in pose (A_d := A);
+    change x with case_x in A_d;
+    let A' := eval cbv delta [A_d] in A_d in clear A_d;
+    (* i *)
+    generalize_match_args x case_x i ltac:(fun i' rev_args =>
+    k A' i' rev_args
+    ).
+
+  Ltac case_in_ctx x case_x ctx k(* ctx' -> clear_sel -> rev_sel -> ltac *) :=
+      lazymatch ctx with
+      | nil => k (@nil CTX.atom) ltac:(fun _ => idtac) ltac:(fun _ => idtac)
+      | existT _ (@Vprop.mk ?sel_ty ?vp) ?sel :: ?ctx =>
+          let sel_ty' := fresh "sel_ty" in
+          let vp'     := fresh "vp"     in
+          pose (sel_ty' := sel_ty);
+          pose (vp'     := vp  : Vprop.p sel_ty);
+          fold case_x in sel_ty', vp';
+          let unfold' k :=
+            unfold sel_ty', vp' in *;
+            let sel_ty_b := eval cbv delta [sel_ty'] in sel_ty' in
+            let vp_b     := eval cbv delta [vp']     in vp'     in
+            clear sel_ty' vp';
+            k sel_ty_b vp_b
+          in
+          tryif is_independent_of sel_ty x
+          then (
+            unfold' ltac:(fun sel_ty_b vp_b =>
+            case_in_ctx x case_x ctx ltac:(fun ctx' clear_sel rev_sel =>
+            k (@cons CTX.atom (existT Vprop.ty (@Vprop.mk sel_ty_b vp_b) sel) ctx')
+              clear_sel rev_sel
+          ))) else (
+            let sel' := fresh "sel" in
+            pose (sel' := sel : sel_ty');
+            unfold' ltac:(fun sel_ty_b vp_b =>
+            case_in_ctx x case_x ctx ltac:(fun ctx' clear_sel rev_sel =>
+            k (@cons CTX.atom (existT Vprop.ty (@Vprop.mk sel_ty_b vp_b) sel') ctx')
+              ltac:(fun _ => clear_sel tt; clear sel')
+              ltac:(fun _ => rev_sel tt; generalize sel'; clear sel')
+          )))
+      | _ => fail 0 ctx
+      end.
+
+  Ltac case_in_HasSpec x
+    k(* case_x -> CT -> A -> A' -> i' -> ctx -> ctx' -> s ->
+        rev_args(+sel) -> clear_sel -> ltac *) :=
+    lazymatch goal with |- @HasSpec ?CT ?A ?i ?ctx ?s =>
+    let case_x := fresh "case_x" in
+    pose (case_x := x);
+    case_in_A_instr x case_x CT A i ltac:(fun A' i' rev_args =>
+    case_in_ctx x case_x ctx ltac:(fun ctx' clear_sel rev_sel =>
+    k case_x CT A A' i' ctx ctx' s ltac:(fun _ => rev_sel tt; rev_args tt) clear_sel
+    ))end.
 
   (* destructive let *)
-  Ltac build_HasSpec_dlet build_f x s :=
-    simple refine (change_arg _ s _ _);
-    [ destruct x; shelve
-    | destruct x; cbn; build_f tt
-    | simple refine (intro_i_spec_t_eq _ _);
-    [ (* sf_csm *) clear; shelve | shelve | (* sf_spec *) destruct x; shelve
-      | destruct x; cbn;
-        refine (conj eq_refl (exist _ eq_refl _));
-        cbn; reflexivity ] ].
+  Ltac build_HasSpec_dlet build_f x :=
+    case_in_HasSpec x ltac:(fun case_x CT A A' i' ctx ctx' s rev_args clear_sel =>
+    simple refine (@change_arg _ (@HasSpec CT A' i' ctx') _ s _ _);
+    [ (* spec *)
+      rev_args tt; case case_x as []; intros; shelve
+    | (* HasSpec *)
+      rev_args tt; case case_x as []; cbn; intros;
+      build_f tt
+    | (* spec equality *)
+      let csm1 := fresh "csm1" in pose_build csm1 (Sub.t ctx) ltac:(fun _ =>
+        clear; shelve);
+      let prd1 := fresh "prd1" in pose_build prd1 (A -> VpropList.t) ltac:(fun _ =>
+        clear_sel tt; clear dependent case_x; shelve);
+      let f1   := fresh "f1"   in pose_build f1 (FP.instr (TF.mk_p A' prd1)) ltac:(fun _ =>
+        rev_args tt; case case_x as []; intros; shelve);
+      simple refine (@intro_i_spec_t_eq A' ctx' _ csm1 prd1 f1 _);
+      [ ];
+      revert f1; rev_args tt; case case_x as []; cbn zeta; intros;
+      refine (conj eq_refl (exist _ eq_refl _)); cbn;
+      reflexivity
+    ] ).
 
   Ltac build_HasSpec_branch build_f x :=
-    refine (transform_spec _ _ _);
+    Tac.case_in_HasSpec x ltac:(fun case_x CT A A' i' ctx ctx' s rev_args clear_sel =>
+    simple refine (@transform_spec CT A' ctx' i' _ s _ _);
     [ (* For each branch a specification where [sf_csm] and [sf_prd] do not depend on the
          arguments of the matched value. *)
-      lazymatch goal with |- HasSpec _ _ _ ?s =>
-        Tac.build_term s ltac:(fun _ =>
-          simple refine (mk_i_spec _ _ _);
-          [ (* sf_csm  *) cbn; Tac.const_case x; clear
-          | (* sf_prd  *) cbn; Tac.const_case x; try clear x
-          | (* sf_spec *) case x; try clear x ];
-        shelve)
-      end;
+      simple refine (mk_i_spec _ _ _);
+      [ (* sf_csm  *) cbn; Tac.const_case case_x; clear; shelve
+      | (* sf_prd  *) cbn; Tac.const_case case_x; shelve
+      | (* sf_spec *) rev_args tt; case case_x as []; intros; shelve ]
+    | (* HasSpec for each branch *)
       cbn;
-      destruct x;
-      (simple refine (change_arg _ _ _ _);
+      rev_args tt; case case_x as []; cbn; intros;
+      (simple refine (VProg.Core.Tac.change_arg _ _ _ _);
        [ shelve | build_f tt | Tac.build_i_spec_t_eq ])
     | (* transforms the several specifications into a common one *)
       cbn;
-      simple refine (intro_TrSpec_branch _ _ _ _ _);
-      [ (* csms1 *) clear; shelve | (* csm1 *) clear; shelve | shelve
-      | (* f1 *) Tac.nondep_case x; try clear x; shelve
-      | (* C  *)
-        case x; repeat intros _;
+      let csms1 := fresh "csms1" in Tac.pose_build csms1 (list (Sub.t ctx)) ltac:(fun _ =>
+        clear; shelve);
+      let csm1  := fresh "csm1"  in Tac.pose_build csm1 (Sub.t ctx) ltac:(fun _ =>
+        clear; shelve);
+      let prd1  := fresh "prd1"  in evar (prd1 : A -> VpropList.t);
+      let f1    := fresh "f1"    in Tac.pose_build f1 (FP.instr (TF.mk_p A prd1)) ltac:(fun _ =>
+        rev_args tt; case case_x as []; intros; shelve);
+      refine (intro_TrSpec_branch CT
+                (A := A) (ctx := ctx) (csms1 := csms1) (csm1 := csm1) (prd1 := prd1)
+                f1 _ _ _);
+      [ (* C *)
+        unfold csms1; clear f1;
+        rev_args tt; case case_x as []; intros;
         lazymatch goal with |- branch_collect_csm ?c ?cs =>
           Tac.elist_add cs c; constructor
         | |- ?g => idtac "build_HasSpec_branch::branch_collect_csm" g
         end
-      | (* E  *)
-        match goal with |- _ = List.fold_left _ ?cs _ =>
+      | (* E *)
+        cbn;
+        lazymatch goal with |- _ = List.fold_left _ ?cs _ =>
           Tac.elist_end cs
         end;
-        Tac.cbn_refl
-      | (* T  *)
-        cbn;
-        case x; repeat intro;
+        unfold csm1; Tac.cbn_refl
+      | (* T *)
+        subst f1; cbn;
+        rev_args tt; case case_x as []; intros;
         (* first branch *)
         [ refine (TrSpec_branch_0 _ _); Tac.build_i_spec_t_eq | ..];
         (* other branches *)
-        build_Tr_change_exact
+        Tac.build_Tr_change_exact
       ]
-    ].
+    ]
+    ).
 
   (* solves a goal [HasSpec i ctx ?s] *)
   Ltac build_HasSpec :=
     let build _ := build_HasSpec in
+    cbn;
     lazymatch goal with |- @HasSpec ?C ?A ?i ?ctx ?s =>
     let i' := eval hnf in i in
-    change (@HasSpec C A i' ctx s);
+    let s' := fresh "s" in pose (s' := s);
+    intro_evar_args s';
+    change (@HasSpec C A i' ctx s');
+    subst s';
+
     lazymatch i' with
     | mk_instr _ =>
         refine (HasSpec_ct _ _);
@@ -1709,11 +1789,13 @@ Module Tac.
         | |- Call_Spec     _ _ _ => build_Call
         | |- ?g => solve_db HasSpecDB
         end
-    | (match ?x with _ => _ end) =>
+    | _ =>
+        Tac.head_of i' ltac:(fun i_head =>
+        Tac.matched_term i_head ltac:(fun x =>
         tryif is_single_case x
-        then build_HasSpec_dlet   build x s (* destructive let *)
-        else build_HasSpec_branch build x   (* multiple branches *)
-    | ?g => fail "HasSpec" g
+        then build_HasSpec_dlet   build x (* destructive let *)
+        else build_HasSpec_branch build x (* multiple branches *)
+        ))
     end end.
   
   (* solves a goal [HasSpec i ctx (mk_i_spec csm prd ?f)] *)
@@ -1808,65 +1890,54 @@ Module Tac.
     subst; exact C.
   Qed.
 
+  Ltac build_extract_cont_match build_f x :=
+    lazymatch goal with |- @CP.extract_cont ?SG ?A ?B (@i_impl ?CT _ ?i) ?k ?r =>
+    (* A B k *)
+    let i_v := fresh "i" in
+    let F_d := fresh "F'" in
+    pose (F_d := fun i_v : instr CT A =>
+      @CP.extract_cont SG A B (@i_impl CT A i_v) k);
+    let case_x := fresh "case_x" in
+    set (case_x := x) in F_d;
+    let F' := eval cbv delta [F_d] in F_d in clear F_d;
+    (* i *)
+    Tac.generalize_match_args x case_x i ltac:(fun i' rev_args =>
+
+    change (F' i' r); cbn beta;
+    simple refine (Tac.extract_cont_change _ _ _);
+    [ (* r0 *) rev_args tt; case case_x as []; intros; shelve
+    | (* C  *) rev_args tt; case case_x as []; intros;
+      build_f tt
+    | (* E  *) CP.simplify_match case_x ]
+    )end.
+
   Ltac build_extract_cont :=
     cbn;
-    lazymatch goal with
-    | |- @CP.extract_cont ?SG ?A ?B (i_impl ?v) ?k ?i =>
-        lazymatch v with
+    lazymatch goal with | |- @CP.extract_cont ?SG ?A ?B ?i ?k ?r =>
+    let r' := fresh "r" in set (r' := r);
+    intro_evar_args r';
+    lazymatch i with
+    | i_impl ?v =>
+        head_of v ltac:(fun v_head =>
+        lazymatch v_head with
         | (match ?x with _ => _ end) =>
-            simple refine (extract_cont_change _ _ _);
-            [ (* r0 *)
-              case x as []; shelve
-            | (* C *)
-              case x as [];
-              build_extract_cont
-            | (* E *)
-              (* tries to remove the match *)
-              first [ case x; intros; [reflexivity] | reflexivity ] ]
+            subst r';
+            build_extract_cont_match ltac:(fun _ => build_extract_cont) x
         | _ =>
             let v' := eval hnf in v in
-            progress change (@CP.extract_cont SG A B (i_impl v') k i);
+            progress change (@CP.extract_cont SG A B (i_impl v') k r');
+            subst r';
             build_extract_cont
-        end
-    | _ => CP.build_extract_cont_k build_extract_cont
-    end.
-
-  (* Since the ghost argument can depend on the concrete argument,
-     we must handle the initial destruction of the latter specially. *)
-  Local Lemma intro_f_extract_with_ghin [CT sg ghin ghout]
-    [f : @f_body CT sg (mk_f_sigh sg (Some ghin) ghout)]
-    (i : CP.f_impl sg)
-    (E : forall x : f_arg_t sg,
-         display (f x) ->
-         CP.extract (f_ebody f x) (i x)):
-    f_extract f.
-  Proof.
-    exists i.
-    intro; apply E.
-    constructor.
-  Defined.
-
-  Ltac case_f_extract_with_ghin :=
-    lazymatch goal with |- @display ?A0 ?i -> @CP.extract ?SIG ?A ?s ?e =>
-      let i' := eval hnf in i in
-      change (@display A0 i' -> @CP.extract SIG A s e);
-      lazymatch i' with
-      | match ?x with _ => _ end =>
-          build_term e ltac:(fun _ => nondep_case x; clear x; shelve);
-          case x as []; clear x;
-          case_f_extract_with_ghin
-      | _ => intros _(* Tac.display *)
-      end
+        end)
+    | _ =>
+        CP.build_extract_cont_k build_extract_cont
+    end
+    | |- ?g => fail "build_extract_cont" g
     end.
 
   (* solves a goal [f_extract bd] *)
   Ltac extract_impl :=
-    first
-      [ (* if there is a ghost argument *)
-        refine (intro_f_extract_with_ghin _ _);
-        intro;
-        case_f_extract_with_ghin
-      | eexists; intro ];
+    eexists; intro;
     refine (CP.extract_by_cont _ _ _);
     [ build_extract_cont
     | Tac.cbn_refl

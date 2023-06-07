@@ -625,6 +625,59 @@ Ltac build_ebind :=
        match goal with |- ?g => fail "EBind_SigG" g end
   else first [exact (EBind_Drop _) | exact (EBind_Refl _)].
 
+(* on a goal [match x with ... end arg0 ... arg9 = ?rhs]
+   where [arg0] ... [arg9] are local definitions,
+   instantiate [?rhs] with a simplified version of the lhs. *)
+Ltac simplify_match x :=
+  (* tries to remove the match *)
+  try (case x as []; [reflexivity]);
+  (* remove the unused arguments *)
+  lazymatch goal with |- @eq ?A ?lhs ?rhs =>
+  let rec iter_args lhs k(* rev_args -> test_dep -> inst_used -> rev_used -> ltac *) :=
+    lazymatch lhs with
+    | ?lhs ?arg =>
+        let used := fresh "used" in
+        evar (used : bool);
+        iter_args lhs ltac:(fun rev_args test_dep inst_used rev_used =>
+          k ltac:(fun _ => generalize arg; clear arg; rev_args tt)
+            ltac:(fun test_dep1 =>
+              test_dep ltac:(fun _ =>
+                let x := fresh "x" in intro x;
+                test_dep1 tt;
+                first [ clear x
+                      | try instantiate (1 := true) in (value of used);
+                        revert x ]
+            ))
+            ltac:(fun _ => try instantiate (1 := false) in (value of used); inst_used tt)
+            ltac:(fun _ =>
+              (tryif assert (used = true) as _ by reflexivity
+               then generalize arg; clear arg
+               else clear arg);
+              rev_used tt)
+        )
+    | _ =>
+        k ltac:(fun _ => idtac)
+          ltac:(fun test_dep1 => test_dep1 tt)
+          ltac:(fun _ => idtac)
+          ltac:(fun _ => idtac)
+    end
+  in
+  iter_args lhs ltac:(fun rev_args test_dep inst_used rev_used =>
+    assert (Tac.display lhs) as _;
+      [ rev_args tt; case x as []; test_dep ltac:(fun _ => idtac); split
+      | inst_used tt ];
+
+    let rhs' := fresh "rhs" in
+    Tac.pose_build rhs' A ltac:(fun _ =>
+      rev_used tt; case x as []; intros; shelve);
+    cbn beta in rhs';
+    unify rhs rhs';
+    change (@eq A lhs rhs');
+    subst rhs';
+
+    rev_args tt; case x as []; Tac.cbn_refl
+  )end.
+
 (* solves a goal [extract_cont i k ?r].
    The head of [i] must be a constructor of [instr].
    [ktac] is a tactic that solves [extract_cont i k ?r] for a more general form of [i],

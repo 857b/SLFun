@@ -198,20 +198,116 @@ Proof. Derived. Qed.
 Section Other.
   Variable CT : ConcreteProg.context.
 
-Definition sigh_a0 := mk_f_sig1 (ptr * ptr) None unit None.
-Definition spec_a0 : FSpec sigh_a0
+Definition vdummy (A : Type) : Vprop.p A :=
+  fun _ => SLprop.emp.
+Definition remove_vdummy_spec : LDecl SPEC
+  (A : Type) 'v [] [vdummy A ~> v] True
+  '(_ : unit) tt [] True.
+Proof. Derived. Defined.
+Lemma remove_vdummy : remove_vdummy_spec.
+Proof.
+  init_lemma n v ?.
+  reflexivity.
+Qed.
+
+
+Definition sigh_a0a := mk_f_sig1 (ptr * ptr) None unit None.
+Definition spec_a0a : FSpec sigh_a0a
   SPEC (ps : _) 'n [vptr (fst ps) ~> n] [] True
   '(_ : _) tt [] True.
 Proof. Tac.build_FSpec. Defined.
 
-Definition vprog_a0 : f_body CT sigh_a0 := fun ps =>
+Definition vprog_a0a : f_body CT sigh_a0a := fun ps =>
   'v0 <- let (p0, _) := ps in Read p0;
   Ret tt.
-Lemma imatch_a0:
-  f_body_match vprog_a0 (m_spec spec_a0).
+Lemma imatch_a0a:
+  f_body_match vprog_a0a (m_spec spec_a0a).
 Proof. solve_by_wlp. Qed.
 
-Definition cp_a0: f_extract vprog_a0.
+Definition cp_a0a: f_extract vprog_a0a.
+Proof. Tac.extract_impl. Defined.
+
+Definition sigh_a0b := mk_f_sig1 (ptr * ptr) None memdata None.
+Definition spec_a0b : FSpec sigh_a0b
+  SPEC (ps : _) 'n [vptr (fst ps) ~> n] [] True
+  '(_ : _) tt [] True.
+Proof. Tac.build_FSpec. Defined.
+
+Definition vprog_a0b : f_body CT sigh_a0b := fun ps =>
+  let (p0, _) := ps in
+  Read p0.
+
+Lemma imatch_a0b:
+  f_body_match vprog_a0b (m_spec spec_a0b).
+Proof. solve_by_wlp. Qed.
+
+Definition cp_a0b: f_extract vprog_a0b.
+Proof. Tac.extract_impl. Defined.
+
+
+Definition sigh_a0c := mk_f_sig1 (nat * nat) None unit None.
+Definition spec_a0c : FSpec sigh_a0c
+  SPEC (ns : _) '(v0, v1) [] [vdummy (Fin.t (fst ns)) ~> v0; vdummy (Fin.t (snd ns)) ~> v1] True
+  '(_ : _) tt [] True.
+Proof. Tac.build_FSpec. Defined.
+
+Definition vprog_a0c : f_body CT sigh_a0c := fun ns =>
+  let (n0, n1) := ns in
+  gLem remove_vdummy (Fin.t n0);;
+  gLem remove_vdummy (Fin.t n1).
+
+Lemma imatch_a0c:
+  f_body_match vprog_a0c (m_spec spec_a0c).
+Proof.
+  build_fun_spec.
+  FunProg.solve_by_wlp.
+Qed.
+
+Definition cp_a0c: f_extract vprog_a0c.
+Proof. Tac.extract_impl. Defined.
+
+
+Definition sigh_a0d := mk_f_sig1 (nat * nat) (Some (fun x => Fin.t (fst x) <: Type))
+                                 nat (Some (fun x => Fin.t x <: Type)).
+Definition spec_a0d : FSpec sigh_a0d
+  SPEC (ns : _) & (_ : _) 'v [] [vdummy (Fin.t (snd ns)) ~> v] True
+  '(_ : _) & (_ : _) tt [] True.
+Proof. Tac.build_FSpec. Defined.
+
+Definition vprog_a0d : f_body CT sigh_a0d := fun ns g =>
+  (let (n0, n1) as ns return Fin.t (fst ns) -> _ := ns in fun g =>
+   gLem remove_vdummy (Fin.t n1);;
+   RetG n0 g) g.
+
+Lemma imatch_a0d:
+  f_body_match vprog_a0d (m_spec spec_a0d).
+Proof.
+  build_fun_spec.
+  FunProg.solve_by_wlp.
+Qed.
+
+Definition cp_a0d: f_extract vprog_a0d.
+Proof. Tac.extract_impl. Defined.
+
+
+Definition sigh_a0e := mk_f_sig1 (nat * nat) (Some (fun x => (Fin.t (fst x) * Fin.t (snd x))%type <: Type))
+                                 nat None.
+Definition spec_a0e : FSpec sigh_a0e
+  SPEC (ns : _) & (_ : _) 'tt [] [] True
+  '(_ : _) tt [] True.
+Proof. Tac.build_FSpec. Defined.
+
+Definition vprog_a0e : f_body CT sigh_a0e := fun ns gs =>
+  let (g0, g1) := gs in
+  (let (n0, n1) as ns return Fin.t (fst ns) -> Fin.t (snd ns) -> _ := ns in fun g0 g1 =>
+   Ret n0) g0 g1.
+
+Goal f_body_match vprog_a0e (m_spec spec_a0e).
+Proof.
+  build_fun_spec.
+  FunProg.solve_by_wlp.
+Qed.
+Goal f_extract vprog_a0e.
 Proof. Tac.extract_impl. Defined.
 
 
@@ -226,11 +322,9 @@ Definition vprog_a1a : f_body CT sigh_a1a := fun '(b, p0, p1, p2) =>
   if b
   then Write p1 0
   else Write p2 1.
-Lemma imatch_a1a:
-  f_body_match vprog_a1a (m_spec spec_a1a).
+Goal f_body_match vprog_a1a (m_spec spec_a1a).
 Proof. solve_by_wlp; congruence. Qed.
-
-Definition cp_a1a: f_extract vprog_a1a.
+Goal f_extract vprog_a1a.
 Proof. Tac.extract_impl. Defined.
 
 
@@ -248,9 +342,10 @@ Definition vprog_a1b : f_body CT sigh_a1b := fun '(b, p) =>
   | B0 => Write p 0
   | B1 | B2 => Ret tt
   end.
-Lemma imatch_a1b:
-  f_body_match vprog_a1b (m_spec spec_a1b).
+Goal f_body_match vprog_a1b (m_spec spec_a1b).
 Proof. solve_by_wlp; congruence. Qed.
+Goal f_extract vprog_a1b.
+Proof. Tac.extract_impl. Defined.
 
 
 Definition sigh_a1c := mk_f_sig1 (option nat * ptr) None unit None.
@@ -265,9 +360,49 @@ Definition vprog_a1c : f_body CT sigh_a1c := fun '(o, p) =>
   | Some n => Write p n
   | None   => Ret tt
   end.
-Lemma imatch_a1c:
-  f_body_match vprog_a1c (m_spec spec_a1c).
+Goal f_body_match vprog_a1c (m_spec spec_a1c).
 Proof. solve_by_wlp. Qed.
+Goal f_extract vprog_a1c.
+Proof. Tac.extract_impl. Defined.
+
+
+Definition sigh_a1d := mk_f_sig1 bool None unit None.
+Definition spec_a1d : FSpec sigh_a1d
+  SPEC (b : bool)
+  'v [] [(if b as b return Vprop.p (if b then nat else bool) then vdummy nat else vdummy bool) ~> v] True
+  '(_ : _) tt [] True.
+Proof. Tac.build_FSpec. Defined.
+
+Definition vprog_a1d : f_body CT sigh_a1d := fun b =>
+  if b
+  then gLem remove_vdummy nat
+  else gLem remove_vdummy bool.
+Goal f_body_match vprog_a1d (m_spec spec_a1d).
+Proof. solve_by_wlp. Qed.
+Goal f_extract vprog_a1d.
+Proof. Tac.extract_impl. Defined.
+
+
+Definition sigh_a1e := mk_f_sig1 bool (Some (fun b : bool => (if b then nat else unit) <: Type))
+                                 unit (Some (fun _ => option nat <: Type)).
+Definition spec_a1e : FSpec sigh_a1e
+  SPEC (b : bool) & (_ : _)
+  'tt [] [] True
+  '(_ : _) & (_ : _) tt [] True.
+Proof. Tac.build_FSpec. Defined.
+
+Definition vprog_a1e : f_body CT sigh_a1e := fun b g =>
+  (if b as b return (if b then nat else unit) -> _
+   then fun g => RetG tt (Some g)
+   else fun _ => RetG tt None
+  ) g.
+Goal f_body_match vprog_a1e (m_spec spec_a1e).
+Proof.
+  build_fun_spec.
+  FunProg.solve_by_wlp.
+Qed.
+Goal f_extract vprog_a1e.
+Proof. Tac.extract_impl. Defined.
 
 
 Definition sigh_a2a := mk_f_sig1 (ptr * ptr) None unit None.
@@ -302,18 +437,36 @@ Definition cp_a2b: f_extract vprog_a2b.
 Proof. Tac.extract_impl. Defined.
 
 
-Definition sigh_a3 := mk_f_sig1 unit (Some (fun _ => (nat * nat)%type <: Type)) unit (Some (fun _ => nat <: Type)).
-Definition spec_a3 : FSpec sigh_a3
+Definition sigh_a3a := mk_f_sig1 unit (Some (fun _ => (nat * nat)%type <: Type)) unit (Some (fun _ => nat <: Type)).
+Definition spec_a3a : FSpec sigh_a3a
   SPEC (_ : _) & ((n0, n1) : _)
   'tt [] [] True
   '(_ : _) & (r : _) tt [] (r = n0 + n1).
 Proof. Tac.build_FSpec. Defined.
 
-Definition vprog_a3 : f_body CT sigh_a3 := fun _ '(n0, n1) =>
+Definition vprog_a3a : f_body CT sigh_a3a := fun _ '(n0, n1) =>
   RetG tt (n0 + n1).
-Lemma imatch_a3:
-  f_body_match vprog_a3 (m_spec spec_a3).
+Lemma imatch_a3a:
+  f_body_match vprog_a3a (m_spec spec_a3a).
 Proof. solve_by_wlp. Qed.
-Definition cp_a3: f_extract vprog_a3.
+Definition cp_a3a: f_extract vprog_a3a.
 Proof. Tac.extract_impl. Defined.
+
+
+Definition sigh_a3b := mk_f_sig1 (nat * unit) (Some (fun '(_,_) => nat <: Type)) nat None.
+Definition spec_a3b : FSpec sigh_a3b
+  SPEC ((_, _) : _) & (_ : _)
+  'tt [] [] True
+  '(_ : _) tt [] True.
+Proof. Tac.build_FSpec. Defined.
+
+Definition vprog_a3b : f_body CT sigh_a3b := fun '(n, _) _ =>
+  Ret n.
+Lemma imatch_a3b:
+  f_body_match vprog_a3b (m_spec spec_a3b).
+Proof. solve_by_wlp. Qed.
+
+Definition cp_a3b: f_extract vprog_a3b.
+Proof. Tac.extract_impl. Defined.
+
 End Other.
