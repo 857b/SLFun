@@ -51,9 +51,19 @@ Module Spec. Section Spec.
   Definition eq (s0 s1 : t) :=
     SLprop.eq (pre s0) (pre s1) /\ forall x : A, SLprop.eq (post s0 x) (post s1 x).
 
-  Global Instance eq_Equivalence : Equivalence eq.
+  Definition le (s0 s1 : t) :=
+    SLprop.imp (pre s1) (pre s0) /\ forall x : A, SLprop.imp (post s0 x) (post s1 x).
+
+  Global Instance spec_PartialOrder : Rel.MakePartialOrder eq le.
   Proof.
-    Rel.by_expr (Rel.conj (Rel.pull pre SLprop.eq) (Rel.pull post (Rel.point A SLprop.eq))).
+    split.
+    - intros ? ?; cbn.
+      unfold Basics.flip, eq, le.
+      setoid_rewrite (Rel.partial_order_eq_iff SLprop.eq SLprop.imp).
+      setoid_rewrite Rel.forall_and_comm.
+      tauto.
+    - Rel.by_expr (Rel.conj (Rel.pull pre (Basics.flip SLprop.imp)) (Rel.pull post (Rel.point A SLprop.imp))).
+      eauto 8 with typeclass_instances.
   Qed.
 
   Global Add Morphism mk
@@ -61,24 +71,6 @@ Module Spec. Section Spec.
     as mk_morph.
   Proof.
     intros ? ? E0 ? ? E1; exact (conj E0 E1).
-  Qed.
-
-  Definition le (s0 s1 : t) :=
-    SLprop.imp (pre s1) (pre s0) /\ forall x : A, SLprop.imp (post s0 x) (post s1 x).
-
-  Global Add Morphism le
-    with signature eq ==> eq ==> iff
-    as le_morph.
-  Proof.
-    intros s0 s0' [E0a E0b] s1 s1' [E1a E1b].
-    unfold le, Morphisms.pointwise_relation in *.
-    rewrite E0a, E1a. setoid_rewrite E0b. setoid_rewrite E1b.
-    reflexivity.
-  Qed.
-
-  Global Instance le_PreOrder : PreOrder le.
-  Proof.
-    Rel.by_expr (Rel.conj (Rel.pull pre (Basics.flip SLprop.imp)) (Rel.pull post (Rel.point A SLprop.imp))).
   Qed.
 
   Definition frame (s : t) (fr : SLprop.t) : t := {|

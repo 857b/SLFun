@@ -147,9 +147,23 @@ Module SLprop.
   Definition eq (h0 h1 : t) : Prop :=
     forall m : FMem.t, h0 m <-> h1 m.
 
-  Global Instance eq_Equivalence : Equivalence eq.
+  Definition imp (h0 h1 : t) : Prop :=
+    forall m, h0 m -> h1 m.
+
+  Global Instance slprop_PartialOrder: Rel.MakePartialOrder eq imp.
   Proof.
-    Rel.by_expr (Rel.pull sl_pred (Rel.point FMem.t iff)).
+    split.
+    - intros ? ?; cbn.
+      unfold Basics.flip, eq, imp.
+      setoid_rewrite Rel.forall_and_comm.
+      reflexivity.
+    - Rel.by_expr (Rel.pull sl_pred (Rel.point FMem.t Basics.impl)).
+  Qed.
+
+  Lemma imp_morph:
+    forall x y : t, eq x y -> forall x0 y0 : t, eq x0 y0 -> imp x x0 <-> imp y y0.
+  Proof.
+    exact (Morphisms.PartialOrder_proper (eqA := eq) (R := imp) _).
   Qed.
 
   Global Add Morphism sl_pred
@@ -168,31 +182,10 @@ Module SLprop.
     rewrite E; reflexivity.
   Qed.
 
-  Definition imp (h0 h1 : t) : Prop :=
-    forall m, h0 m -> h1 m.
-
-  Global Instance imp_PreOrder : PreOrder imp.
-  Proof.
-    Rel.by_expr (Rel.pull sl_pred (Rel.point FMem.t Basics.impl)).
-  Qed.
-
-  Global Add Morphism imp
-    with signature eq ==> eq ==> iff
-    as imp_morph.
-  Proof.
-    unfold imp.
-    intros ? ? E0 ? ? E1.
-    setoid_rewrite E0.
-    setoid_rewrite E1.
-    reflexivity.
-  Qed.
-
   Lemma eq_iff_imp h0 h1:
     eq h0 h1 <-> (imp h0 h1 /\ imp h1 h0).
   Proof.
-    split.
-    - intro E; split; intro m; apply (E m).
-    - intros E m; split; apply E.
+    apply (Rel.partial_order_eq_iff eq imp).
   Qed.
 
   (* [impp] : implies pure *)
@@ -456,7 +449,7 @@ Module SLprop.
     (H : impp h P):
     eq h (pure P ** h).
   Proof.
-    apply eq_iff_imp; split.
+    apply antisymmetry.
     - intros m M.
       apply star_pure.
       exact (conj (H m M) M).

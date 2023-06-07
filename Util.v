@@ -325,6 +325,43 @@ Module Rel.
         auto  using Build_PreOrder with typeclass_instances;
         eauto using Build_PreOrder with typeclass_instances
     end.
+
+
+  Class MakePartialOrder {A : Type} (eq : relation A) (le : relation A) := {
+    mkPO_eq :  relation_equivalence eq (relation_conjunction le (Basics.flip le));
+    mkPO_le :> PreOrder le
+  }.
+
+  Global Instance MakePartialOrder_Equivalence {A eq le} {M : @MakePartialOrder A eq le}:
+    Equivalence eq.
+  Proof.
+    pose (E := fun x y => mkPO_eq (MakePartialOrder := M) x y); cbn in E.
+    split; hnf; setoid_rewrite E; unfold Basics.flip.
+    - split; reflexivity.
+    - tauto.
+    - intuition; etransitivity; eassumption.
+  Qed.
+
+  Global Instance MakePartialOrder_PartialOrder {A eq le} {M : @MakePartialOrder A eq le}:
+    PartialOrder eq le.
+  Proof.
+    apply M.
+  Qed.
+
+  Lemma partial_order_eq_iff {A : Type}
+    (eq : relation A) {equ  : Equivalence eq}
+    (le : relation A) {preo : PreOrder le} {po : PartialOrder eq le}
+    (x y : A):
+    eq x y <-> le x y /\ le y x.
+  Proof.
+    apply po.
+  Qed.
+
+  Lemma forall_and_comm [A : Type] (P Q : A -> Prop):
+    (forall x, P x /\ Q x) <-> (forall x, P x) /\ (forall x, Q x).
+  Proof.
+    split; intro H; split; intros; apply H.
+  Qed.
 End Rel.
 
 

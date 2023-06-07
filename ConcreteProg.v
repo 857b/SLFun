@@ -29,29 +29,16 @@ Module Spec. Section Spec.
   Definition wp_eq (wp0 wp1 : wp_t) : Prop :=
     forall post m0, wp0 post m0 <-> wp1 post m0.
 
-  Global Instance wp_eq_Equivalence : Equivalence wp_eq.
-  Proof.
-    Rel.by_expr (Rel.point (A -> mem -> Prop) (Rel.point mem iff)).
-  Qed.
-
   Definition wp_le (wp0 wp1 : wp_t) : Prop :=
     forall post m0, wp1 post m0 -> wp0 post m0.
 
-  Global Instance wp_le_PreOrder : PreOrder wp_le.
+  Global Instance wp_PartialOrder : Rel.MakePartialOrder wp_eq wp_le.
   Proof.
-    Rel.by_expr (Rel.point (A -> mem -> Prop) (Rel.point mem (Basics.flip (Basics.impl)))).
-  Qed.
-
-  (* TODO generic le -> eq *)
-  Global Add Morphism wp_le
-    with signature wp_eq ==> wp_eq ==> iff
-    as wp_le_morph.
-  Proof.
-    unfold wp_eq, wp_le.
-    intros ? ? E0 ? ? E1.
-    setoid_rewrite E0.
-    setoid_rewrite E1.
-    reflexivity.
+    split.
+    - intros ? ?; cbn; unfold Basics.flip, wp_eq, wp_le.
+      repeat setoid_rewrite Rel.forall_and_comm.
+      tauto.
+    - Rel.by_expr (Rel.point (A -> mem -> Prop) (Rel.point mem (Basics.flip (Basics.impl)))).
   Qed.
   
   Record t := mk {
