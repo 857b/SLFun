@@ -106,13 +106,22 @@ Qed.
 Inductive wlpA [A : DTuple.p] (i : instr A) (post : DTuple.arrow A (fun _ => Prop)) : Prop :=
   wlpA_I (P : wlp i (DTuple.to_fun post)).
 
-Lemma wlpA_eqv [pre A i0 i1 post]
-  (E : @eqv A i0 i1)
-  (C : forall PRE : pre, wlpA i1 (post PRE))
-  (PRE : pre) : wlpA i0 (post PRE).
+Lemma wlpA_le [A i0 i1 post]
+  (E : @le A i0 i1)
+  (C : wlpA i1 post):
+  wlpA i0 post.
 Proof.
   constructor.
   apply E, C.
+Qed.
+
+Lemma wlpA_eqv [A i0 i1 post]
+  (E : @eqv A i0 i1)
+  (C : wlpA i1 post):
+  wlpA i0 post.
+Proof.
+  eapply wlpA_le, C.
+  rewrite E; reflexivity.
 Qed.
 
 
@@ -277,6 +286,14 @@ Section Morphism.
   Proof.
     apply M, C.
   Qed.
+
+  Lemma le_instr_morph_lem [A HS i i']
+    (M : instr_morph false HS i i')
+    (C : and_list HS):
+    @le A i i'.
+  Proof.
+    apply M, C.
+  Qed.
   
   Lemma instr_morph_refl [A i] e:
     @instr_morph A e nil i i.
@@ -374,14 +391,23 @@ Ltac build_instr_morphism :=
   | |- ?g => fail "instr_morph" g
   end.
 
-(* on a goal [eqv i ?i'] instantiate [i'], generate some goals [eqv f ?f'] *)
+Ltac intro_instr_morphisms_goals :=
+  cbn;
+  let rec splits := try solve [split]; (split; [| splits]) in
+  splits;
+  intros.
+
+(* on a goal [eqv i ?i'] instantiates [i'], generates some goals [eqv f ?f'] *)
 Ltac eqv_instr_morph :=
   refine (eqv_instr_morph_lem _ _);
   [ build_instr_morphism
-  | cbn;
-    let rec splits := try solve [split]; (split; [| splits]) in
-    splits;
-    intros ].
+  | intro_instr_morphisms_goals ].
+
+(* on a goal [le i ?i'] instantiates [i'], generates some goals [eqv f ?f'] *)
+Ltac le_instr_morph :=
+  refine (le_instr_morph_lem _ _);
+  [ build_instr_morphism
+  | intro_instr_morphisms_goals ].
 
 (* WLP formula *)
 
@@ -564,51 +590,54 @@ Ltac build_wlp_formula_ dmatch :=
 
 Ltac build_wlp_formula := build_wlp_formula_ false.
 
-Local Lemma by_wlp_lem [pre : Prop] [A] [i : instr A] [post f]
+Local Lemma by_wlp_lem [A] [i : instr A] [post f]
   (F : wlp_formula i f)
-  (C : forall PRE : pre, f (DTuple.to_fun (post PRE)))
-  (PRE : pre): wlpA i (post PRE).
+  (C : f (DTuple.to_fun post)):
+  wlpA i post.
 Proof.
   constructor; case F as [F].
   apply F, C.
 Qed.
 
+Ltac under_PRE f :=
+  let PRE := fresh "PRE" in
+  intro PRE;
+  f tt;
+  revert PRE.
+
 Ltac by_wlp_ dmatch :=
+  under_PRE ltac:(fun _ =>
   refine (by_wlp_lem _ _);
-  [ build_wlp_formula_ dmatch | cbn].
+  [ build_wlp_formula_ dmatch | cbn]).
 
 Ltac by_wlp := by_wlp_ false.
 
-Ltac decompose' H :=
-  lazymatch goal with | H : ?T |- _ =>
-  lazymatch T with
-  | exists _, _ =>
-      let H0 := fresh "H" in
-      destruct H as [? H0]; decompose' H0
-  | _ /\ _ =>
-      let H0 := fresh "H" in
-      let H1 := fresh "H" in
-      destruct H as [H0 H1];
-      decompose' H0;
-      decompose' H1
-  | True  => destruct H
-  | False => destruct H
-  | unit  => destruct H
-  | _ = _ => subst
-  | context[match ?x with _ => _ end] =>
-      destruct x; decompose' H
-  | _ => idtac
-  end end.
+Ltac decompose_hyps :=
+  subst;
+  try (lazymatch goal with
+  | x : unit     |- _ => destruct x
+  | x : prod _ _ |- _ => destruct x as (?, ?)
+  | H : ex     _ |- _ => destruct H as [? ?]
+  | H : and  _ _ |- _ => destruct H as [? ?]
+  | H : True     |- _ => destruct H
+  | H : False    |- _ => destruct H
+  | H : context[match ?x with _ => _ end] |- _ =>
+      destruct x
+  end;
+  decompose_hyps).
 
 (* decompose a generated wlp *)
 Ltac solve_wlp :=
+  cbn;
   lazymatch goal with
   | |- _ /\ _ =>
       split; solve_wlp
   | |- _ -> _ =>
-      let H := fresh "H" in intro H; decompose' H; solve_wlp
+      let H := fresh "H" in
+      intro H; decompose_hyps; solve_wlp
   | |- forall _, _ =>
-      let H := fresh "H" in intro H; decompose' H; solve_wlp
+      let x := fresh "x" in
+      intro x; decompose_hyps; solve_wlp
   | |- @ex ?A _ =>
       tryif constr_eq_strict ltac:(type of A) Prop
       then unshelve eexists; solve_wlp
@@ -616,7 +645,7 @@ Ltac solve_wlp :=
   | _ =>
       try solve [split];
       try lazymatch goal with |- context[match ?x with _ => _ end] =>
-      destruct x; solve_wlp
+      destruct x; decompose_hyps; solve_wlp
       end
   end.
 
@@ -647,49 +676,59 @@ Section SimplCont.
     Bind i (DTuple.of_fun (k_fk k)).
   Global Arguments k_apply [_ _] i !k/.
 
-  Local Add Parametric Morphism A B : (@k_apply A B)
-    with signature (@eqv A) ==> (@eq (k_t A B)) ==> (@eqv B)
-    as k_apply_morph.
+  Lemma k_apply_morph [A B i0 i1 k]
+    (E : le i0 i1):
+    le (@k_apply A B i0 k)
+       (@k_apply A B i1 k).
   Proof.
-    intros i0 i1 E k; unfold k_apply.
-    rewrite E; reflexivity.
+    unfold k_apply.
+    apply Bind_morph_le; [exact E|reflexivity].
   Qed.
 
+  (* The simplifications are expected to be complete (i.e. to not change a
+     provable program into an unprovable one). Using [le] instead of [eqv] avoid using proof
+     irrelevance when solving trivial call preconditions. *)
   Inductive simpl_cont [A B] (i : instr A) (k : k_t A B) (r : instr B) : Prop :=
-    simpl_contI (E : eqv r (k_apply i k)).
+    simpl_contI (E : le (k_apply i k) r).
+
+  Lemma simpl_contI_eq [A B] i k r
+    (E : eqv (@k_apply A B i k) r):
+    simpl_cont i k r.
+  Proof.
+    constructor; rewrite E; reflexivity.
+  Qed.
 
   Definition k_None {A : DTuple.p} : k_t A A :=
     mk_k A (fun x => x) (DTuple.of_fun (@Ret A)).
 
-  Lemma eqv_by_simpl_cont [A i0 i1]
+  Lemma le_by_simpl_cont [A i0 i1]
     (S : @simpl_cont A A i0 k_None i1):
-    eqv i0 i1.
+    le i0 i1.
   Proof.
-    case S as [->].
+    etransitivity; [|apply S].
     intro; cbn.
     apply (Spec.wp_morph (wlp_monotone _)).
     intro; rewrite !DTuple.to_of_fun; reflexivity.
   Qed.
 
   Lemma simpl_cont_morph [A B i0 i1] k
-    (E : eqv i0 i1):
+    (E : le i0 i1):
     @simpl_cont A B i0 k (k_apply i1 k).
   Proof.
     constructor.
-    rewrite E.
-    reflexivity.
+    apply k_apply_morph, E.
   Qed.
 
   Lemma simpl_cont_def [A B] i k:
     @simpl_cont A B i k (k_apply i k).
   Proof.
-    constructor; reflexivity.
+    apply simpl_contI_eq; reflexivity.
   Qed.
 
   Lemma simpl_cont_Ret [A B] x k:
     @simpl_cont A B (Ret x) k (k_fk k x).
   Proof.
-    case k as []; constructor; intro; cbn.
+    apply simpl_contI_eq; case k as []; intro; cbn.
     rewrite DTuple.to_of_fun; reflexivity.
   Qed.
 
@@ -698,23 +737,26 @@ Section SimplCont.
     @simpl_cont DTuple.Pnil B (@Call DTuple.Pnil {| Spec.pre_p := None; Spec.post_p := None |})
       k (k_fk k tt).
   Proof.
-    case k as []; constructor; intro; cbn.
-    split; intro H.
-    - unshelve eexists. split.
-      intros [] _; exact H.
-    - case H as (_ & H).
+    apply simpl_contI_eq; case k as []; intro; cbn.
+    split.
+    - intros (_ & H).
       apply (H tt). split.
+    - intro H; unshelve eexists. split.
+      intros [] _; exact H.
   Qed.
 
-  Lemma simpl_cont_Call_pre [A B post k r]
-    (C : simpl_cont (Call (Spec.mk_t None (option_map (fun post => post Logic.I) post)))
-          (k_pull_f (A := A) (B := DTuple.Pcons _ _) (fun x => DTuple.pair Logic.I x) k) r):
-    @simpl_cont _ B (@Call A (Spec.mk_t (Some True) post)) k r.
+  Lemma simpl_cont_Call_pre [A B] [pre : Prop] [post k r]
+    (T : pre)
+    (C : simpl_cont (Call (Spec.mk_t None (option_map (fun post => post T) post)))
+          (k_pull_f (A := A) (B := DTuple.Pcons _ _) (fun x => DTuple.pair T x) k) r):
+    @simpl_cont _ B (@Call A (Spec.mk_t (Some pre) post)) k r.
   Proof.
-    constructor. etransitivity. apply C.
+    constructor. etransitivity; [|apply C].
     intro; unfold k_pull_f, k_apply, k_fk; case k as []; cbn.
-    apply Morphisms_Prop.ex_iff_morphism; intros [].
-    case post; cbn; reflexivity.
+    intros [[] H].
+    exists T; intros res POST.
+    refine (H res _); revert POST;
+    case post; cbn; auto.
   Qed.
 
   Lemma simpl_cont_Call_post [A B pre k r]
@@ -722,7 +764,7 @@ Section SimplCont.
     @simpl_cont _ B
       (@Call A (Spec.mk_t pre (Some (OptProp.of_fun (fun _ => DTuple.of_fun (fun _ => True)))))) k r.
   Proof.
-    constructor. etransitivity. apply C.
+    constructor. etransitivity; [apply eqv_iff_le|apply C].
     intro; unfold k_apply, k_fk; case k as []; cbn.
     apply Morphisms_Prop.ex_iff_morphism;  intro.
     apply Morphisms_Prop.all_iff_morphism; intro.
@@ -746,7 +788,7 @@ Section SimplCont.
     (C : simpl_cont (@Call A' (Spec.pull_f rg s)) (k_pull_f_Call s rg k) r):
     @simpl_cont _ B (@Call A s) k r.
   Proof.
-    constructor. etransitivity. apply C.
+    constructor. etransitivity; [apply eqv_iff_le|apply C].
     destruct k, Ru as [[R0 R1]]; cbn.
     intro; unfold k_pull_f_Call, k_apply, k_fk; cbn.
     apply Morphisms_Prop.ex_iff_morphism; intro PRE.
@@ -765,17 +807,18 @@ Section SimplCont.
     @simpl_cont B C (Bind f0 g0) k f1.
   Proof.
     constructor.
-    etransitivity. apply Ef.
+    etransitivity; [|apply Ef].
     cbn [k_apply k_fk].
-    etransitivity. apply Bind_morph. reflexivity.
-    - intro x. etransitivity.
+    etransitivity; cycle 1. apply Bind_morph_le. reflexivity.
+    - intro x. etransitivity; cycle 1.
       + rewrite !DTuple.to_of_fun.
         case Ru as [[->]].
         apply (DTuple.to_fun Eg).
       + apply R_refl. reflexivity.
-        symmetry. exact (DTuple.to_of_fun _ x).
+        exact (DTuple.to_of_fun _ x).
     - clear.
       case k as [].
+      apply eqv_iff_le.
       symmetry; apply Bind_assoc.
   Qed.
 
@@ -784,7 +827,8 @@ Section SimplCont.
     @simpl_cont A B i (mk_k C f k) (Bind r k).
   Proof.
     constructor.
-    case S; cbn [k_apply k_fk]; intros ->.
+    case S; cbn [k_apply k_fk]; intro H.
+    etransitivity; [apply eqv_iff_le|apply Bind_morph_le; [exact H|reflexivity]].
     rewrite Bind_assoc.
     apply Bind_morph; [reflexivity|intro].
     rewrite !DTuple.to_of_fun.
@@ -834,8 +878,9 @@ Ltac build_simpl_cont :=
       [ DTuple.build_iso_p_remove_unit |
       cbn;
       try lazymatch goal with |- @simpl_cont _ ?B (@Call ?A ?s) ?k _ =>
-        refine (@simpl_cont_Call_pre A B _ k _ _);
-        cbn
+        simple refine (@simpl_cont_Call_pre A B _ _ k _ _ _);
+        [ (* T *) solve [ split ]
+        | cbn ]
       end;
       try lazymatch goal with |- @simpl_cont _ ?B (@Call ?A (Spec.mk_t ?pre _)) ?k _ =>
         refine (@simpl_cont_Call_post A B pre k _ _);
@@ -854,19 +899,22 @@ Ltac build_simpl_cont :=
           build_simpl_cont
       | _ =>
           refine (simpl_cont_morph _ _);
-          eqv_instr_morph;
-          refine (eqv_by_simpl_cont _);
+          le_instr_morph;
+          refine (le_by_simpl_cont _);
           build_simpl_cont
       end)
   end
   | |- ?g => fail "build_simpl_cont" g
   end.
 
+(* NOTE: it can be useful to call it twice, since the simplification of Ret can
+   allow the simplification of some Call preconditions. *)
 Ltac simpl_prog :=
-  refine (wlpA_eqv _ _);
-  [ refine (eqv_by_simpl_cont _);
+  under_PRE ltac:(fun _ =>
+  refine (wlpA_le _ _);
+  [ refine (le_by_simpl_cont _);
     build_simpl_cont
-  | cbn ].
+  | cbn ]).
 
 Global Opaque Ret Bind Call Assert Oracle Loop.
 

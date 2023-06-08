@@ -203,9 +203,15 @@ Local Hint Resolve lcell_unfold | 1 : CtxTrfDB.
 Import VRecord.Tactics.
 
 Definition Length_spec : FDecl SPEC
-  (p : ptr)
-  'l [llist p ~> l] [] True
-  '(n : nat) tt [] (n = length l).
+  (p : ptr)      (* arguments *)
+  'l             (* input selectors *)
+  [llist p ~> l] (* preserved context *)
+  []             (* precondition context *)
+  True           (* requires clause *)
+  '(n : nat)     (* returned value *)
+  tt             (* output selectors *)
+  []             (* postcondition context *)
+  (n = length l) (* ensures clause *).
 Proof. Derived. Defined.
 Variable Length : Length_spec CT.
 
@@ -228,10 +234,15 @@ Proof.
   FunProg.solve_by_wlp.
 Qed.
 
+Definition loop_ptr (x : ptr * nat + nat) : ptr :=
+  match x with
+  | inl (p, _) => p
+  | inr _      => NULL
+  end.
 Definition Length_impl_loop : FImpl Length := fun p0 =>
   gLem intro_lseg_nil p0;;
   let inv (x : ptr * nat + nat) :=
-    let p1 := match x with inl (p, _) => p | inr _ => NULL end in
+    let p1 := loop_ptr x in
     [lseg p0 p1~>; llist p1~>]
   in
   'n <- Loop (inv := inv) (inl (p0, 0)) (fun '(p1, n) =>
@@ -259,9 +270,7 @@ Proof.
     let n := match x with inl (_, n) | inr n => n end in
     sel0 = l0 ++ l1 /\ n = length l0
   ).
-  FunProg.solve_wlp; cbn in *; subst; auto.
-  all:case H2 as []; subst; autorewrite with list; auto.
-  split.
+  FunProg.solve_wlp; autorewrite with list; auto.
   - rewrite <- List.app_assoc; reflexivity.
   - rewrite PeanoNat.Nat.add_comm; reflexivity.
 Qed.
@@ -323,7 +332,6 @@ Proof.
   case n as [|n]; destruct sel0; simplify_eq 1; FunProg.solve_wlp.
   - apply H; unfold lseg; SL.normalize.
     Intro E; auto.
-  - destruct p0; reflexivity.
 Qed.
 
 End Program.

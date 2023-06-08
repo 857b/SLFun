@@ -332,21 +332,25 @@ Module Rel.
     mkPO_le :> PreOrder le
   }.
 
-  Global Instance MakePartialOrder_Equivalence {A eq le} {M : @MakePartialOrder A eq le}:
-    Equivalence eq.
-  Proof.
-    pose (E := fun x y => mkPO_eq (MakePartialOrder := M) x y); cbn in E.
-    split; hnf; setoid_rewrite E; unfold Basics.flip.
-    - split; reflexivity.
-    - tauto.
-    - intuition; etransitivity; eassumption.
-  Qed.
+  Section MakePartialOrder.
+    Context {A eq le} {M : @MakePartialOrder A eq le}.
 
-  Global Instance MakePartialOrder_PartialOrder {A eq le} {M : @MakePartialOrder A eq le}:
-    PartialOrder eq le.
-  Proof.
-    apply M.
-  Qed.
+    Global Instance MakePartialOrder_Equivalence:
+      Equivalence eq.
+    Proof.
+      pose (E := fun x y => mkPO_eq (MakePartialOrder := M) x y); cbn in E.
+      split; hnf; setoid_rewrite E; unfold Basics.flip.
+      - split; reflexivity.
+      - tauto.
+      - intuition; etransitivity; eassumption.
+    Qed.
+
+    Global Instance MakePartialOrder_PartialOrder:
+      PartialOrder eq le.
+    Proof.
+      apply M.
+    Qed.
+  End MakePartialOrder.
 
   Lemma partial_order_eq_iff {A : Type}
     (eq : relation A) {equ  : Equivalence eq}

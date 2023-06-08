@@ -137,10 +137,7 @@ Definition vfrag_0_impl : FragImpl spec_f0 CT :=
   gLem intro_cell2 p;;
   Ret (n0, n1).
 Lemma vfrag_0 : FragCorrect vfrag_0_impl.
-Proof.
-  solve_by_wlp;
-  case sel0; reflexivity.
-Qed.
+Proof. solve_by_wlp. Qed.
 
 Definition spec_6 : FDecl SPEC
   (p : ptr) 'v [cell2 p ~> v] [] True
@@ -152,7 +149,7 @@ Definition vprog_6 : FImpl f_6 := fun p =>
   'v <- vfrag_0 p;
   Ret (fst v).
 Lemma correct_6: FCorrect vprog_6.
-Proof. solve_by_wlp. Qed.
+Proof. solve_by_wlp; congruence. Qed.
 
 
 Definition spec_7 : FDecl SPEC

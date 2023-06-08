@@ -1990,7 +1990,7 @@ Module Tactics.
     end;
     intro (* arg *);
     Tac.build_impl_match;
-    FunProg.simpl_prog.
+    do 2 FunProg.simpl_prog.
 
   (* Changes a goal [f_body_match impl spec] into a WLP *)
   Ltac by_wlp :=
