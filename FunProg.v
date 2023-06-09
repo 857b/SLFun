@@ -372,10 +372,10 @@ Ltac build_instr_morphism_match x :=
 
 (* solves a goal [instr_morph e ?HS i ?i'] *)
 Ltac build_instr_morphism :=
-  lazymatch goal with |- instr_morph ?e _ ?i ?r =>
-  let r' := fresh "r" in set (r' := r);
-  Tac.intro_evar_args r';
-  subst r';
+  lazymatch goal with |- @instr_morph ?A ?e ?HS ?i ?r =>
+  Tac.intro_evar_args r ltac:(fun r' =>
+  change (@instr_morph A e HS i r'));
+
   lazymatch i with
   | Ret  _       => exact (instr_morph_refl e)
   | Bind _ _     => refine (instr_morph_Bind e); shelve
@@ -548,10 +548,9 @@ Ltac build_wlp_formula_branch build_f x :=
 Ltac build_wlp_formula_ dmatch :=
   let build _ := build_wlp_formula_ dmatch in
   cbn; clear;
-  lazymatch goal with |- wlp_formula ?i ?f =>
-  let f' := fresh "f" in set (f' := f);
-  Tac.intro_evar_args f';
-  subst f';
+  lazymatch goal with |- @wlp_formula ?A ?i ?f =>
+  Tac.intro_evar_args f ltac:(fun f' =>
+  change (@wlp_formula A i f'));
 
   lazymatch i with
   | Ret _ =>
@@ -862,9 +861,9 @@ Ltac init_simpl_cont_match x :=
 Ltac build_simpl_cont :=
   cbn;
   lazymatch goal with | |- @simpl_cont ?A ?B ?i ?k ?r =>
-  let r' := fresh "r" in set (r' := r);
-  Tac.intro_evar_args r';
-  subst r';
+  Tac.intro_evar_args r ltac:(fun r' =>
+  change (@simpl_cont A B i k r'));
+
   lazymatch i with
   | Ret _ =>
       refine (simpl_cont_Ret _ _)

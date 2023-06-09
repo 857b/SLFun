@@ -114,22 +114,24 @@ Module Tac.
     evar (x : ty);
     unshelve instantiate (1 := _) in (value of x); [build tt|].
 
-  (* [x] must be a local definition [x := ?evar arg0 ... arg9].
-     Instantiate [?evar] by introducing the arguments, changing [x] into
-     [x := ?evar']. *)
-  Ltac intro_evar_args x :=
-    let rec count_app x k(* intro_args -> ltac *) :=
-      lazymatch x with
-      | ?x _ => count_app x ltac:(fun intro_args => k ltac:(fun _ => intro; intro_args tt))
+  (* [t] must be a term [?evar arg0 ... arg9].
+     Instantiate [?evar] by introducing the arguments, continue with a reduced
+     version [t' := ?evar'] of [t]. *)
+  Ltac intro_evar_args t k(* [t'] -> ltac *) :=
+    let rec count_app t k(* intro_args -> ltac *) :=
+      lazymatch t with
+      | ?t _ => count_app t ltac:(fun intro_args => k ltac:(fun _ => intro; intro_args tt))
       | _    => k ltac:(fun _ => idtac)
       end
     in
-    let x_def := eval cbv delta [x] in x in
-    count_app x_def ltac:(fun intro_args =>
+    let x := fresh "_tmp" in pose (x := t);
+    count_app t ltac:(fun intro_args =>
     unshelve instantiate (1 := _) in (value of x);
       [cbn; intro_args tt; shelve|]
     );
-    cbn beta in x.
+    let t' := eval cbv beta delta [x] in x in
+    clear x;
+    k t'.
 
 
   (* fails iff [f] succeeds (or fail with level > 0) *)

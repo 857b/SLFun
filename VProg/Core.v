@@ -1774,10 +1774,8 @@ Module Tac.
     cbn;
     lazymatch goal with |- @HasSpec ?C ?A ?i ?ctx ?s =>
     let i' := eval hnf in i in
-    let s' := fresh "s" in pose (s' := s);
-    intro_evar_args s';
-    change (@HasSpec C A i' ctx s');
-    subst s';
+    intro_evar_args s ltac:(fun s' =>
+    change (@HasSpec C A i' ctx s'));
 
     lazymatch i' with
     | mk_instr _ =>
@@ -1914,24 +1912,23 @@ Module Tac.
   Ltac build_extract_cont :=
     cbn;
     lazymatch goal with | |- @CP.extract_cont ?SG ?A ?B ?i ?k ?r =>
-    let r' := fresh "r" in set (r' := r);
-    intro_evar_args r';
+    intro_evar_args r ltac:(fun r' =>
+    change (@CP.extract_cont SG A B i k r');
+
     lazymatch i with
     | i_impl ?v =>
         head_of v ltac:(fun v_head =>
         lazymatch v_head with
         | (match ?x with _ => _ end) =>
-            subst r';
             build_extract_cont_match ltac:(fun _ => build_extract_cont) x
         | _ =>
             let v' := eval hnf in v in
             progress change (@CP.extract_cont SG A B (i_impl v') k r');
-            subst r';
             build_extract_cont
         end)
     | _ =>
         CP.build_extract_cont_k build_extract_cont
-    end
+    end)
     | |- ?g => fail "build_extract_cont" g
     end.
 
