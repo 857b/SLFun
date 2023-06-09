@@ -248,4 +248,36 @@ Proof. solve_by_wlp. Qed.
 Goal f_extract vprog_a3b.
 Proof. Tac.extract_impl. Defined.
 
+
+Definition spec_a4a : FSpec _
+  SPEC ((p0, p1, p2) : ptr * ptr * ptr)
+  '(v0, v1) [vptr p2 ~> v1] [vptr p0 ~> v0] (vptr p0 = vptr p1)
+  '(_ : unit) tt [vptr p1 ~> v0] True.
+Proof. Tac.build_FSpec. Defined.
+
+Definition vprog_a4a : m_body spec_a4a := fun '(p0, p1, p2) =>
+  gRewrite (vptr p0) (vptr p1).
+Goal f_body_match vprog_a4a (m_spec spec_a4a).
+Proof.
+  build_fun_spec.
+  FunProg.solve_by_wlp.
+Qed.
+Goal f_extract vprog_a3b.
+Proof. Tac.extract_impl. Defined.
+
+
+Definition spec_a4b : FSpec _
+  SPEC ((n0, n1) : nat * nat)
+  'v0 [] [vdummy (Fin.t n0) ~> v0] (n0 = n1)
+  '(_ : unit) v1 [vdummy (Fin.t n1) ~> v1] True.
+Proof. Tac.build_FSpec. Defined.
+
+Definition vprog_a4b : m_body spec_a4b := fun '(n0, n1) =>
+  gRewrite n0 n1.
+Goal f_body_match vprog_a4b (m_spec spec_a4b).
+Proof.
+  build_fun_spec.
+  FunProg.solve_by_wlp.
+Qed.
+
 End Test.

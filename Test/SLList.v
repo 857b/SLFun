@@ -223,7 +223,8 @@ Definition Length_impl : FImpl Length := fun p0 =>
   else
     'g_p1 <- gLem elim_llist_nnull p0;
     'p1 <- Read (p_next p0);
-    gLem replace1 (llist g_p1, llist p1);;
+    gRewrite g_p1 p1;;
+    (* ALT: gLem replace1 (llist g_p1, llist p1);; *)
     (* ALT: gLem (replace [llist g_p1~>] [llist p1~>]) eq_refl;; *)
     'n  <- Length p1;
     gLem intro_lseg_cons (p0, p1, NULL);;
@@ -248,12 +249,12 @@ Definition Length_impl_loop : FImpl Length := fun p0 =>
   'n <- Loop (inv := inv) (inl (p0, 0)) (fun '(p1, n) =>
     if Mem.ptr_eq p1 NULL
     then
-      gLem (replace [lseg p0 p1~>; llist p1~>] [lseg p0 NULL~>; llist NULL~>]) eq_refl;;
+      gRewrite p1 NULL;;
       Ret (inr n) (pt := inv)
     else
       'g_p2 <- gLem elim_llist_nnull p1;
       'p2 <- Read (p_next p1);
-      gLem replace1 (llist g_p2, llist p2);;
+      gRewrite g_p2 p2;;
       gLem intro_lseg_nil p2;;
       gLem intro_lseg_cons (p1, p2, p2);;
       gLem lseg_app (p0, p1, p2);;
@@ -294,7 +295,7 @@ Definition Rev_impl : FImpl Rev := fun '(p0, pr) =>
     'g_p1 <- gLem elim_llist_nnull p0;
     'p1 <- Read (p_next p0);
     Write (p_next p0) pr;;
-    gLem replace1 (llist g_p1, llist p1);;
+    gRewrite g_p1 p1;;
     gLem intro_lseg_cons (p0, pr, pr);;
     'r <- Rev (p1, p0);
     gLem lseg_app (r, p0, pr);;
@@ -320,7 +321,7 @@ Definition Seg_Next_impl : FImpl Seg_Next := fun '(p, n) pn =>
   | S n =>
       'g_p1 <- gLem elim_lseg_cons (p, pn);
       'p1 <- Read (p_next p);
-      gLem replace1 (lseg g_p1 pn, lseg p1 pn);;
+      gRewrite g_p1 p1;;
       'r <- Seg_Next (p1, n) pn;
       gLem intro_lseg_cons (p, p1, pn);;
       Ret r

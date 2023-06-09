@@ -4,6 +4,7 @@ From Coq   Require Import Lists.List.
 Import SLNotations ListNotations VProg.Vprop.Notations VProg.Core.Notations VProg.Core.Abbrev.
 Import SL.Tactics VProg.Core.Tactics.
 
+Local Transparent FP.Bind FP.Ret FP.Call.
 
 Section Admit.
   Lemma admit_change {A} : @ghost_lem (mk_f_sig (VpropList.t * (A -> VpropList.t)) A)
@@ -112,6 +113,116 @@ Section Replace.
     destruct E; cbn; reflexivity.
   Qed.
 End Replace.
+Section Rewrite.
+  Definition rew_sel [v0 v1 : Vprop.t] (E : v0 = v1) (sel : Vprop.ty v0) : Vprop.ty v1 :=
+    eq_rect v0 Vprop.ty sel v1 E.
+
+  Inductive rewrite_ctx : forall (c0 : CTX.t), Sub.t c0 -> CTX.t -> Prop :=
+    | RewCTX_Nil:
+        rewrite_ctx [] Sub.nil []
+    | RewCTX_Skip (a : CTX.atom)
+        [c0 c1 : CTX.t] [s : Sub.t c0] (C : rewrite_ctx c0 s c1):
+        rewrite_ctx (a :: c0) (Sub.cons false s) c1
+    | RewCTX_NDep [A : Type] (v0 v1 : Vprop.p A) (E : v0 = v1) (sel : A)
+        [c0 c1 : CTX.t] [s : Sub.t c0] (C : rewrite_ctx c0 s c1):
+        rewrite_ctx ((v0 ~> sel) :: c0) (Sub.cons true s) ((v1 ~> sel) :: c1)
+    | RewCTX_Dep (v0 v1 : Vprop.t) (E : v0 = v1) (sel : Vprop.ty v0)
+        [c0 c1 : CTX.t] [s : Sub.t c0] (C : rewrite_ctx c0 s c1):
+        rewrite_ctx (existT _ v0 sel :: c0) (Sub.cons true s) (existT _ v1 (rew_sel E sel) :: c1).
+
+  Lemma rewrite_ctx_sl [c0 s c1]
+    (R : rewrite_ctx c0 s c1):
+    SLprop.eq (CTX.sl c0) (CTX.sl c1 ** CTX.sl (CTX.sub c0 (Sub.neg s))).
+  Proof.
+    induction R; cbn; SL.normalize; subst; try rewrite IHR; try reflexivity.
+    - (* RewCTX_Skip *) apply SLprop.star_comm12.
+  Qed.
+
+  Context [CT : CP.context] [A : Type] (x y : A).
+
+  Inductive Rewrite_Spec (ctx : CTX.t) : i_spec_t unit ctx -> Prop
+    := Rewrite_SpecI
+    [csm : Sub.t ctx] [c1 : forall E : x = y, CTX.t]
+    (R : forall E : x = y, rewrite_ctx ctx csm (c1 E))
+    [prd : VpropList.t]
+    (PRD : forall E : x = y, prd = VpropList.of_ctx (c1 E)):
+    Rewrite_Spec ctx {|
+      sf_csm  := csm;
+      sf_prd  := fun _ => prd;
+      sf_spec := FunProg.Bind (@FunProg.Call DTuple.unit {|
+                    FunProg.Spec.pre_p  := Some (x = y);
+                    FunProg.Spec.post_p := None;
+                 |}) (fun E => FunProg.Ret (
+                    TF.mk _ tt (eq_rect_r VpropList.sel_t (VpropList.sel_of_ctx (c1 E)) (PRD E))
+                 ))
+    |}.
+
+  Program Definition gRewrite : instr CT unit := {|
+    i_impl := CP.Ret tt;
+    i_spec := fun ctx => Rewrite_Spec ctx;
+  |}.
+  Next Obligation.
+    destruct SP; do 2 intro; cbn in *.
+    apply SP.CRet.
+    case PRE as (E & PRE); specialize (PRE tt Logic.I); cbn in PRE.
+    set (PRD' := PRD E) in *; clearbody PRD'; clear PRD.
+    specialize (R E).
+    set (c1' := c1 E) in *; clearbody c1'; clear c1.
+    unfold eq_rect_r in PRE.
+    destruct (eq_sym PRD').
+    cbn in *.
+    EApply. Apply PRE.
+    apply rewrite_ctx_sl in R as ->.
+    rewrite TF.to_of_tu, VpropList.inst_of_ctx, CTX.sl_app.
+    reflexivity.
+  Qed.
+End Rewrite.
+
+(* solves [E : x = y |- lhs = ?rhs] by rewriting [E] in [lhs] *)
+Ltac rewrite_in_lhs x E :=
+  lazymatch goal with |- @eq ?A ?lhs ?rhs =>
+  let lhs_d := fresh "lhs_d" in
+  pose (lhs_d := lhs);
+  pattern x in (value of lhs_d);
+  let lhs' := eval cbv delta [lhs_d] in lhs_d in
+  lazymatch lhs' with ?f _ =>
+  refine (f_equal f E)
+  end end.
+
+Ltac build_rewrite_ctx x E :=
+  lazymatch goal with
+  | |- rewrite_ctx nil _ _ =>
+      exact RewCTX_Nil
+  | |- rewrite_ctx (existT _ ?v ?sel :: ?c0) _ _ =>
+      let Ev := fresh "Ev" in
+      unshelve epose (Ev := _ : v = _);
+        [ shelve | rewrite_in_lhs x E | ];
+      let v' := type of Ev in
+      match v' with _ = ?v' =>
+      tryif constr_eq_strict v v'
+      then refine (@RewCTX_Skip _ c0 _ _ _)
+      else (
+      tryif
+        refine (@RewCTX_NDep (Vprop.ty v) (Vprop.sl v) (Vprop.sl v') _ sel c0 _ _ _);
+        [cbn; rewrite E; reflexivity|]
+      then  idtac
+      else  refine (@RewCTX_Dep v v' Ev sel c0 _ _ _)
+      )end;
+      clear Ev;
+      build_rewrite_ctx x E
+  end.
+
+Ltac build_Rewrite :=
+  lazymatch goal with
+  | |- Rewrite_Spec ?x _ _ _ =>
+    simple refine (Rewrite_SpecI _ _ _ _ _);
+    [ shelve | (* c1 *) intro; shelve
+    | (* R *)
+      let E := fresh "E" in intro E;
+      build_rewrite_ctx x E
+    | shelve |(* PRD *) Tac.cbn_refl ]
+  end.
+
 Section Impp.
   Context [sel_t A : Type] (spc : sel_t -> (CTX.t * Prop * (A -> Prop))).
 
@@ -175,7 +286,7 @@ Section GGet.
     (IJ : InjPre_Frame_Spec [CTX.mka (v, a)] ctx {|
       sf_csm  := Vector.cons _ false _ (Vector.nil _) <: Sub.t [_];
       sf_prd  := fun _ => nil;
-      sf_spec := FP.Ret (TF.mk0 _ a Tuple.tt)
+      sf_spec := FunProg.Ret (TF.mk0 _ a Tuple.tt)
     |} F).
 
   Program Definition gGet : instr CT A := {|
@@ -206,8 +317,8 @@ Section Assert.
     (IJ : InjPre_Frame_Spec (fst (P p)) ctx {|
       sf_csm  := Sub.const (fst (P p)) false;
       sf_prd  := fun _ => nil;
-      sf_spec := FP.Bind (FP.Assert (snd (P p)))
-                         (TF.of_fun (fun _ => FP.Ret (TF.mk0 _ tt Tuple.tt)))
+      sf_spec := FunProg.Bind (FunProg.Assert (snd (P p)))
+                 (TF.of_fun (fun _ => FunProg.Ret (TF.mk0 _ tt Tuple.tt)))
     |} F).
   
   Program Definition Assert : instr CT unit := {|
@@ -247,7 +358,8 @@ Local Ltac build_Assert :=
     Tac.build_InjPre_Frame ].
 
 Module Tactics.
-  #[export] Hint Extern 1 (GGet_Spec    _ _ _) => build_GGet   : HasSpecDB.
-  #[export] Hint Extern 1 (Assert_Spec  _ _ _) => build_Assert : HasSpecDB.
+  #[export] Hint Extern 1 (Rewrite_Spec _ _ _ _) => build_Rewrite : HasSpecDB.
+  #[export] Hint Extern 1 (GGet_Spec      _ _ _) => build_GGet    : HasSpecDB.
+  #[export] Hint Extern 1 (Assert_Spec    _ _ _) => build_Assert  : HasSpecDB.
 End Tactics.
 Export Tactics.
