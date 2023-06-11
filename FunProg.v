@@ -494,6 +494,8 @@ Section WLP_Formula.
   Qed.
 End WLP_Formula.
 
+Inductive wlp_formula_dmatch (b : bool) : Prop :=.
+
 (* init a formula [match x with ... end] *)
 Ltac init_wlp_formula_match x :=
   lazymatch goal with |- @FunProg.wlp_formula ?A ?i ?f =>
@@ -545,8 +547,8 @@ Ltac build_wlp_formula_branch build_f x :=
     | cbn in f; conj_proj_last f; exact f] ].
 
 (* solves a goal [wlp_formula i ?f] *)
-Ltac build_wlp_formula_ dmatch :=
-  let build _ := build_wlp_formula_ dmatch in
+Ltac build_wlp_formula :=
+  let build _ := build_wlp_formula in
   cbn; clear;
   lazymatch goal with |- @wlp_formula ?A ?i ?f =>
   Tac.intro_evar_args f ltac:(fun f' =>
@@ -568,6 +570,7 @@ Ltac build_wlp_formula_ dmatch :=
       refine (wlp_formula_Loop _);
       [ cbn; intros; build tt ]
   | _ =>
+      Tac.get_flag wlp_formula_dmatch false ltac:(fun dmatch =>
       lazymatch dmatch with
       | true =>
           (* TODO? handle more general matches *)
@@ -582,12 +585,10 @@ Ltac build_wlp_formula_ dmatch :=
           init_wlp_formula_match x;
           build tt
           ))
-      end
+      end)
   end
   | |- ?g => fail "build_wlp_formula:1" g
   end.
-
-Ltac build_wlp_formula := build_wlp_formula_ false.
 
 Local Lemma by_wlp_lem [A] [i : instr A] [post f]
   (F : wlp_formula i f)
@@ -604,12 +605,10 @@ Ltac under_PRE f :=
   f tt;
   revert PRE.
 
-Ltac by_wlp_ dmatch :=
+Ltac by_wlp :=
   under_PRE ltac:(fun _ =>
   refine (by_wlp_lem _ _);
-  [ build_wlp_formula_ dmatch | cbn]).
-
-Ltac by_wlp := by_wlp_ false.
+  [ build_wlp_formula | cbn]).
 
 Ltac decompose_hyps :=
   subst;
@@ -649,7 +648,7 @@ Ltac solve_wlp :=
   end.
 
 Ltac solve_by_wlp :=
-  by_wlp_ false;
+  by_wlp;
   solve_wlp;
   eauto.
 

@@ -1963,8 +1963,8 @@ End Tac.
 (* Exported tactics *)
 
 Module ExtractTactics.
-  #[export] Hint Extern 1 (Arrow (CP.context_has_entry _ _ (f_entry _ _)) _) =>
-     exact (mk_Arrow (has_f_entry _ _)) : extractDB.
+  #[export] Hint Extern 1 (Tac.Arrow (CP.context_has_entry _ _ (f_entry _ _)) _) =>
+     exact (Tac.mk_Arrow (has_f_entry _ _)) : extractDB.
   
   #[export] Hint Extern 1 (CP.entry_impl_correct _ (f_entry _ _) _) =>
      Tac.build_f_entry_impl_correct : extractDB.
@@ -1992,7 +1992,7 @@ Module Tactics.
   (* Changes a goal [f_body_match impl spec] into a WLP *)
   Ltac by_wlp :=
     build_fun_spec;
-    FunProg.by_wlp_ false.
+    FunProg.by_wlp.
 
   Ltac solve_by_wlp :=
     build_fun_spec;

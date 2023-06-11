@@ -90,6 +90,18 @@ Proof.
   Apply; reflexivity.
 Qed.
 
+Lemma lseg_nil_intro_rule p sl :
+  CTX.Trf.Tac.intro_rule true
+    (lseg p p ~> sl) []
+    (sl = []) True.
+Proof.
+  constructor; intros ->; cbn.
+  unfold lseg; SL.normalize.
+  erewrite SLprop.impp_eq. { SL.normalize; reflexivity. }
+  apply SLprop.impp_drop; reflexivity.
+Qed.
+
+
 Definition elim_lseg_nil_spec : LDecl SPEC
   ((p0, p1) : ptr * ptr) 'l [] [lseg p0 p1 ~> l] (l = nil)
   '(_ : unit) tt [] (p0 = p1).
@@ -199,8 +211,12 @@ End Lemmas.
 Section Program.
   Variable CT : ConcreteProg.context.
 
+(* Automatic intro/elim of vprops *)
 Local Hint Resolve lcell_unfold | 1 : CtxTrfDB.
+Hint Extern 1 (CTX.Trf.Tac.intro_rule _ (lseg ?p ?p ~> ?sl) _ _ _) =>
+  exact (lseg_nil_intro_rule p sl) : CtxTrfDB.
 Import VRecord.Tactics.
+
 
 Definition Length_spec : FDecl SPEC
   (p : ptr)      (* arguments *)
@@ -255,7 +271,7 @@ Definition Length_impl_loop : FImpl Length := fun p0 =>
       'g_p2 <- gLem elim_llist_nnull p1;
       'p2 <- Read (p_next p1);
       gRewrite g_p2 p2;;
-      gLem intro_lseg_nil p2;;
+      (* gLem intro_lseg_nil p2;; implicit using lseg_nil_intro_rule *)
       gLem intro_lseg_cons (p1, p2, p2);;
       gLem lseg_app (p0, p1, p2);;
       Ret (inl (p2, (S n))) (pt := inv)

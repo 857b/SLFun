@@ -445,6 +445,8 @@ Module CTX.
     Module Tac.
       (* Tactic to build a [Trf.p] or a [Trf.inj_p] *)
 
+      Import Util.Tac.
+
       Definition elim_rule (rev : bool) (a : atom) (r : CTX.t) :=
         atomt rev [a] r.
 
@@ -820,20 +822,26 @@ Module CTX.
         cbn;
         repeat (simple refine (existT _ _ _); [shelve|intro]).
 
+      Ltac commit_trf_A b :=
+        unify b true.
+
       Ltac commit_parents_A ps :=
         lazymatch ps with
         | ?b :: ?ps =>
             tryif is_evar b
-            then (unify b true; commit_parents_A ps)
+            then (commit_trf_A b; commit_parents_A ps)
             else idtac
         | nil => idtac
         end.
+
+      Ltac commit_trf_B c :=
+        build_term c ltac:(fun _ => left; solve [split]).
  
       Ltac commit_parents_B ps :=
         lazymatch ps with
         | mk_cb _ _ ?c :: ?ps =>
             tryif is_evar c
-            then (Util.Tac.build_term c ltac:(fun _ => left; solve [split]); commit_parents_B ps)
+            then (commit_trf_B c; commit_parents_B ps)
             else idtac
         | nil => idtac
         end.
@@ -1064,9 +1072,28 @@ Module CTX.
        *)
       Ltac build_p_end k :=
         lazymatch goal with
-        | H : B ?a _ _ _ |- _ => k ltac:(fun _ => fail "Trf.build: remaining B" a)
-        | H : A ?a _ _   |- _ => k ltac:(fun _ => fail "Trf.build: remaining A" a)
-        | _ => exact Logic.I
+        | H : B ?a _ (StBFirst _) _  |- _ =>
+            k ltac:(fun _ => ffail "Trf.build: remaining B" a)
+        | H : B ?a _ (StBTrf None) _ |- _ =>
+            k ltac:(fun _ => ffail "Trf.build: remaining B" a)
+        | H : A ?a (StAFirst _) _    |- _ =>
+            k ltac:(fun _ => ffail "Trf.build: remaining A" a)
+        | H : A ?a (StATrf _ None) _ |- _ =>
+            k ltac:(fun _ => ffail "Trf.build: remaining A" a)
+        | _ =>
+            iter ltac:(fun k =>
+            (* commit transformations that produce no children *)
+            lazymatch goal with
+            | H : B _ _ (StBTrf (Some (mk_cb _ _ ?c))) _ |- _ =>
+                commit_trf_B c;
+                clear H; k tt
+            | H : A _ (StATrf ?n (Some ?b)) _ |- _ =>
+                unify n ord_None;
+                commit_trf_A b;
+                clear H; k tt
+            | |- _ => idtac
+            end);
+            exact Logic.I
         end.
 
       Ltac build_p :=
@@ -1089,11 +1116,21 @@ Module CTX.
        *)
       Ltac build_inj_p_end k :=
         lazymatch goal with
-        | H : B ?a _ _ _ |- _ => k ltac:(fun _ => fail "Trf.build_inj: remaining B" a)
+        | H : B ?a _ (StBFirst _) _ |- _ =>
+            k ltac:(fun _ => ffail "Trf.build_inj: remaining B" a)
+        | H : B ?a _ (StBTrf None) _ |- _ =>
+            k ltac:(fun _ => ffail "Trf.build_inj: remaining B" a)
         | _ =>
-            repeat lazymatch goal with
-            | H : A _ ?sA _ |- _ => clear_A sA; clear H
-            end;
+            iter ltac:(fun k =>
+            lazymatch goal with
+            | H : B _ _ (StBTrf (Some (mk_cb _ _ ?c))) _ |- _ =>
+                (* commit transformations that produce no children *)
+                commit_trf_B c;
+                clear H; k tt
+            | H : A _ ?sA _   |- _ =>
+                clear_A sA; clear H; k tt
+            | |- _ => idtac
+            end);
             exact Logic.I
         end.
 
@@ -1184,6 +1221,43 @@ Module CTX.
           build_p.
           cbn.
           reflexivity.
+        Qed.
+
+        Variable vemp : Vprop.p unit.
+        Hypothesis vemp_eq : forall sel, SLprop.eq (vemp sel) SLprop.emp.
+
+        Lemma vemp_lem_elim : forall sel,
+          elim_rule true (existT _ {| Vprop.sl := vemp |} sel) [].
+        Proof.
+          cbn; intro.
+          rewrite vemp_eq.
+          SL.normalize; reflexivity.
+        Qed.
+        Lemma vemp_lem_intro sel:
+          intro_rule true (existT _ {| Vprop.sl := vemp |} sel) []
+            (sel = tt) True.
+        Proof.
+          constructor; intros ->; cbn.
+          rewrite vemp_eq.
+          SL.normalize; reflexivity.
+        Qed.
+
+        Local Hint Resolve vemp_lem_elim | 1 : CtxTrfDB.
+        Local Hint Extern 1 (intro_rule _ (existT _ {| Vprop.sl := vemp |} _) _ _ _) =>
+          eapply vemp_lem_intro : CtxTrfDB.
+
+        Goal exists sl add rev_f,
+          Trf.inj_p [] [mka (vemp, sl)] add rev_f.
+        Proof.
+          do 3 eexists.
+          Tac.build_inj_p.
+        Qed.
+
+        Goal forall sl, exists rev_f,
+          Trf.p [mka (vemp, sl)] [] rev_f.
+        Proof.
+          eexists.
+          Tac.build_p.
         Qed.
       End Test.
     End Tac.
@@ -1329,6 +1403,7 @@ Module Notations.
 End Notations.
 Import Notations.
 
+
 Module VRecord.
   Inductive p (A : Type) (vs : VpropList.t)
     (f : A -> Tuple.u_t (VpropList.sel vs))
@@ -1367,4 +1442,3 @@ Module VRecord.
       VRecord.intro_rule_tac A vs f g P sl0 : CtxTrfDB.
   End Tactics.
 End VRecord.
-

@@ -6,8 +6,10 @@ Import ListNotations.
 
 (* Tactics *)
 
-(* Inductive types used by tactics *)
-Section TacTy.
+Module Tac.
+
+  (* Inductive types used by tactics *)
+
   Inductive Arrow (A B : Type) :=
     mk_Arrow (H : A -> B).
   Global Arguments mk_Arrow [_ _].
@@ -18,77 +20,123 @@ Section TacTy.
     goal0.
   Proof. apply S, C. Defined.
 
+  (* solves a goal [Arrow ?A B]
+     [tc] should solve [B] possibly leaving a single goal [H].
+     In this case, [?A] is instantiated to [H]. Otherwise, [?A] is unchanged. *)
+  Ltac mk_Arrow_tac tc :=
+    constructor;
+    let H := fresh "H" in intro H;
+    tc tt;
+    exact H.
+
+
   Inductive BoxP (P : Prop) : Prop := mk_boxP (x : P).
   Global Arguments mk_boxP [P] _.
   Definition elim_boxP [P] (b : BoxP P) : P := let '(mk_boxP x) := b in x.
-End TacTy.
-
-(* solves a goal [Arrow ?A B]
-   [tc] should solve [B] possibly leaving a single goal [H].
-   In this case, [?A] is instantiated to [H]. Otherwise, [?A] is unchanged. *)
-Ltac mk_Arrow_tac tc :=
-  constructor;
-  let H := fresh "H" in intro H;
-  tc tt;
-  exact H.
 
 
-Tactic Notation "solve_db" ident(db) :=
-  try solve [eauto 1 with db nocore];
-  lazymatch goal with |- ?g =>
-  fail "solve_db" db "failed on" g
-  end.
+  (* Extensible tactics *)
 
-Global Create HintDb DeriveDB discriminated.
-Global Hint Constants Opaque : DeriveDB.
-Global Hint Variables Opaque : DeriveDB.
-Ltac Derived := solve_db DeriveDB.
+  Global Create HintDb DeriveDB discriminated.
+  Global Hint Constants Opaque : DeriveDB.
+  Global Hint Variables Opaque : DeriveDB.
 
-(* DB for [Intro].
-   Should solve goals [Arrow ?goal1 goal0] and instantiate [?goal1] to [forall _, _] *)
-Global Create HintDb IntroDB discriminated.
-Global Hint Constants Opaque : IntroDB.
-Global Hint Variables Opaque : IntroDB.
+  (* DB for [Intro].
+     Should solve goals [Arrow ?goal1 goal0] and instantiate [?goal1] to [forall _, _] *)
+  Global Create HintDb IntroDB discriminated.
+  Global Hint Constants Opaque : IntroDB.
+  Global Hint Variables Opaque : IntroDB.
 
-Ltac Intro_core :=
-  refine (cut_Arrow _ _); [ solve_db IntroDB |].
+  (* DB for [Apply].
+     Should solve goals [Arrow ?goal1 goal0] and instantiate [?goal1] to [{_ & _}] *)
+  Global Create HintDb ApplyDB discriminated.
+  Global Hint Constants Opaque : ApplyDB.
+  Global Hint Variables Opaque : ApplyDB.
 
-Global Tactic Notation "Intro" :=
-  Intro_core; intro.
+  Module Notations_Ext.
+    Tactic Notation "solve_db" ident(db) :=
+      try solve [eauto 1 with db nocore];
+      lazymatch goal with |- ?g =>
+      fail "solve_db" db "failed on" g
+      end.
 
-Global Tactic Notation "Intro" simple_intropattern(x) :=
-  Intro_core; intros x.
+    Ltac Derived := solve_db DeriveDB.
 
-(* DB for [Apply].
-   Should solve goals [Arrow ?goal1 goal0] and instantiate [?goal1] to [{_ & _}] *)
-Global Create HintDb ApplyDB discriminated.
-Global Hint Constants Opaque : ApplyDB.
-Global Hint Variables Opaque : ApplyDB.
+    Ltac Intro_core :=
+      refine (cut_Arrow _ _); [ solve_db IntroDB |].
 
-Ltac Apply_core := 
-  refine (cut_Arrow _ _); [ solve_db ApplyDB |].
+    Tactic Notation "Intro" :=
+      Intro_core; intro.
 
-Global Tactic Notation "Apply" :=
-  Apply_core; unshelve eexists.
+    Tactic Notation "Intro" simple_intropattern(x) :=
+      Intro_core; intros x.
 
-Global Tactic Notation "Apply" uconstr(x) :=
-  Apply_core; exists x.
+    Ltac Apply_core := 
+      refine (cut_Arrow _ _); [ solve_db ApplyDB |].
 
-Global Tactic Notation "EApply" :=
-  Apply_core; eexists.
+    Tactic Notation "Apply" :=
+      Apply_core; unshelve eexists.
 
-Global Tactic Notation "EApply" uconstr(x) :=
-  Apply_core; eexists x.
+    Tactic Notation "Apply" uconstr(x) :=
+      Apply_core; exists x.
+
+    Tactic Notation "EApply" :=
+      Apply_core; eexists.
+
+    Tactic Notation "EApply" uconstr(x) :=
+      Apply_core; eexists x.
+  End Notations_Ext.
+  Export Notations_Ext.
 
 
-Module Tac.
-  Module Notations.
-    Global Tactic Notation "dummy_goal" uconstr(G) :=
-      let D := fresh "Dummy" in
-      unshelve eassert G as D;
-      [..|clear D].
-  End Notations.
-  Export Notations.
+  (* Flags *)
+
+  Inductive flag [A : Type] (F : A -> Prop) (v : A) (p : nat) : Prop :=
+    mk_flag.
+  Global Arguments mk_flag {_ _ _ _}.
+
+  Ltac get_flag F d k :=
+    lazymatch goal with
+    | H : flag F ?v _ |- _ => k v
+    | _ => k d
+    end.
+
+  Ltac set_flag F v p :=
+    tryif
+      try lazymatch goal with H : flag F _ ?p' |- _ =>
+        let ge := eval cbv in (Nat.leb p' p) in
+        lazymatch ge with false => fail 1 end
+      end
+    then
+      let H := fresh "_f" in
+      assert (flag F v p) as H by split
+    else idtac.
+
+
+
+  Ltac dump :=
+    try match reverse goal with H : ?T |- _ =>
+        idtac H ":" T; fail
+    end;
+    idtac "===============================";
+    match goal with |- ?G =>
+        idtac G
+    end.
+
+  Inductive silent_ffail (b : bool) : Prop :=.
+
+
+  Module Notations_Fail.
+    Tactic Notation "ffail" string(m) uconstr_list(a) :=
+      get_flag silent_ffail false ltac:(fun s =>
+      lazymatch s with
+      | false => idtac "FAILURE:" m a;
+                 dump
+      | true  => idtac
+      end);
+      fail 0 m a.
+  End Notations_Fail.
+  Export Notations_Fail.
 
   Inductive display [A : Type] (x : A) : Prop := mk_display.
 
@@ -105,6 +153,11 @@ Module Tac.
     | (match ?x with _ => _ end) => k x
     | _ => fail "matched_term" t
     end.
+
+  Tactic Notation "dummy_goal" uconstr(G) :=
+    let D := fresh "Dummy" in
+    unshelve eassert G as D;
+    [..|clear D].
 
   Ltac build_term t build :=
     dummy_goal (t = _);
@@ -236,7 +289,11 @@ Module Tac.
   Ltac elist_end u :=
     elist_tail u ltac:(fun tail =>
     build_term tail ltac:(fun _ => refine nil)).
+
+  Ltac iter f(* (unit -> ltac) -> ltac *) :=
+    f ltac:(fun _ => iter f).
 End Tac.
+Export Tac.Notations_Ext.
 
 (* Optional argument *)
 
