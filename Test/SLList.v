@@ -8,6 +8,8 @@ Import SL.Tactics.
 
 Section Definitions.
 
+(* list cell *)
+
 Record lcell_t := mk_lcell {
   v_data : memdata;
   v_next : ptr;
@@ -16,6 +18,9 @@ Record lcell_t := mk_lcell {
 Definition p_data (p : ptr) : ptr := p.
 Definition p_next (p : ptr) : ptr := S p.
 
+(* The vprop for list cell is defined using [VRecord], which provides
+   automatic introduction and elimination rules during the generation of
+   the functional specification. *)
 Lemma lcell_p (p : ptr):
   VRecord.p lcell_t [vptr (p_data p) ~>; vptr (p_next p) ~>]
     (fun v => (v_data v, v_next v))
@@ -24,8 +29,10 @@ Proof.
   constructor; cbn; reflexivity.
 Qed.
 
-Definition lcell (p : ptr) := VRecord.v (lcell_p p).
+Definition lcell (p : ptr) : Vprop.p lcell_t := VRecord.v (lcell_p p).
 Global Arguments lcell : simpl never.
+
+(* list segment *)
 
 Definition lseg_t := list (ptr * memdata).
 
@@ -41,10 +48,14 @@ Fixpoint lseg_sl (l : lseg_t) (sg_next : ptr) : SLprop.t :=
   | (p, d) :: cs => lcell p (mk_lcell d (lseg_entry cs sg_next)) ** lseg_sl cs sg_next
   end.
 
+(* [lseg entry next] is a [Vprop.p lseg_t].
+   [lseg entry next ~>] is a [Vprop.t].
+   [lseg entry next ~> sel] is a [CTX.atom] whose semantics is [lseg entry next sel]. *)
 Definition lseg (entry next : ptr) (v : lseg_t) : SLprop.t :=
   SLprop.pure (lseg_entry v next = entry) **
   lseg_sl v next.
 
+(* [llist] is just an alias for a null-terminated segment. *)
 Definition llist (p : ptr) : Vprop.p lseg_t :=
   lseg p NULL.
 Global Arguments llist/.
@@ -62,6 +73,9 @@ Proof.
   intro H; apply H.
 Qed.
 
+(* The instructions [gUnfold (lcell_def p)] and [gFold (lcell_def p)]
+   can be used to unfold or fold an [lcell p].
+   But this is also done automatically thanks to the automatic intro/elim rules. *)
 Lemma lcell_def p:
   eqv_lemma [lcell p ~>] [vptr (p_data p) ~>; vptr (p_next p) ~>]
             (fun v => (v_data v, v_next v))
@@ -74,22 +88,63 @@ Proof.
     reflexivity.
 Qed.
 
+(* Called automatically to expose the underlying [VRecord] and the triggering of
+   intro/elim rules. *)
 Definition lcell_unfold p sl:
   CTX.Trf.Tac.unfold_rule (lcell p ~> sl) (VRecord.v (lcell_p p) ~> sl).
 Proof.
   reflexivity.
 Qed.
 
+(* A specification (for a function or a lemma) is declared using the following notation (from [VProg.Core]):
+     SPEC (args : args_ty) & (gargs : garg_ty)
+     'sel0 prs_ctx pre_ctx req & REQ
+     '(res : res_ty) & (gres : gres_ty) sel1 post_ctx ens
+   where:
+   - [args] is a pattern for the arguments of the function
+   - [gargs] is an optional pattern for the ghost arguments
+   - [sel0] binds the input selectors. Each input selector must occur exactly once as
+     the selector of a vprop of [prs_ctx] or [pre_ctx].
+   - [prs_ctx] is the preserved context, that is a list of [atom] that are present in the context
+     at the beginning of the function and that must be restored (with the same selector)
+     at its end.
+   - [pre_ctx] is the precondition context, [atom] present only at the beginning of the function.
+   - [req] (requires) is a proposition that expresses a precondition on the arguments and
+     on the input selectors.
+     It can optionally be bound with [& REQ] to be used in [post_ctx] and [ens].
+   - [res] is a name that binds the returned value.
+   - [gres] is an optional name for the ghost returned value.
+   - [sel1] binds the output selectors.
+   - [post_ctx] is the postcondition context.
+   - [ens] (ensures) is a proposition expressing a postcondition.
+     It can depend on all the previously bound variables.
+   There are the following restrictions, that can trigger an error either at the declaration of
+   the specification or latter:
+   - Each input selectors mist occur exactly once as the selector of a vprop of [prs_ctx] or [pre_ctx].
+   - All selectors of [prs_ctx] and [pre_ctx] must be variables from [sel0].
+   - One cannot pattern match on the returned value (or on the ghost one), if it is a record, one must use
+     projections in [post_ctx].
+   - The vprops of [post_ctx] must be independents of [sel1], but their selectors can and can also
+     be arbitrary expressions not necessarily variables of [sel1].
+ *)
 Definition intro_lseg_nil_spec : LDecl SPEC
-  (p : ptr) 'tt [] [] True
+  (p : ptr)
+  'tt [] [] True
   '(_ : unit) tt [lseg p p ~> nil] True.
-Proof. Derived. Defined.
+Proof.
+  (* We check here some of the conditions listed above. *)
+  Derived.
+Defined.
 Lemma intro_lseg_nil : intro_lseg_nil_spec.
 Proof.
   init_lemma p [] ?; unfold lseg; SL.normalize.
+  (* A lemma is just an heap entailment in the underlying separation logic. *)
   Apply; reflexivity.
 Qed.
 
+(* The [intro_lseg_nil] lemma can be called to explecitely introduce a [lseg p p]
+   in the context.
+   But the following rule can do it automatically. *)
 Lemma lseg_nil_intro_rule p sl :
   CTX.Trf.Tac.intro_rule true
     (lseg p p ~> sl) []
@@ -124,6 +179,16 @@ Proof.
   Apply; reflexivity.
 Qed.
 
+(* We cannot use the following specification:
+     SPEC ((p0, pn) : ptr * ptr)
+     '(hd, tl) [] [lseg p0 pn ~> hd :: tl] True
+     '(p1 : ptr) tt [lcell p0 ~> (mk_lcell (snd hd) p1); lseg p1 pn ~> tl] (p0 = fst hd).
+   Because [lseg p0 pn] would have a selector which is not a variable.
+   Instead, we assert that its selector is a [cons] in the requires clause
+   and use this fact in the postcondition and in the ensures clause.
+   Another option would have been to return fresh variables [hd] and [tl] and
+   assert that [l = hd :: tl] in the ensures clause.
+ *)
 Definition elim_lseg_cons_spec : LDecl SPEC
   ((p0, pn) : ptr * ptr) 'l [] [lseg p0 pn ~> l] (is_cons l)&REQ
   '(p1 : ptr) tt [lcell p0 ~> (mk_lcell (snd (hd_tot l REQ)) p1); lseg p1 pn ~> tl_tot l REQ]
@@ -211,7 +276,7 @@ End Lemmas.
 Section Program.
   Variable CT : ConcreteProg.context.
 
-(* Automatic intro/elim of vprops *)
+(* Set up automatic intro/elim of vprops *)
 Local Hint Resolve lcell_unfold | 1 : CtxTrfDB.
 Hint Extern 1 (CTX.Trf.Tac.intro_rule _ (lseg ?p ?p ~> ?sl) _ _ _) =>
   exact (lseg_nil_intro_rule p sl) : CtxTrfDB.
@@ -219,15 +284,9 @@ Import VRecord.Tactics.
 
 
 Definition Length_spec : FDecl SPEC
-  (p : ptr)      (* arguments *)
-  'l             (* input selectors *)
-  [llist p ~> l] (* preserved context *)
-  []             (* precondition context *)
-  True           (* requires clause *)
-  '(n : nat)     (* returned value *)
-  tt             (* output selectors *)
-  []             (* postcondition context *)
-  (n = length l) (* ensures clause *).
+  (p : ptr)
+  'l [llist p ~> l] [] True
+  '(n : nat) tt [] (n = length l).
 Proof. Derived. Defined.
 Variable Length : Length_spec CT.
 
@@ -240,17 +299,26 @@ Definition Length_impl : FImpl Length := fun p0 =>
     'g_p1 <- gLem elim_llist_nnull p0;
     'p1 <- Read (p_next p0);
     gRewrite g_p1 p1;;
-    (* ALT: gLem replace1 (llist g_p1, llist p1);; *)
-    (* ALT: gLem (replace [llist g_p1~>] [llist p1~>]) eq_refl;; *)
+      (* Replaces [g_p1] with [p1] everywhere in the context.
+         Explicit alternatives here would be:
+           [gLem replace1 (llist g_p1, llist p1)]
+           [gLem (replace [llist g_p1~>] [llist p1~>]) eq_refl]
+       *)
     'n  <- Length p1;
     gLem intro_lseg_cons (p0, p1, NULL);;
     Ret (S n).
 Lemma Length_correct : FCorrect Length_impl.
 Proof.
+  (* Build a functional specification for the function. *)
   build_fun_spec.
-  FunProg.solve_by_wlp.
+  (* Build a WLP from the functional specification. *)
+  FunProg.by_wlp.
+  (* Tactic to solve a WLP, mostly do the same thing as [intuition] but also destructs values
+     that appear in a [match]. *)
+  FunProg.solve_wlp; auto.
 Qed.
 
+(* Alternative implementation using a loop. *)
 Definition loop_ptr (x : ptr * nat + nat) : ptr :=
   match x with
   | inl (p, _) => p
@@ -283,6 +351,7 @@ Lemma Length_loop_correct : FCorrect Length_impl_loop.
 Proof.
   build_fun_spec.
   FunProg.solve_by_wlp.
+  (* instantiate the loop invariant *)
   exists (fun x l0 l1 =>
     let n := match x with inl (_, n) | inr n => n end in
     sel0 = l0 ++ l1 /\ n = length l0
@@ -353,9 +422,16 @@ Qed.
 
 End Program.
 
+(* We combine the different functions into a concrete program.
+   This also removes the ghost code ("extraction") and resolves the dependencies between the functions,
+   which can fail. *)
 Derive prog SuchThat (ConcreteProg.of_entries [
   f_entry Length_spec    Length_loop_correct;
   f_entry Rev_spec       Rev_correct;
   f_entry Seg_Next_spec  Seg_Next_correct
 ] prog) As prog_correct.
 Proof. Derived. Qed.
+
+(* [prog] is a tuple of function implementation: *)
+(* Print prog. *)
+(* [prog_correct] is a proof that they are correct with respect to their specifications. *)
