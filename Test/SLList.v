@@ -280,7 +280,7 @@ Section Program.
 Local Hint Resolve lcell_unfold | 1 : CtxTrfDB.
 Hint Extern 1 (CTX.Trf.Tac.intro_rule _ (lseg ?p ?p ~> ?sl) _ _ _) =>
   exact (lseg_nil_intro_rule p sl) : CtxTrfDB.
-Import VRecord.Tactics.
+Import VRecord.Tactics VGroup.Tactics.
 
 
 Definition Length_spec : FDecl SPEC
@@ -317,6 +317,56 @@ Proof.
      that appear in a [match]. *)
   FunProg.solve_wlp; auto.
 Qed.
+
+
+(* A program fragment to do a case analysis on a linked list *)
+Definition llist_case_res (p : ptr) (r : option ptr) : Vprop.p _ :=
+  vgroup match r with
+  | None    => []
+  | Some p1 => [lcell p~>; llist p1~>]
+  end.
+Global Arguments llist_case_res/.
+Definition llist_case_spec : FDecl SPEC
+  (p : ptr) 'l [] [llist p ~> l] True
+  '(r : option ptr) v [llist_case_res p r ~> v]
+    (match r as r return VpropList.sel_t (if r then _ else _) -> Prop with
+     | None    => fun _ => p = NULL /\ l = nil
+     | Some p1 => Tuple.to_fun (TS := VpropList.sel [lcell p~>; llist p1~>]) (fun x l' =>
+                  p <> NULL /\ l = (p, v_data x) :: l' /\ v_next x = p1)
+     end v).
+Proof. Derived. Defined.
+
+Definition llist_case_impl : FragImpl llist_case_spec CT := fun p =>
+  if Mem.ptr_eq p NULL
+  then
+    gLem (lseg_null_nil p NULL) tt;;
+    gLem elim_lseg_nil (p, NULL);;
+    Ret None (pt := fun r => [llist_case_res p r ~>])
+  else
+    'g_p1 <- gLem elim_llist_nnull p;
+    'p1 <- Read (p_next p);
+    gRewrite g_p1 p1;;
+    Ret (Some p1) (pt := fun r => [llist_case_res p r ~>]).
+Lemma llist_case : FragCorrect llist_case_impl.
+Proof. solve_by_wlp. Qed.
+
+
+(* Alternative implementation using the [llist_case] fragment *)
+Definition Length_impl_frag : FImpl Length := fun p0 =>
+  'r <- llist_case p0;
+  match r with
+  | None =>
+      gLem elim_empty_group tt;;
+      gLem replace1 (llist NULL, llist p0);;
+      Ret 0 (pt := fun _ => [llist p0~>])
+  | Some p1 =>
+      'n <- Length p1;
+      gLem intro_lseg_cons (p0, p1, NULL);;
+      Ret (S n)
+  end.
+Lemma Length_frag_correct : FCorrect Length_impl_frag.
+Proof. solve_by_wlp. Qed.
+
 
 (* Alternative implementation using a loop. *)
 Definition loop_ptr (x : ptr * nat + nat) : ptr :=

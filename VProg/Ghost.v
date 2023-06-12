@@ -277,6 +277,17 @@ Section Exploit.
   Definition gExploit : instr CT unit := gLem exploit_correct tt.
 End Exploit.
 
+Definition elim_empty_group_spec : LDecl SPEC
+  (_ : unit)
+  'v [] [vgroup [] ~> v] True
+  '(_ : unit) tt [] True.
+Proof. Derived. Defined.
+Lemma elim_empty_group : elim_empty_group_spec.
+Proof.
+  init_lemma () () ?; reflexivity.
+Qed.
+
+
 Section GGet.
   Context [CT : CP.context] [A : Type] (v : Vprop.p A).
 

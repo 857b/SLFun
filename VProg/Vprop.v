@@ -5,10 +5,12 @@ Import SLNotations ListNotations.
 
 
 Module Vprop.
-  Definition p (ty : Type) := ty -> SLprop.t.
+  Universe sel.
+
+  Definition p (ty : Type@{sel}) := ty -> SLprop.t.
 
   Record t := mk {
-    ty : Type;
+    ty : Type@{sel};
     sl : p ty;
   }.
   Global Arguments mk [ty].
@@ -1044,6 +1046,7 @@ Module CTX.
               intro; apply_trf slv rfl k
             )
         | |- True => k tt
+        | _ => ffail "apply_trf"
         end.
 
       Ltac transform_hyps fl k :=
@@ -1267,9 +1270,9 @@ End CTX.
 Module VpropList.
   Definition t := list Vprop.t.
 
-  Definition sel  : t -> list Type := map Vprop.ty.
-  Definition sel' : t -> list Type := map Vprop.sel.
-  Definition sel_t (vs : t) := Tuple.t (sel vs).
+  Definition sel  : t -> list Type@{Vprop.sel} := map Vprop.ty.
+  Definition sel' : t -> list Type@{Vprop.sel} := map Vprop.sel.
+  Definition sel_t (vs : t) : Type@{Vprop.sel} := Tuple.t (sel vs).
 
   Fixpoint inst (vs : t) {struct vs} : sel_t vs -> CTX.t :=
     match vs with
@@ -1442,3 +1445,68 @@ Module VRecord.
       VRecord.intro_rule_tac A vs f g P sl0 : CtxTrfDB.
   End Tactics.
 End VRecord.
+
+
+Definition vgroup (vs : VpropList.t) : Vprop.p (VpropList.sel_t vs) :=
+  fun sl => CTX.sl (VpropList.inst vs sl).
+
+Module VGroup.
+  Lemma elim_rule vs sl:
+    CTX.Trf.Tac.elim_rule true
+      (vgroup vs ~> sl) (VpropList.inst vs (Tuple.force_shape sl)).
+  Proof.
+    rewrite Tuple.force_shape_eq.
+    cbn; SL.normalize; reflexivity.
+  Qed.
+
+  Lemma intro_rule vs sl0 sl1:
+    CTX.Trf.Tac.intro_rule true
+      (vgroup vs ~> sl0) (VpropList.inst vs sl1)
+      (sl0 = sl1) (sl1 = sl0).
+  Proof.
+    constructor; intros ->; cbn; SL.normalize; reflexivity.
+  Qed.
+
+  Ltac is_list_value t :=
+    lazymatch t with
+    | @nil _        => idtac
+    | @cons _ _ ?tl => is_list_value tl
+    | _ => fail
+    end.
+
+  Ltac intro_rule_tac vs sl0 :=
+    simple refine (intro_rule vs sl0 _);
+    cbn; Tuple.build_shape (* sl1 *).
+
+  Module Tactics.
+    #[export] Hint Extern 1 (CTX.Trf.Tac.elim_rule  _ (vgroup ?vs ~> ?sl0) _) =>
+      is_list_value vs;
+      exact (elim_rule vs sl0) : CtxTrfDB.
+    #[export] Hint Extern 1 (CTX.Trf.Tac.intro_rule _ (vgroup ?vs ~> ?sl0) _ _ _) =>
+      is_list_value vs;
+      VGroup.intro_rule_tac vs sl0 : CtxTrfDB.
+  End Tactics.
+
+  Section Test.
+    Import VGroup.Tactics.
+    Variable v : nat -> Vprop.p nat.
+
+    Goal forall sel : nat * (nat * unit), exists sel0 sel1,
+      inhabited (CTX.Trf.t [vgroup [v 0~>; v 1~>] ~> sel] [v 0 ~> sel0; v 1 ~> sel1]) /\
+      Tac.display (sel0, sel1).
+    Proof.
+      do 3 eexists. eexists.
+      CTX.Trf.Tac.build_t.
+      split.
+    Qed.
+
+    Goal forall sel0 sel1 : nat, exists sel,
+      inhabited (CTX.Trf.t [v 0 ~> sel0; v 1 ~> sel1] [vgroup [v 0~>; v 1~>] ~> sel]) /\
+      Tac.display sel.
+    Proof.
+      do 2 eexists. eexists.
+      CTX.Trf.Tac.build_t.
+      split.
+    Qed.
+  End Test.
+End VGroup.

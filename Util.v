@@ -836,7 +836,14 @@ Definition type_iso (A B : Type) (f : A -> B) (g : B -> A) : Prop :=
   (forall x : A, g (f x) = x) /\ (forall y : B, f (g y) = y).
 
 Module Tuple.
-  Fixpoint t (TS : list Type) : Type :=
+Section Univ.
+  Local Set Universe Polymorphism.
+  Local Set Printing Universes.
+  Polymorphic Universe i.
+
+  Definition p : Type@{i+1} := list Type@{i}.
+
+  Fixpoint t (TS : p) : Type@{i} :=
     match TS with
     | nil       => unit
     | cons T TS => T * t TS
@@ -844,42 +851,42 @@ Module Tuple.
 
   (* arrow *)
 
-  Fixpoint arrow (TS : list Type) : forall (TRG : t TS -> Type), Type :=
+  Fixpoint arrow@{j} (TS : p) : forall (TRG : t TS -> Type@{j}), Type@{j} :=
     match TS with
     | nil       => fun TRG => TRG tt
     | cons T TS => fun TRG => forall (x : T), arrow TS (fun xs => TRG (x, xs))
     end.
 
-  Fixpoint of_fun [TS : list Type] {struct TS}:
-    forall [TRG : t TS -> Type] (f : forall x : t TS, TRG x), arrow TS TRG :=
-    match TS as TS return forall (TRG : t TS -> Type) (f : forall x : t TS, TRG x), arrow TS TRG with
+  Fixpoint of_fun@{j} [TS : p] {struct TS}:
+    forall [TRG : t TS -> Type@{j}] (f : forall x : t TS, TRG x), arrow@{j} TS TRG :=
+    match TS as TS return forall (TRG : t TS -> Type@{j}) (f : forall x : t TS, TRG x), arrow TS TRG with
     | nil       => fun TRG f => f tt
     | cons T TS => fun TRG f x => of_fun (fun xs => f (x, xs))
     end.
 
-  Fixpoint to_fun [TS : list Type] {struct TS}:
-    forall [TRG : t TS -> Type] (f : arrow TS TRG) (x : t TS), TRG x.
+  Fixpoint to_fun@{j} [TS : p] {struct TS}:
+    forall [TRG : t TS -> Type@{j}] (f : arrow@{j} TS TRG) (x : t TS), TRG x.
   Proof.
     case TS as [|T TS].
     - intros TRG f [].      exact f.
     - intros TRG f (x, xs). exact (to_fun TS (fun xs => TRG (x, xs)) (f x) xs).
   Defined.
 
-  Lemma to_of_fun [TS : list Type] [TRG : t TS -> Type] (f : forall x : t TS, TRG x) (x : t TS):
-    to_fun (of_fun f) x = f x.
+  Lemma to_of_fun@{j} [TS : p] [TRG : t TS -> Type@{j}] (f : forall x : t TS, TRG x) (x : t TS):
+    to_fun@{j} (of_fun f) x = f x.
   Proof.
     induction TS; destruct x; simpl; auto.
     apply (IHTS (fun xs => TRG (a0, xs))).
   Qed.
 
-  Definition force_match [A] (TS : list Type) (f : Tuple.t TS -> A) (x : Tuple.t TS) : A :=
-    to_fun (of_fun f) x.
+  Definition force_match@{j} [A : Type@{j}] (TS : p) (f : t TS -> A) (x : t TS) : A :=
+    to_fun@{j} (of_fun f) x.
   Global Arguments force_match/.
 
 
   (* forall *)
 
-  Fixpoint all (TS : list Type) : (t TS -> Prop) -> Prop :=
+  Fixpoint all (TS : p) : (t TS -> Prop) -> Prop :=
     match TS as TS' return (t TS' -> Prop) -> Prop with
     | nil       => fun P => P tt
     | cons T TS => fun P => forall (x : T), all TS (fun xs => P (x, xs))
@@ -894,7 +901,7 @@ Module Tuple.
 
   (* exists *)
   
-  Fixpoint ex (TS : list Type) : (t TS -> Prop) -> Prop :=
+  Fixpoint ex (TS : p) : (t TS -> Prop) -> Prop :=
     match TS as TS' return (t TS' -> Prop) -> Prop with
     | nil       => fun P => P tt
     | cons T TS => fun P => exists (x : T), ex TS (fun xs => P (x, xs))
@@ -909,17 +916,68 @@ Module Tuple.
 
   (* map *)
 
-  Fixpoint map [A : Type] (F0 : A -> Type) (F1 : A -> Type) (f : forall x : A, F0 x -> F1 x)
-    (x : list A) {struct x} : Tuple.t (List.map F0 x) -> Tuple.t (List.map F1 x).
+  Fixpoint map@{j} [A : Type@{j}] (F0 : A -> Type@{i}) (F1 : A -> Type@{i}) (f : forall x : A, F0 x -> F1 x)
+    (x : list A) {struct x} : t (@List.map _ Type@{i} F0 x) -> t (@List.map _ Type@{i} F1 x).
   Proof.
     case x as [|x xs].
     - exact (fun _ => tt).
     - exact (fun '(y, ys) => (f x y, map A F0 F1 f xs ys)).
   Defined.
 
+  (* nth *)
+
+  Fixpoint nth [TS : p] (n : nat) {struct TS}: t TS -> @List.nth Type@{i} n TS unit :=
+    match n, TS with
+    | _,   nil     => fun _ => tt
+    | O,   T ::  _ => fun '(x,  _) => x
+    | S n, _ :: TS => fun '(_, xs) => @nth TS n xs
+    end.
+  Global Arguments nth !TS !n !_.
+
+  Lemma nth_ext (TS : p) (x0 x1 : t TS)
+    (E : forall n, n < length TS -> nth n x0 = nth n x1):
+    x0 = x1.
+  Proof.
+    induction TS as [|T TS]; destruct x0, x1.
+    - reflexivity.
+    - f_equal.
+      + apply (E O).
+        cbn; apply PeanoNat.Nat.lt_0_succ.
+      + apply IHTS.
+        intros n LT; apply (E (S n)), le_n_S, LT.
+  Qed.
+
+  Fixpoint of_nth (TS : p) {struct TS}:
+    forall (f_nth : forall n : nat, @List.nth Type@{i} n TS unit), t TS :=
+    match TS with
+    | nil     => fun _     => tt
+    | T :: TS => fun f_nth => (f_nth O, of_nth TS (fun n => f_nth (S n)))
+    end.
+
+  Lemma nth_of_nth TS f_nth:
+    forall n, nth n (of_nth TS f_nth) = f_nth n.
+  Proof.
+    induction TS as [|T TS IH]; cbn.
+    - intros [|];  cbn; case (f_nth _) in |-*; reflexivity.
+    - intros [|n]; cbn.
+      + reflexivity.
+      + apply IH.
+  Qed.
+
+  Definition force_shape [TS : p] (x : t TS) : t TS :=
+    of_nth TS (fun n => nth n x).
+
+  Lemma force_shape_eq TS x:
+    @force_shape TS x = x.
+  Proof.
+    apply nth_ext; intros n _.
+    apply nth_of_nth.
+  Qed.
+
+
   (* isomorphisms *)
 
-  Definition type_iso_tu (A : Type) (TS : list Type) :=
+  Definition type_iso_tu (A : Type@{i}) (TS : p) :=
     type_iso A (t TS).
   
   Lemma type_iso_tu_nil:
@@ -937,7 +995,7 @@ Module Tuple.
   Qed.
 
   (* NOTE: [_ * _] is left associative but [Tuple.t] is right associative *)
-  Lemma type_iso_tu_prod A AS f g B
+  Lemma type_iso_tu_prod (A : Type@{i}) AS f g (B : Type@{i})
     (H : type_iso_tu A AS f g):
     type_iso_tu (A * B) (B :: AS) (fun '(xs, x) => (x, f xs)) (fun '(x, xs) => (g xs, x)).
   Proof.
@@ -948,14 +1006,14 @@ Module Tuple.
 
   (* reversing *)
 
-  Fixpoint iso_rev_f (TS0 TS1 : list Type) {struct TS0} : (t TS0 * t TS1) -> t (List.rev_append TS0 TS1).
+  Fixpoint iso_rev_f (TS0 TS1 : p) {struct TS0} : (t TS0 * t TS1) -> t (List.rev_append TS0 TS1).
   Proof.
     case TS0 as [|T TS0]; simpl.
     - exact (fun '(_, x1) => x1).
     - exact (fun '(x, x0, x1) => iso_rev_f _ (cons T TS1) (x0, (x, x1))).
   Defined.
 
-  Fixpoint iso_rev_g (TS0 TS1 : list Type) {struct TS0} : t (List.rev_append TS0 TS1) -> t TS0 * t TS1.
+  Fixpoint iso_rev_g (TS0 TS1 : p) {struct TS0} : t (List.rev_append TS0 TS1) -> t TS0 * t TS1.
   Proof.
     case TS0 as [|T TS0]; simpl.
     - exact (fun x1 => (tt, x1)).
@@ -963,7 +1021,7 @@ Module Tuple.
       exact (x, x0, x1).
   Defined.
 
-  Lemma type_iso_rev (TS0 TS1 : list Type):
+  Lemma type_iso_rev (TS0 TS1 : p):
     type_iso (t TS0 * t TS1) (t (List.rev_append TS0 TS1)) (iso_rev_f TS0 TS1) (iso_rev_g TS0 TS1).
   Proof.
     split; revert TS1; induction TS0 as [|T TS0]; simpl; intro.
@@ -978,25 +1036,25 @@ Module Tuple.
 
   (* isomorphic user-friendly type *)
 
-  Fixpoint concise_r_t (T0 : Type) (TS : list Type) : Type :=
+  Fixpoint concise_r_t (T0 : Type@{i}) (TS : p) : Type@{i} :=
     match TS with
     | nil     => T0
     | T :: TS => concise_r_t T TS * T0
     end.
 
-  Fixpoint of_concise_r [T0 : Type] [TS : list Type] {struct TS}: concise_r_t T0 TS -> T0 * t TS :=
+  Fixpoint of_concise_r [T0 : Type@{i}] [TS : p] {struct TS}: concise_r_t T0 TS -> T0 * t TS :=
     match TS with
     | nil     => fun x0        => (x0, tt)
     | T :: TS => fun '(xs, x0) => let '(x, xs) := @of_concise_r T TS xs in (x0, (x, xs))
     end.
   
-  Fixpoint to_concise_r [T0 : Type] [TS : list Type] {struct TS}: T0 * t TS -> concise_r_t T0 TS :=
+  Fixpoint to_concise_r [T0 : Type@{i}] [TS : p] {struct TS}: T0 * t TS -> concise_r_t T0 TS :=
     match TS with
     | nil     => fun '(x0,  _) => x0
     | T :: TS => fun '(x0, xs) => (@to_concise_r T TS xs, x0)
     end.
 
-  Lemma type_iso_concise_r T0 TS:
+  Lemma type_iso_concise_r (T0 : Type@{i}) TS:
     type_iso (concise_r_t T0 TS) (T0 * t TS) (@of_concise_r T0 TS) (@to_concise_r T0 TS).
   Proof.
     split; revert T0; induction TS as [|T TS]; intro; cbn.
@@ -1008,7 +1066,7 @@ Module Tuple.
     - intros (x0, (x, xs)); rewrite IHTS; reflexivity.
   Qed.
 
-  Definition concise_t (TS : list Type) : Type :=
+  Definition concise_t (TS : p) : Type@{i} :=
     match TS with
     | nil     => unit
     | T :: TS => concise_r_t T TS
@@ -1038,7 +1096,7 @@ Module Tuple.
     - exact (type_iso_concise_r T TS).
   Qed.
 
-  Definition u_t (TS : list Type) : Type :=
+  Definition u_t (TS : p) : Type@{i} :=
     concise_t (List.rev_append TS nil).
 
   Definition of_u_t [TS] (x : u_t TS) : t TS :=
@@ -1062,10 +1120,10 @@ Module Tuple.
   (* equality *)
 
   (* avoid losing [TS] while reducing [u] and [v] *)
-  Inductive typed_eq [TS : list Type] (u v : Tuple.t TS) : Prop :=
+  Inductive typed_eq [TS : p] (u v : t TS) : Prop :=
     typed_eqI (E : u = v).
 
-  Fixpoint eq_list [TS : list Type] {struct TS}:
+  Fixpoint eq_list [TS : p] {struct TS}:
     forall (u v : t TS), list Prop.
   Proof.
     case TS as [|T TS].
@@ -1073,7 +1131,7 @@ Module Tuple.
     - exact (fun '(x, xs) '(y, ys) => (x = y) :: eq_list TS xs ys).
   Defined.
 
-  Lemma eq_iff_list [TS : list Type] (u v : t TS):
+  Lemma eq_iff_list [TS : p] (u v : t TS):
     u = v <-> and_list (eq_list u v).
   Proof.
     induction TS as [|T TS].
@@ -1082,14 +1140,9 @@ Module Tuple.
       intuition congruence.
   Qed.
 
-  (* Tactics *)
-
-  Global Ltac build_shape :=
-    repeat (refine (pair _ _); [shelve|]); exact tt.
-  
   (* replacing a product type with a tuple, given a term that let-matches on the product type *)
 
-  Inductive type_iso_tu_goal [T : Type] (t : T) : forall (P : Prop) (pf : P), Prop :=
+  Inductive type_iso_tu_goal [T : Type@{i}] (t : T) : forall (P : Prop) (pf : P), Prop :=
     | type_iso_tu_goal_cont [P0 P1 : Prop] (C : P0 -> P1) [pf : P0]:
         type_iso_tu_goal t P0 pf -> type_iso_tu_goal t P1 (C pf)
     | type_iso_tu_goal_end [P : Prop] (pf : P):
@@ -1112,12 +1165,22 @@ Module Tuple.
       case iso_rev_g as (?, []); auto.
   Qed.
 
+  (* unit *)
+  Definition unit : p := nil.
+  Definition tt : t unit := Datatypes.tt.
+End Univ.
+
+  (* Tactics *)
+
+  Global Ltac build_shape :=
+    repeat (refine (pair _ _); [shelve|]); exact tt.
+
   Ltac build_type_iso_tu_aux :=
     lazymatch goal with
     (* BUG Coq 8.15.2 in the second test if we reverse the first two cases:
         Anomaly
         "File "pretyping/constr_matching.ml", line 399, characters 14-20: Assertion failed." *)
-    | |- type_iso_tu_goal (let 'tt := _ in _) _ _ =>
+    | |- type_iso_tu_goal (let 'Datatypes.tt := _ in _) _ _ =>
         refine (type_iso_tu_goal_end _ type_iso_tu_nil)
     | |- type_iso_tu_goal (let (_, _) := ?x in _) _ _ =>
         refine (type_iso_tu_goal_cont _ (type_iso_tu_prod _ _ _ _ _) _);
@@ -1151,10 +1214,10 @@ Module Tuple.
       reflexivity.
     Qed.
     
-    Definition test_f1 'tt := tt.
+    Definition test_f1 'Datatypes.tt := Datatypes.tt.
     
     Goal exists TS f g,
-      type_iso_tu unit TS f g /\ TS = TS.
+      type_iso_tu Datatypes.unit TS f g /\ TS = TS.
     Proof.
       do 3 eexists. split.
       eapply (prf_by_type_iso_tu_goal test_f1).
@@ -1165,9 +1228,6 @@ Module Tuple.
     Qed.
   End Test.
 
-  (* unit *)
-  Definition unit : list Type := nil.
-  Definition tt : t unit := Datatypes.tt.
 End Tuple.
 
 (* dependent tuple *)
