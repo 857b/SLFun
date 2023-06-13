@@ -9,11 +9,11 @@ Section Test.
 
 Definition vdummy (A : Type) : Vprop.p A :=
   fun _ => SLprop.emp.
-Definition remove_vdummy_spec : LDecl SPEC
-  (A : Type) 'v [] [vdummy A ~> v] True
-  '(_ : unit) tt [] True.
-Proof. Derived. Defined.
-Lemma remove_vdummy : remove_vdummy_spec.
+Derive remove_vdummy_spec SuchThat (
+  VLem SPEC (A : Type)
+  'v [] [vdummy A ~> v] True
+  '(_ : unit) tt [] True
+  remove_vdummy_spec) As remove_vdummy.
 Proof.
   init_lemma n v ?.
   reflexivity.

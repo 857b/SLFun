@@ -64,6 +64,8 @@ End Definitions.
 
 Section Lemmas.
 
+(* [SLprop.impp h P] (implies pure) expresses that the pure propostion [P] is
+   satisfied if the separation logic predicate [h] is satisfied on some heap. *)
 Lemma lcell_non_null p v:
   SLprop.impp (lcell p v) (p <> NULL).
 Proof.
@@ -118,8 +120,7 @@ Qed.
    - [post_ctx] is the postcondition context.
    - [ens] (ensures) is a proposition expressing a postcondition.
      It can depend on all the previously bound variables.
-   There are the following restrictions, that can trigger an error either at the declaration of
-   the specification or latter:
+   There are the following restrictions, that can trigger an error either at the declaration or at the use:
    - Each input selectors mist occur exactly once as the selector of a vprop of [prs_ctx] or [pre_ctx].
    - All selectors of [prs_ctx] and [pre_ctx] must be variables from [sel0].
    - One cannot pattern match on the returned value (or on the ghost one), if it is a record, one must use
@@ -127,22 +128,19 @@ Qed.
    - The vprops of [post_ctx] must be independents of [sel1], but their selectors can and can also
      be arbitrary expressions not necessarily variables of [sel1].
  *)
-Definition intro_lseg_nil_spec : LDecl SPEC
-  (p : ptr)
+Derive intro_lseg_nil_spec SuchThat (
+  VLem SPEC (p : ptr)
   'tt [] [] True
-  '(_ : unit) tt [lseg p p ~> nil] True.
-Proof.
-  (* We check here some of the conditions listed above. *)
-  Derived.
-Defined.
-Lemma intro_lseg_nil : intro_lseg_nil_spec.
+  '(_ : unit) tt [lseg p p ~> nil] True
+  intro_lseg_nil_spec) As intro_lseg_nil.
 Proof.
   init_lemma p [] ?; unfold lseg; SL.normalize.
-  (* A lemma is just an heap entailment in the underlying separation logic. *)
+  (* A lemma is just an heap entailment in the underlying separation logic.
+     It can be called from a program with the [gLem] instruction. *)
   Apply; reflexivity.
 Qed.
 
-(* The [intro_lseg_nil] lemma can be called to explecitely introduce a [lseg p p]
+(* The [intro_lseg_nil] lemma can be called to explicitly introduce a [lseg p p]
    in the context.
    But the following rule can do it automatically. *)
 Lemma lseg_nil_intro_rule p sl :
@@ -157,21 +155,21 @@ Proof.
 Qed.
 
 
-Definition elim_lseg_nil_spec : LDecl SPEC
-  ((p0, p1) : ptr * ptr) 'l [] [lseg p0 p1 ~> l] (l = nil)
-  '(_ : unit) tt [] (p0 = p1).
-Proof. Derived. Defined.
-Lemma elim_lseg_nil : elim_lseg_nil_spec.
+Derive elim_lseg_nil_spec SuchThat (
+  VLem SPEC ((p0, p1) : ptr * ptr)
+  'l [] [lseg p0 p1 ~> l] (l = nil)
+  '(_ : unit) tt [] (p0 = p1)
+  elim_lseg_nil_spec) As elim_lseg_nil.
 Proof.
   init_lemma (p0, p1) l ->; unfold lseg; SL.normalize.
   Intro ->; Apply; reflexivity.
 Qed.
 
-Definition intro_lseg_cons_spec : LDecl SPEC
-  ((p0, p1, pn) : ptr * ptr * ptr) '(hd, tl) [] [lcell p0 ~> hd; lseg p1 pn ~> tl] (v_next hd = p1)
-  '(_ : unit) tt [lseg p0 pn ~> ((p0, v_data hd) :: tl)] True.
-Proof. Derived. Defined.
-Lemma intro_lseg_cons : intro_lseg_cons_spec.
+Derive intro_lseg_cons_spec SuchThat (
+  VLem SPEC ((p0, p1, pn) : ptr * ptr * ptr)
+  '(hd, tl) [] [lcell p0 ~> hd; lseg p1 pn ~> tl] (v_next hd = p1)
+  '(_ : unit) tt [lseg p0 pn ~> ((p0, v_data hd) :: tl)] True
+  intro_lseg_cons_spec) As intro_lseg_cons.
 Proof.
   init_lemma ((p0, p1), pn) ([], tl) <-.
   unfold lseg; SL.normalize.
@@ -189,12 +187,12 @@ Qed.
    Another option would have been to return fresh variables [hd] and [tl] and
    assert that [l = hd :: tl] in the ensures clause.
  *)
-Definition elim_lseg_cons_spec : LDecl SPEC
-  ((p0, pn) : ptr * ptr) 'l [] [lseg p0 pn ~> l] (is_cons l)&REQ
+Derive elim_lseg_cons_spec SuchThat (
+  VLem SPEC ((p0, pn) : ptr * ptr)
+  'l [] [lseg p0 pn ~> l] (is_cons l)&REQ
   '(p1 : ptr) tt [lcell p0 ~> (mk_lcell (snd (hd_tot l REQ)) p1); lseg p1 pn ~> tl_tot l REQ]
-    (p0 = fst (hd_tot l REQ)).
-Proof. Derived. Defined.
-Lemma elim_lseg_cons : elim_lseg_cons_spec.
+    (p0 = fst (hd_tot l REQ))
+  elim_lseg_cons_spec) As elim_lseg_cons.
 Proof.
   init_lemma (p0, pn) [|[p0' dt] tl] [].
   unfold lseg; cbn; Intro ->.
@@ -204,11 +202,11 @@ Proof.
   Apply; reflexivity.
 Qed.
 
-Definition elim_llist_nnull_spec : LDecl SPEC
-  (p0 : ptr) 'l [] [llist p0 ~> l] (p0 <> NULL)
-  '(p1 : ptr) (dt, tl) [lcell p0 ~> (mk_lcell dt p1); llist p1 ~> tl] (l = (p0, dt) :: tl).
-Proof. Derived. Defined.
-Lemma elim_llist_nnull : elim_llist_nnull_spec.
+Derive elim_llist_nnull_spec SuchThat (
+  VLem SPEC (p0 : ptr)
+  'l [] [llist p0 ~> l] (p0 <> NULL)
+  '(p1 : ptr) (dt, tl) [lcell p0 ~> (mk_lcell dt p1); llist p1 ~> tl] (l = (p0, dt) :: tl)
+  elim_llist_nnull_spec) As elim_llist_nnull.
 Proof.
   init_lemma p0 l NNULL.
   unfold lseg; Intro <-.
@@ -232,6 +230,7 @@ Proof.
     intuition congruence.
 Qed.
 
+(* An [impp_lemma] is a lemma that derives a pure proposition from the program context. *)
 Definition lseg_null_nil p pn : impp_lemma (fun l => (
   [lseg p pn ~> l], (p = NULL),
   fun _ : unit => l = nil)).
@@ -258,11 +257,11 @@ Proof.
     SL.normalize; reflexivity.
 Qed.
 
-Definition lseg_app_spec : LDecl SPEC
-  ((p0, p1, p2) : ptr * ptr * ptr) '(l0, l1) [] [lseg p0 p1 ~> l0; lseg p1 p2 ~> l1] True
-  '(_ : unit) tt [lseg p0 p2 ~> (l0 ++ l1)] True.
-Proof. Derived. Defined.
-Lemma lseg_app : lseg_app_spec.
+Derive lseg_app_spec SuchThat (
+  VLem SPEC ((p0, p1, p2) : ptr * ptr * ptr)
+  '(l0, l1) [] [lseg p0 p1 ~> l0; lseg p1 p2 ~> l1] True
+  '(_ : unit) tt [lseg p0 p2 ~> (l0 ++ l1)] True
+  lseg_app_spec) As lseg_app.
 Proof.
   init_lemma ((p0, p1), p2) (l0, l1) ?.
   unfold lseg.

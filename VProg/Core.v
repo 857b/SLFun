@@ -328,9 +328,12 @@ Section F_SPEC.
   Definition cp_f_spec (s : f_spec) : CP.f_spec sg :=
     SP.tr_f_spec (tr_f_spec s).
 
+  Definition f_spec_equiv (e : f_spec_exp) (s : f_spec) : Prop :=
+    forall x : f_arg_t sg, Spec.Expanded.of_expanded (e x) (s x).
+
   Record FSpec (e : f_spec_exp) := mk_FSpec {
     m_spec  : f_spec;
-    m_equiv : forall x : f_arg_t sg, Spec.Expanded.of_expanded (e x) (m_spec x);
+    m_equiv : f_spec_equiv e m_spec;
   }.
 
   Variable (CT : CP.context).
@@ -1443,12 +1446,19 @@ Module NotationsDef.
   Global Arguments ld_FSpec [_ _ _].
 
   Definition to_ghost_lem [arg_t ret_t e] (L : @LDecl arg_t ret_t e)
-    : Type := ghost_lem (m_spec (ld_FSpec L)).
+    : Prop := ghost_lem (m_spec (ld_FSpec L)).
 
   (* NOTE it does not seem possible to declare a coercion from [to_ghost_lem] to Funclass
      with implicit [CT] (see https://github.com/coq/coq/issues/5527).
      One has to use an explicit conversion [gLem]. *)
   Coercion to_ghost_lem : LDecl >-> Sortclass.
+
+  (* LDecl + proof, to be used with Derive *)
+  Record VLem [arg_t : Type] [ret_t : Type] (e : f_spec_exp (lem_sigh (mk_f_sig arg_t ret_t)))
+      (s : f_spec (lem_sigh (mk_f_sig arg_t ret_t))) : Prop := {
+    vl_spec_eq :  f_spec_equiv e s;
+    vl_correct :> ghost_lem s;
+  }.
 
 
   Definition FImpl [CT sg sgh s] (fd : @f_decl sg sgh CT s) : Type
@@ -1509,9 +1519,29 @@ Module Tac.
     | _ => idtac
     end.
 
+  (* solves a goal [f_spec_equiv e ?s],
+     instantiates [?s] *)
+  Ltac build_of_expanded :=
+    hnf; cbn;
+    intro (* arg  *); of_expanded_arg;
+    intro (* gi   *); of_expanded_arg;
+    refine (Spec.Expanded.of_expanded0I _ _ _); cbn;
+    intro (* sel0 *); of_expanded_arg;
+    refine (Spec.Expanded.of_expanded1I _ _ _); cbn;
+    (* ret, TODO? allow matching *)
+    try lazymatch goal with |- forall x, _ (match x with _ => _ end) _ =>
+      idtac "WARNING: matching on the returned value is not supported, use projections instead"
+    end;
+    intro (* ret *);
+    simple refine (Spec.Expanded.of_expanded2I _ _ _ _ _ _);
+    [ shelve | shelve | shelve | shelve
+    | (* sel1_TU_GOAL *) cbn; intro (* sel1 *); Tuple.build_type_iso_tu
+    | shelve | (* S_VPOST *) Tac.cbn_refl
+    | shelve | (* S3      *) cbn; repeat intro; refine (Spec.Expanded.of_expanded3I _) ].
+
   Local Lemma mk_red_FSpec [sg : f_sig] [sgh : f_sigh sg] [e : f_spec_exp sgh]
     [s0 s1 : f_spec sgh]
-    (E : forall x : f_arg_t sg, Spec.Expanded.of_expanded (e x) (s0 x))
+    (E : f_spec_equiv e s0)
     (R : s1 = s0):
     FSpec sgh e.
   Proof.
@@ -1522,31 +1552,41 @@ Module Tac.
   (* solves a goal [FSpec sig espec] *)
   Ltac build_FSpec :=
     refine (mk_red_FSpec _ _);
-    [ cbn;
-      intro (* arg  *); of_expanded_arg;
-      intro (* gi   *); of_expanded_arg;
-      refine (Spec.Expanded.of_expanded0I _ _ _); cbn;
-      intro (* sel0 *); of_expanded_arg;
-      refine (Spec.Expanded.of_expanded1I _ _ _); cbn;
-      (* ret, TODO? allow matching *)
-      try lazymatch goal with |- forall x, _ (match x with _ => _ end) _ =>
-        idtac "WARNING: matching on the returned value is not supported, use projections instead"
-      end;
-      intro (* ret *);
-      simple refine (Spec.Expanded.of_expanded2I _ _ _ _ _ _);
-      [ shelve | shelve | shelve | shelve
-      | (* sel1_TU_GOAL *) cbn; intro (* sel1 *); Tuple.build_type_iso_tu
-      | shelve | (* S_VPOST *) Tac.cbn_refl
-      | shelve | (* S3      *) cbn; repeat intro; refine (Spec.Expanded.of_expanded3I _) ]
+    [ build_of_expanded
     | cbn; reflexivity ].
 
-  (* solves a goal [FDecl arg_t ghin_t ret_t ghout_t espec] *)
+  (* solves a goal [FDecl espec] *)
   Ltac build_FDecl :=
-    constructor; Tac.build_FSpec.
+    constructor; build_FSpec.
 
-  (* solves a goal [LDecl arg_t ret_t espec] *)
+  (* solves a goal [LDecl espec] *)
   Ltac build_LDecl :=
-    constructor; Tac.build_FSpec.
+    constructor; build_FSpec.
+
+  Local Lemma mk_red_VLem [arg_t ret_t e s0 s1]
+    (E : f_spec_equiv e s0)
+    (R : s1 = s0)
+    (L : ghost_lem s1):
+    @NotationsDef.VLem arg_t ret_t e s1.
+  Proof.
+    split.
+    - rewrite R; exact E.
+    - exact L.
+  Qed.
+
+  (* on a goal [VLem e ?s],
+     instantiates [?s] by solving the [vl_spec_eq] condition,
+     leaves the [vl_correct] condition *)
+  Ltac build_VLem :=
+    lazymatch goal with |- @NotationsDef.VLem ?arg_t ?ret_t ?e ?s =>
+    let s' := eval hnf in s in
+    change (@NotationsDef.VLem arg_t ret_t e s');
+    simple refine (mk_red_VLem _ _ _);
+    [ shelve
+    | (* E *) build_of_expanded
+    | (* R *) cbn; reflexivity
+    | (* L *) try clear s ]
+    end.
 
 
   (* build_HasSpec *)
@@ -2000,6 +2040,10 @@ Module Tactics.
 
   (* start the proof of a ghost lemma *)
   Ltac init_lemma0 :=
+    lazymatch goal with
+    | |- NotationsDef.VLem _ _ => Tac.build_VLem
+    | |- _ => idtac
+    end;
     unfold NotationsDef.to_ghost_lem, ghost_lem; cbn.
 
   Tactic Notation "init_lemma" simple_intropattern_list(xs) :=
@@ -2032,6 +2076,7 @@ Module Notations.
   Global Arguments FSpec [sg] sgh e%vprog_spec.
   Global Arguments FDecl [_ _] e%vprog_spec.
   Global Arguments LDecl [_ _] e%vprog_spec.
+  Global Arguments VLem  [_ _] e%vprog_spec.
 
 
   Definition mk_f_r0_None (arg_t : Type) [res_t ghout_t]

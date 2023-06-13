@@ -89,21 +89,21 @@ Proof. solve_by_wlp. Qed.
 Definition cell2 (p : ptr) '(v0, v1) : SLprop.t :=
   (SLprop.cell p v0 ** SLprop.cell (S p) v1)%slprop.
 
-Definition elim_cell2_spec : LDecl SPEC
-  (p : ptr) 'n01 [] [cell2 p ~> n01] True
-  '(_ : unit) tt [vptr p ~> (fst n01); vptr (S p) ~> (snd n01)] True.
-Proof. Derived. Defined.
-Lemma elim_cell2 : elim_cell2_spec.
+Derive elim_cell2_spec SuchThat (
+  VLem SPEC (p : ptr)
+  'n01 [] [cell2 p ~> n01] True
+  '(_ : unit) tt [vptr p ~> (fst n01); vptr (S p) ~> (snd n01)] True
+  elim_cell2_spec) As elim_cell2.
 Proof.
   init_lemma p (n0, n1) ?.
   reflexivity.
 Qed.
 
-Definition intro_cell2_spec : LDecl SPEC
-  (p : ptr) '(n0, n1) [] [vptr p ~> n0; vptr (S p) ~> n1] True
-  '(_ : unit) tt [cell2 p ~> (n0, n1)] True.
-Proof. Derived. Defined.
-Lemma intro_cell2 : intro_cell2_spec.
+Derive intro_cell2_spec SuchThat (
+  VLem SPEC (p : ptr)
+  '(n0, n1) [] [vptr p ~> n0; vptr (S p) ~> n1] True
+  '(_ : unit) tt [cell2 p ~> (n0, n1)] True
+  intro_cell2_spec) As intro_cell2.
 Proof.
   init_lemma p (n0, n1) ?.
   reflexivity.
