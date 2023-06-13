@@ -470,6 +470,8 @@ Record instr (A : Type) := mk_instr {
 }.
 Local Unset Implicit Arguments.
 
+Inductive post_hint [A : Type] (post : A -> VpropList.t) : Prop := mk_post_hint.
+
 Inductive HasSpec [A : Type] (i : instr A) (ctx : CTX.t) (s : i_spec_t A ctx) : Prop :=
   HasSpecI (S : sound_spec (i_impl i) ctx s).
 
@@ -962,10 +964,14 @@ End Fragment.
 
 Section Ret.
   Section Impl.
-    Context [A : Type] (x : A) (pt : A -> list Vprop.t).
+    Context [A : Type] (x : A).
 
-    Inductive Ret_Spec (ctx : CTX.t) (F : i_spec_t A ctx) : Prop
+    Definition no_pt_hint : list Vprop.t.
+    Proof. exact nil. Qed.
+
+    Inductive Ret_Spec (pt_hint : A -> list Vprop.t) (ctx : CTX.t) (F : i_spec_t A ctx) : Prop
       := Ret_SpecI
+      (pt : A -> list Vprop.t)
       (sels : Tuple.t (map Vprop.ty (pt x))):
       let pre := VpropList.inst (pt x) sels in forall
       (IJ : InjPre_Frame_Spec pre ctx {|
@@ -973,11 +979,11 @@ Section Ret.
         sf_prd  := pt;
         sf_spec := FunProg.Ret (TF.mk pt x sels);
       |} F),
-      Ret_Spec ctx F.
+      Ret_Spec pt_hint ctx F.
 
-    Program Definition Ret0 : instr A := {|
+    Program Definition Ret0 pt_hint : instr A := {|
       i_impl := CP.Ret x;
-      i_spec := fun ctx => Ret_Spec ctx;
+      i_spec := fun ctx => Ret_Spec pt_hint ctx;
     |}.
     Next Obligation.
       destruct SP; apply (Tr_InjPre_Frame IJ).
@@ -992,12 +998,12 @@ Section Ret.
     Qed.
   End Impl.
 
-  Definition Ret [A : Type] (x : A) {pt : opt_arg (A -> list Vprop.t) (fun _ => [])}
+  Definition Ret [A : Type] (x : A) {pt : opt_arg (A -> list Vprop.t) (fun _ => no_pt_hint)}
     : instr A
     := Ret0 x pt.
 
   Definition RetG [A : Type] [P : A -> Type] (x : A) (y : P x)
-      {pt : opt_arg (forall x : A, P x -> list Vprop.t) (fun _ _ => [])}
+      {pt : opt_arg (forall x : A, P x -> list Vprop.t) (fun _ _ => no_pt_hint)}
     : instr (CP.sigG A P)
     := Ret0 (CP.existG P x y) (CP.split_sigG pt).
 End Ret.
@@ -1588,6 +1594,33 @@ Module Tac.
     | (* L *) try clear s ]
     end.
 
+  (* post_hint *)
+
+  (* pt_hint_t := (post_hint -> ltac) -> (unit -> ltac) -> ltac *)
+
+  Ltac post_hint_Some post_hint (* : pt_hint_t *) g _ :=
+    g post_hint.
+
+  Ltac post_hint_None (* : pt_hint_t *) _ g :=
+    g tt.
+
+  Ltac get_post_hint t(* pt_hint_t *) k(* post_hint -> ltac *) :=
+    t k ltac:(fun _ => fail).
+
+  Ltac save_post_hint t(* pt_hint_t *) :=
+    t ltac:(fun pt =>
+        assert (post_hint pt) by split
+      )
+      ltac:(fun _ => idtac).
+
+  Ltac load_post_hint k(* pt_hint_t -> ltac *) :=
+    lazymatch goal with
+    | H : post_hint ?pt |- _ =>
+        clear H;
+        k ltac:(fun g _ => g pt)
+    | _ =>
+        k ltac:(fun _ g => g tt)
+    end.
 
   (* build_HasSpec *)
 
@@ -1648,21 +1681,35 @@ Module Tac.
   Global Hint Constants Opaque : HasSpecDB.
   Global Hint Variables Opaque : HasSpecDB.
 
-  Ltac build_Ret :=
-    simple refine (Ret_SpecI _ _ _ _ _ _);
-    [ (* sels *) Tuple.build_shape
-    | (* IJ   *) build_InjPre_Frame ].
+  Ltac build_Ret pt_hint0(* pt_hint_t *) :=
+    lazymatch goal with |- Ret_Spec ?x ?pt_hint1 _ _ =>
+    simple refine (Ret_SpecI _ _ _ _ _ _ _);
+    [ (* pt *)
+      let pt_hint1_x := eval hnf in (pt_hint1 x) in
+      lazymatch pt_hint1_x with
+      | no_pt_hint =>
+          try Tac.get_post_hint pt_hint0 ltac:(fun pt =>
+            (* This can fail if the return type is not the one of the post hint,
+               which can happen inside a match. *)
+            exact pt);
+          exact (fun _ => nil)
+      | _ =>
+          exact pt_hint1
+      end
+    | (* sels *) Tuple.build_shape
+    | (* IJ   *) build_InjPre_Frame ]
+    end.
 
   Ltac build_Bind_init :=
     simple refine (Bind_SpecI1 _ _ _ _ _ _ _ _ _ _);
     [ shelve | | shelve | | shelve | | shelve |
     | shelve | | shelve | | shelve | ].
 
-  Ltac build_Bind build_f :=
+  Ltac build_Bind build_f pt_hint :=
     build_Bind_init;
-    [ (* S_F   *) build_f tt
+    [ (* S_F   *) build_f post_hint_None
     | (* F_PRD *) cbn_refl
-    | (* S_G0  *) cbn; repeat intro; build_f tt
+    | (* S_G0  *) cbn; repeat intro; build_f pt_hint
     | (* S_G   *) cbn_refl
     | (* CSM   *) cbn_refl
     | (* PRD   *) cbn_refl
@@ -1809,8 +1856,7 @@ Module Tac.
     ).
 
   (* solves a goal [HasSpec i ctx ?s] *)
-  Ltac build_HasSpec :=
-    let build _ := build_HasSpec in
+  Ltac build_HasSpec pt_hint(* pt_hint_t *) :=
     cbn;
     lazymatch goal with |- @HasSpec ?C ?A ?i ?ctx ?s =>
     let i' := eval hnf in i in
@@ -1822,25 +1868,33 @@ Module Tac.
         refine (HasSpec_ct _ _);
         hnf;
         lazymatch goal with
-        | |- Ret_Spec    _ _ _ _ => build_Ret
-        | |- Bind_Spec _ _ _ _ _ => build_Bind build
+        | |- Ret_Spec    _ _ _ _ => build_Ret pt_hint
+        | |- Bind_Spec _ _ _ _ _ => build_Bind build_HasSpec pt_hint
         | |- Call_Spec     _ _ _ => build_Call
-        | |- ?g => solve_db HasSpecDB
+        | |- ?g =>
+            save_post_hint pt_hint;
+            solve_db HasSpecDB
         end
     | _ =>
         Tac.head_of i' ltac:(fun i_head =>
         Tac.matched_term i_head ltac:(fun x =>
         tryif is_single_case x
-        then build_HasSpec_dlet   build x (* destructive let *)
-        else build_HasSpec_branch build x (* multiple branches *)
+        then build_HasSpec_dlet   ltac:(fun _ => build_HasSpec pt_hint) x (* destructive let *)
+        else build_HasSpec_branch ltac:(fun _ => build_HasSpec pt_hint) x (* multiple branches *)
         ))
     end end.
+
+  Ltac init_HasSpec_tac k(* pt_hint_t -> ltac *) :=
+    load_post_hint k.
   
   (* solves a goal [HasSpec i ctx (mk_i_spec csm prd ?f)] *)
   Ltac build_HasSpec_exact :=
+    lazymatch goal with |- HasSpec _ _ _ (mk_i_spec _ ?prd _) =>
     refine (transform_spec _ _ _);
-    [ build_HasSpec
-    | build_Tr_change_exact ].
+    [ build_HasSpec ltac:(post_hint_Some prd)
+    | build_Tr_change_exact ]
+    | _ => ffail "build_HasSpec_exact"
+    end.
 
 
   Local Lemma elim_tuple_eq_conj [TS] [u v : Tuple.t TS] [P Q : Prop]

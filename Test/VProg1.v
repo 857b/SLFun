@@ -280,4 +280,17 @@ Proof.
   FunProg.solve_by_wlp.
 Qed.
 
+
+Definition spec_a5a : FSpec _
+  SPEC (p : ptr)
+  'v [] [vptr p ~> v] True
+  '(p' : ptr) tt [vptr p' ~> v] True.
+Proof. Tac.build_FSpec. Defined.
+
+Definition vprog_a5a : m_body spec_a5a := fun p =>
+  't <- Ret p;
+  Ret p.
+Goal f_body_match vprog_a5a (m_spec spec_a5a).
+Proof. solve_by_wlp. Qed.
+
 End Test.

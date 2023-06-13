@@ -37,8 +37,9 @@ Section Read.
 End Read.
 
 Local Ltac build_Read :=
+  Tac.init_HasSpec_tac ltac:(fun _ =>
   simple refine (Read_SpecI _ _ _ _ _);
-  [ shelve | (*IJ *) Tac.build_InjPre_Frame ].
+  [ shelve | (*IJ *) Tac.build_InjPre_Frame ]).
 
 Section Write.
   Context [CT : CP.context] (p : ptr) (d : memdata).
@@ -72,8 +73,9 @@ Section Write.
 End Write .
 
 Local Ltac build_Write :=
+  Tac.init_HasSpec_tac ltac:(fun _ =>
   simple refine (Write_SpecI _ _ _ _ _ _);
-  [ shelve | (* IJ *) Tac.build_InjPre_Frame ].
+  [ shelve | (* IJ *) Tac.build_InjPre_Frame ]).
 
 Section Loop.
   Context [CT : CP.context] [A B : Type]
@@ -374,6 +376,8 @@ Definition Loop_inv [CT A B]
   := Loop0 (fun x => projT1 (inv x)) (Some (fun x => projT2 (inv x))) ini body.
 
 Ltac build_Loop :=
+  Tac.init_HasSpec_tac ltac:(fun _ =>
+  lazymatch goal with |- Loop_Spec ?vinv _ _ _ _ _ =>
   simple refine (Loop_SpecI _ _ _ _ _ _ _ _ _ _ _ _);
   [ (* sel0 *) cbn; Tuple.build_shape
   | (* add  *) shelve | (* csm1 *) shelve | (* s    *) shelve
@@ -381,13 +385,14 @@ Ltac build_Loop :=
   | (* L1   *)
     simple refine (Loop_Spec1I _ _ _ _ _ _ _ _ _ _ _);
     [ (* s_f    *) shelve
-    | (* S_F    *) cbn; intros; Tac.build_HasSpec
+    | (* S_F    *) cbn; intros; Tac.build_HasSpec ltac:(Tac.post_hint_Some vinv)
     | (* sel2_f *) (* wait for csm1 *)
     | (* E      *) cbn; intros; split; [reflexivity (* csm1 *)|] ];
     [ (* sel2_f *) cbn; intros; Tuple.build_shape
     | (* E      *) cbn; intros; constructor; CTX.Trf.Tac.build_t ]
   ];
-  (* IJ spec eq *) Tac.cbn_refl.
+  (* IJ spec eq *) Tac.cbn_refl
+  end).
 
 Module Tactics.
   #[export] Hint Extern 1 (Read_Spec       _ _ _) => build_Read   : HasSpecDB.

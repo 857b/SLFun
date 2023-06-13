@@ -213,6 +213,7 @@ Ltac build_rewrite_ctx x E :=
   end.
 
 Ltac build_Rewrite :=
+  Tac.init_HasSpec_tac ltac:(fun _ =>
   lazymatch goal with
   | |- Rewrite_Spec ?x _ _ _ =>
     simple refine (Rewrite_SpecI _ _ _ _ _);
@@ -221,7 +222,7 @@ Ltac build_Rewrite :=
       let E := fresh "E" in intro E;
       build_rewrite_ctx x E
     | shelve |(* PRD *) Tac.cbn_refl ]
-  end.
+  end).
 
 Section Impp.
   Context [sel_t A : Type] (spc : sel_t -> (CTX.t * Prop * (A -> Prop))).
@@ -315,8 +316,9 @@ Section GGet.
 End GGet.
 
 Local Ltac build_GGet :=
+  Tac.init_HasSpec_tac ltac:(fun _ =>
   simple refine (GGet_SpecI _ _ _ _ _);
-  [ shelve | Tac.build_InjPre_Frame ].
+  [ shelve | Tac.build_InjPre_Frame ]).
 
 Section Assert.
   Context [CT : CP.context] [A : Type] (P : A -> CTX.t * Prop).
@@ -357,6 +359,7 @@ Section Assert.
 End Assert.
 
 Local Ltac build_Assert :=
+  Tac.init_HasSpec_tac ltac:(fun _ =>
   simple refine (Assert_SpecI _ _ _ _ _);
   [ shelve
   | (* IJ *)
@@ -365,7 +368,7 @@ Local Ltac build_Assert :=
     repeat lazymatch goal with |- InjPre_Frame_Spec (fst ?x) _ _ _ =>
       Tac.build_matched_shape x; cbn
     end;
-    Tac.build_InjPre_Frame ].
+    Tac.build_InjPre_Frame ]).
 
 Module Tactics.
   #[export] Hint Extern 1 (Rewrite_Spec _ _ _ _) => build_Rewrite : HasSpecDB.

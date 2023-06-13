@@ -51,7 +51,7 @@ Definition vprog_2 : FImpl f_2 := fun '(p0, p1, p2) =>
   Write p1 data42;;
   Assert (fun '(v0', v1') =>
     ([vptr p0 ~> v0'; vptr p1 ~> v1'], v0' = v0));;
-  Ret p0 (pt := fun p => [vptr p ~>]).
+  Ret p0.
 Lemma correct_2: FCorrect vprog_2.
 Proof.
   solve_by_wlp.
@@ -67,7 +67,7 @@ Proof. Derived. Defined.
 Variable f_3 : spec_3 CT.
 
 Definition vprog_3 : FImpl f_3 := fun p0 p1 =>
-  RetG p0 p1 (pt := fun p0 p1 => [vptr p0 ~>; vptr p1 ~>]).
+  RetG p0 p1.
 Lemma correct_3: FCorrect vprog_3.
 Proof. solve_by_wlp. Qed.
 
@@ -81,7 +81,7 @@ Variable f_4 : spec_4 CT.
 
 Definition vprog_4 : FImpl f_4 := fun '(p0, p1) =>
   'p0' p1' <- f_3 p0 p1;
-  RetG p0' p1' (pt := fun p0 p1 => [vptr p0 ~>; vptr p1 ~>]).
+  RetG p0' p1'.
 Lemma correct_4: FCorrect vprog_4.
 Proof. solve_by_wlp. Qed.
 
@@ -160,16 +160,15 @@ Proof. Derived. Defined.
 Variable f_7 : spec_7 CT.
 
 Definition vprog_7 : FImpl f_7 := fun '(p0, p1, p2) =>
-  let inv p := [vptr (sumv p)~>] in
-  Loop0 inv None (inl p0) (fun p =>
+  Loop0 (fun p => [vptr (sumv p)~>]) None (inl p0) (fun p =>
     'v <- Read p;
     match v with
-    | O   => Ret (inr p) (pt := inv)
+    | O   => Ret (inr p)
     | S n =>
         Write p n;;
         'v2 <- Read p2;
         Write p1 v2;;
-        Ret (inl p) (pt := inv)
+        Ret (inl p)
     end
   ).
 Lemma correct_7 : FCorrect vprog_7.

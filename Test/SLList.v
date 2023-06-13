@@ -340,12 +340,12 @@ Definition llist_case_impl : FragImpl llist_case_spec CT := fun p =>
   then
     gLem (lseg_null_nil p NULL) tt;;
     gLem elim_lseg_nil (p, NULL);;
-    Ret None (pt := fun r => [llist_case_res p r ~>])
+    Ret None
   else
     'g_p1 <- gLem elim_llist_nnull p;
     'p1 <- Read (p_next p);
     gRewrite g_p1 p1;;
-    Ret (Some p1) (pt := fun r => [llist_case_res p r ~>]).
+    Ret (Some p1).
 Lemma llist_case : FragCorrect llist_case_impl.
 Proof. solve_by_wlp. Qed.
 
@@ -357,7 +357,7 @@ Definition Length_impl_frag : FImpl Length := fun p0 =>
   | None =>
       gLem elim_empty_group tt;;
       gLem replace1 (llist NULL, llist p0);;
-      Ret 0 (pt := fun _ => [llist p0~>])
+      Ret 0
   | Some p1 =>
       'n <- Length p1;
       gLem intro_lseg_cons (p0, p1, NULL);;
@@ -383,7 +383,7 @@ Definition Length_impl_loop : FImpl Length := fun p0 =>
     if Mem.ptr_eq p1 NULL
     then
       gRewrite p1 NULL;;
-      Ret (inr n) (pt := inv)
+      Ret (inr n)
     else
       'g_p2 <- gLem elim_llist_nnull p1;
       'p2 <- Read (p_next p1);
@@ -391,7 +391,7 @@ Definition Length_impl_loop : FImpl Length := fun p0 =>
       (* gLem intro_lseg_nil p2;; implicit using lseg_nil_intro_rule *)
       gLem intro_lseg_cons (p1, p2, p2);;
       gLem lseg_app (p0, p1, p2);;
-      Ret (inl (p2, (S n))) (pt := inv)
+      Ret (inl (p2, (S n)))
   );
   gLem (lseg_null_nil NULL NULL) tt;;
   gLem elim_lseg_nil (NULL, NULL);;
@@ -424,7 +424,7 @@ Definition Rev_impl : FImpl Rev := fun '(p0, pr) =>
   then
     gLem (lseg_null_nil p0 NULL) tt;;
     gLem elim_lseg_nil (p0, NULL);;
-    Ret pr (pt := fun r => [lseg r pr ~>])
+    Ret pr
   else
     'g_p1 <- gLem elim_llist_nnull p0;
     'p1 <- Read (p_next p0);
@@ -433,7 +433,7 @@ Definition Rev_impl : FImpl Rev := fun '(p0, pr) =>
     gLem intro_lseg_cons (p0, pr, pr);;
     'r <- Rev (p1, p0);
     gLem lseg_app (r, p0, pr);;
-    Ret r (pt := fun r => [lseg r pr ~>]).
+    Ret r.
 Lemma Rev_correct : FCorrect Rev_impl.
 Proof.
   build_fun_spec.
