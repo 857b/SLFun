@@ -472,7 +472,7 @@ Qed.
 End Program.
 
 (* We combine the different functions into a concrete program.
-   This also removes the ghost code ("extraction") and resolves the dependencies between the functions,
+   This also removes the ghost code (erasure) and resolves the dependencies between the functions,
    which can fail. *)
 Derive prog SuchThat (ConcreteProg.of_entries [
   f_entry Length_spec    Length_loop_correct;

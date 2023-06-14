@@ -21,6 +21,8 @@ Module Vprop.
 End Vprop.
 
 Module CTX.
+  (* A context is a list of [atom], that is, of [vprop] instantiated with a selector. *)
+
   Definition atom := {v : Vprop.t & Vprop.ty v}.
 
   Definition mka [A : Type] (arg : Vprop.p A * A) : atom :=
@@ -44,6 +46,7 @@ Module CTX.
   Qed.
 
   Module Sub.
+    (* [Sub.t c] represents a subset of [c] *)
     Definition t (c : CTX.t) := Vector.t bool (List.length c).
 
     Fixpoint sub (c : CTX.t) : t c -> CTX.t :=
@@ -72,6 +75,8 @@ Module CTX.
       P s :=
       Vector.caseS'.
 
+    (* [const] *)
+
     Definition const (c : CTX.t) (v : bool) : t c :=
       Vector.const v (List.length c).
   
@@ -87,6 +92,8 @@ Module CTX.
       induction c; simpl; f_equal; auto.
     Qed.
 
+    (* point-wise operations *)
+
     Definition neg [c : CTX.t] : t c -> t c :=
       Vector.map negb.
 
@@ -98,6 +105,8 @@ Module CTX.
 
     Definition minus [c : CTX.t] : t c -> t c -> t c :=
       Vector.map2 (fun b0 b1 => andb b0 (negb b1)).
+
+    (* [app] *)
 
     Fixpoint app [c0 c1 : CTX.t] : forall (s0 : t c0) (s1 : t c1), t (c0 ++ c1).
     Proof.
@@ -138,6 +147,8 @@ Module CTX.
         simpl; f_equal; apply IHc0.
     Qed.
 
+    (* [split] *)
+
     Fixpoint split (c0 c1 : CTX.t) : forall (s : t (c0 ++ c1)), t c0 * t c1.
     Proof.
       case c0 as [|? c0].
@@ -168,7 +179,10 @@ Module CTX.
         rewrite (IHc0 s0); reflexivity.
     Qed.
 
+    (* [push] *)
 
+    (* Given two subsets [s0] and [s1] of [c], [push s0 s1] computes the subset of [s0]
+       (i.e. of [sub c s0]) corresponding to the intersection of [s0] and [s1]. *)
     Fixpoint push [c : CTX.t] : forall (s0 : t c), t c -> t (sub c s0).
     Proof.
       case c as [|c0 c].
@@ -200,7 +214,12 @@ Module CTX.
       - destruct s0 as [h0 ?] using caseS'; destruct s1 using caseS'; simpl.
         case h0; simpl; rewrite IHc; reflexivity.
     Qed.
-    
+
+    (* [pull] *)
+
+    (* Given a subset of [s0] of [c], a subset [s1] of [s0] (i.e. of [sub c s0]) and a subset
+       [s2] of the complementary of [s0] (i.e. of [sub c (neg s0)]), [pull s0 s1 s2] computes
+       the subset of [c] corresponding to the disjoint union of [s1] and [s2]. *)
     Fixpoint pull [c : CTX.t] : forall (s0 : t c), t (sub c s0) -> t (sub c (neg s0)) -> t c.
     Proof.
       case c as [|c0 c].
@@ -240,6 +259,9 @@ Module CTX.
 
   Definition sub : forall c : t, Sub.t c -> t := Sub.sub.
 
+  (* We can give an equivalent interpretation [sl_sub c s] of [sl (sub c s)],
+     more convenient for some proofs. *)
+
   Definition sl_opt (h : SLprop.t) (b : bool) : SLprop.t :=
     if b then h else SLprop.emp.
 
@@ -273,7 +295,54 @@ Module CTX.
       + apply SLprop.star_comm12.
   Qed.
 
+
   Module Trf.
+    (* Transformations are the main tool to resolve equivalences or injections between contexts.
+       Given two contexts [c0] [c1], the proposition [Trf.p c0 c1 rev_f] provides implications
+       in the separation logic between them.
+       - The forward direction [Trf.fwd] is simply an entailment [SLprop.imp (sl c0) (sl c1)]
+       - The reverse direction associates (using [rev_f]) to any subset [s1] of [c1] a
+         corresponding subset [s0] of [c0] plus some remaining atoms [rem] that could not be changed
+         back into atoms of [c0]. [Trf.bwd] ensures the following entailment:
+           [SLprop.imp (sl_sub c1 s1) (sl_sub c0 s0 ** sl rem)]
+
+       In vprogs, transformations are either used to prove a single entailment (using only the forward
+       direction) for instance in [change_prd], or to extract from the context the precondition required
+       by an instruction.
+       Assume for instance that we have defined a vprop:
+         [cell2 (p : ptr) '(v0, v1) : SLprop.t := vptr p v0 ** vptr (S p) v1]
+       for which we have declared a reversible elimination rule (in the [CtxTrfDB] database).
+
+       Consider the inference of an [HasSpec] judgment for a [Read p] in a context containing a [cell2 p]:
+         [cell2 p ~> v] |- Read p : ?csm -> ?prd
+       using `ctx |- i : sf_csm s -> sf_prd s` to denote [HasSpec i ctx s], ignoring [sf_spec s].
+       [Read p] has a precondition [vptr p ~> ?r], so we solve a goal:
+         [Trf.p [cell2 p ~> v] ([vptr p ~> ?r] ++ ?frame) ?rev_f]
+       using an elimination rule for [cell2], we unify [?r := fst v], [?frame := [vptr (S p) ~> snd v]]
+       and [?rev_f].
+       Using [Tr_InjPre_Frame], we are now left with:
+         [vptr p ~> fst v |- Read p : ?csm1 -> ?prd1
+       which we solve by applying the specification of [Read], unifying [?csm1 := {}] and [?prd1 := []].
+       We then use the reverse direction to recover a maximal subset of the original context.
+       Since the [Read] did not consume anything (and the [vptr (S p) ~> snd v] was framed out),
+       we use [Trf.bwd] with the total subset [s1 := {vptr p ~> fst v; vptr (S p) ~> snd v}]. Since the
+       elimination rule is reversible and that none of the atoms it produced were consumed,
+       it can be reversed: [rev_f s1] yields [s0 := {cell2 p ~> v}] and [rem := []].
+       Thus we obtain the following judgment:
+         [cell2 p ~> v] |- Read p : {} -> []
+
+       Now assume that we were inferring a judgment for a [Write p x] instead. [Write] has the same
+       precondition as [Read], so the forward part does not change, and we are again left with a goal:
+         [vptr p ~> fst v |- Write p x : ?csm1 -> ?prd1]
+       However, [Write] has a different specification, so we solve this goal by unifying [?csm1 :=
+       {vptr p ~> fst v}] and [?prd1 := vptr p ~> x].
+       We thus call [rev_f] with a partial subset [s1 := {vptr (S p) ~> snd v}]. Since the result
+       of the elimination rule has been (partially) consumed, it cannot be reversed, and [rev_f s1]
+       yields [s0 := {}] and [rem := [vptr (S p) ~> snd v]].
+       Thus we obtain the following judgement:
+         [cell2 p ~> v] |- Write p x : {cell2 p ~> v} -> [vptr p ~> x; vptr (S p) ~> snd v]
+    *)
+
     Section Trf.
       Variables c0 c1 : CTX.t.
       Definition rev_f_t := Sub.t c1 -> (Sub.t c0 * CTX.t (* rem *)).
@@ -297,6 +366,8 @@ Module CTX.
 
     Definition inj_p (c0 c1 add : CTX.t) (rev_f : rev_f_t c0 (c1 ++ add)) : Prop :=
       Trf.p c0 (c1 ++ add) rev_f.
+
+    (* Some combinators to build transformations: *)
 
     Section Refl.
       Variable c : CTX.t.
@@ -445,7 +516,28 @@ Module CTX.
     Global Arguments app_rev_f   !ca0 !ca1 _ !cb0 !cb1 _ !_.
 
     Module Tac.
-      (* Tactic to build a [Trf.p] or a [Trf.inj_p] *)
+      (* Tactics to build a [Trf.p] or a [Trf.inj_p].
+         The idea is to represents the atoms using (dummy) hypotheses in the proof context,
+         of type [A a st ps] for the atoms of the source and of type [B a n st ps] for
+         the atoms of the target.
+         We alternate between phases were we unify matching atoms and phases were we
+         apply introduction and eliminations rules. Those rules are not committed
+         immediately since application of rules in the other context could produce the
+         original atom. Instead, we keep the original atom in the proof context and
+         commit the transformation only when we find a match for one of its children (or
+         cancel it if we find a match for the original atom). The list [ps] describes
+         the ancestors of an atom.
+         We keep track of the position [n : ord_t] of target atoms in the target context.
+         When we find a match, we associate the position of the target atom to the source atom.
+         At the end, we check that we have indeed found a transformation (this check should
+         never fail). We apply the rules we have used on the source and target contexts,
+         then we sort the resulting source context using the positions we have found,
+         finally we check the equality of the two contexts. In the case of an injection,
+         some atoms of the source context may be left unmatched. We give them the [None]
+         position, which moves them to the end during the sort. The source context is unified
+         with [trg ++ ?add] rather than only the target context [trg] so that those atoms are
+         unified with [?add].
+       *)
 
       Import Util.Tac.
 
@@ -683,6 +775,9 @@ Module CTX.
         Qed.
       End Sort.
       Section Helpers.
+        (* We applying introduction rules on the target atoms, we need to add elements to
+           the end of the positions [ord_t]. We represent the positions in reverse order using
+           [rord_t] to use [cons] rather than [snoc]. *)
         Definition rord_t := list nat.
         Definition ord_of_r (r : rord_t) : ord_t := Some (rev_append r []).
         Definition ord_None : ord_t := None.
@@ -1268,6 +1363,10 @@ Module CTX.
 End CTX.
 
 Module VpropList.
+  (* A [VpropList.t] represent a list of non-instantiated vprops.
+     It can be instantiated into a [CTX.t] with [inst] by applying it to some selectors,
+     represented as a tuple [sel_t]. *)
+
   Definition t := list Vprop.t.
 
   Definition sel  : t -> list Type@{Vprop.sel} := map Vprop.ty.
@@ -1287,6 +1386,8 @@ Module VpropList.
     - reflexivity.
     - case sl as (?, sl); cbn; f_equal; auto.
   Defined.
+
+  (* [of_ctx] *)
 
   Definition of_ctx : CTX.t -> t :=
     map (@projT1 _ _).
@@ -1311,6 +1412,8 @@ Module VpropList.
     induction ctx as [|[]]; simpl; f_equal; auto.
   Qed.
 
+  (* append *)
+
   Fixpoint app_sel [vs0 vs1 : t] (ss0 : sel_t vs0) (ss1 : sel_t vs1) : sel_t (vs0 ++ vs1) :=
     match vs0 as vs0 return sel_t vs0 -> sel_t (vs0 ++ vs1) with
     | nil       => fun _ => ss1
@@ -1329,6 +1432,8 @@ Module VpropList.
   Definition app_of_ctx c0 c1:
     VpropList.of_ctx (c0 ++ c1) = VpropList.of_ctx c0 ++ VpropList.of_ctx c1
     := List.Transp.map_app _ c0 c1.
+
+  (* split *)
 
   Fixpoint split_sel (v0 v1 : VpropList.t) {struct v0}:
     sel_t (v0 ++ v1) -> sel_t v0 * sel_t v1
@@ -1350,6 +1455,7 @@ Module VpropList.
       rewrite (IHv0 sl) at 1.
       case split_sel; reflexivity.
   Qed.
+
 
   Lemma sub_of_ctx_eq (c : CTX.t) (sl : sel_t (of_ctx c)):
     CTX.Sub.t (inst (of_ctx c) sl) = CTX.Sub.t c.
@@ -1398,6 +1504,7 @@ Module VpropList.
   Qed.
 End VpropList.
 
+
 Module Notations.
   Notation "x ~> v" := (existT Vprop.ty (Vprop.mk x) v) (at level 100).
   Notation "x ~>"   := (Vprop.mk x) (at level 100).
@@ -1408,6 +1515,9 @@ Import Notations.
 
 
 Module VRecord.
+  (* [VRecord] is used to define some composite vprop with introduction and elimination rules.
+     In particular, it can be used to define C-like struct. *)
+
   Inductive p (A : Type) (vs : VpropList.t)
     (f : A -> Tuple.u_t (VpropList.sel vs))
     (g : Tuple.arrow (VpropList.sel vs) (fun _ => A))

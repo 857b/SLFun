@@ -19,6 +19,12 @@ Local Transparent FP.Ret FP.Bind FP.Call FP.Assert.
 Module TF.
   Include DTuple.
 
+  (* The functional representation of a vprog instruction returns
+     the value returned by the instruction |val] and the selectors
+     of the produced vprops [sel], which can depend on [val].
+     We represent this composite return value using a dependent tuple.
+   *)
+
   Definition mk_p0 (p_val : Type) (p_sel : p_val -> list Type) : p :=
     Pcons p_val (fun x => p_tu (p_sel x)).
 
@@ -127,6 +133,14 @@ Section Spec.
 
 End Spec.
 Module Expanded. Section Expanded.
+  (* The [Spec.t] type enforces syntactically some conditions:
+     - The vprops of the postcondition do not depend on [sel1] (only their selectors can).
+     - [sel1_t] is a tuple
+     However, in order to provide a simpler interface for defining specifications,
+     we also define a type [Spec.Expanded.t] that does not enforce those conditions.
+     From a [Spec.Expanded.t] written by the user, we build a proved-equivalent [Spec.t] using tactics
+     ([Tac.build_of_expanded]). The two conditions above are checked in the process.
+   *)
   Local Set Implicit Arguments.
   Variables (GI : option Type) (A : Type) (GO : option (A -> Type)).
 
@@ -156,6 +170,7 @@ Module Expanded. Section Expanded.
   Definition t : Type := ghin_t GI -> t_r0.
 
 
+  (* Semantics of a [Spec.Expanded.t], in separation logic *)
   Definition tr_post [req] (e : Expanded.t_r2 req) (REQ : req) : SLprop.t :=
     SLprop.ex (sel1_t e) (fun sel1 =>
       SLprop.pure (ens (e sel1 REQ)) **
@@ -180,6 +195,7 @@ Module Expanded. Section Expanded.
             (vs gi sel0) REQ).
 
 
+  (* We can always build a [Spec.Expanded.t] from a [Spec.t] *)
   Definition to_expanded2 [req] (s : Spec.t_r2 req) : Expanded.t_r2 req :=
     @mk_r2 req (Tuple.t (Spec.sel1_t s)) (fun sel1 REQ =>
     mk_r3 (Spec.post (s sel1 REQ)) (Spec.ens (s sel1 REQ))).
@@ -192,6 +208,7 @@ Module Expanded. Section Expanded.
   Definition to_expanded (s : Spec.t GI GO) : Expanded.t :=
     fun gi => to_expanded0 (s gi).
 
+  (* For the reverse direction, we need to check some conditions *)
   Inductive of_expanded3 (e : Expanded.t_r3) : Spec.t_r3 (VpropList.of_ctx (post e)) -> Prop
     := of_expanded3I:
     of_expanded3 e (Spec.mk_r3 _ (VpropList.sel_of_ctx (post e)) (ens e)).
@@ -235,6 +252,8 @@ Module Expanded. Section Expanded.
   Definition of_expanded (e : Expanded.t) (s : Spec.t GI GO) : Prop :=
     forall gi : ghin_t GI, of_expanded0 (e gi) (s gi).
 
+  (* We prove that [of_expanded] builds an equivalent specification: *)
+
   Lemma of_expanded2_equiv [req] e s REQ
     (E : @of_expanded2 req e s):
     SLprop.eq (tr_post e REQ) (tr_post (to_expanded2 s) REQ).
@@ -277,7 +296,8 @@ End Expanded. End Expanded.
   Global Arguments mk_r1 [A] [GO].
   Global Arguments Expanded.t : clear implicits.
   Global Arguments Expanded.mk_r1 [A] [GO].
-  
+ 
+  (* The semantics of [Spec.t] is defined from the semantics of [Spec.Expanded.t]. *)
   Definition tr [GI A GO] (s : t GI A GO) : SP.Spec.t A -> Prop :=
       Expanded.tr (Expanded.to_expanded s).
   
@@ -287,6 +307,8 @@ End Expanded. End Expanded.
 End Spec.
 
 Section F_SPEC.
+  (* We need to quantify over the argument to obtain a function specification. *)
+
   Local Set Implicit Arguments.
   Variable sg : f_sig.
 
@@ -376,20 +398,19 @@ Section F_SPEC.
 End F_SPEC.
 Global Arguments FSpec [sg] sgh e.
 
-Definition mk_f_sig1 (arg_t : Type) (ghin_t  : option (arg_t -> Type))
-                    (ret_t : Type) (ghout_t : option (ret_t -> Type))
-  : f_sigh (mk_f_sig arg_t ret_t)
-  := mk_f_sigh (mk_f_sig arg_t ret_t) ghin_t ghout_t.
-
-
 Section GhostLemma.
   Import Spec.
   Local Set Implicit Arguments.
+
+  (* Lemmas use the same specifications as functions.
+     However we do not need the ghost argument and return value since
+     the standard ones are already interpreted as ghost. *)
   Variable (sg : f_sig).
   Definition lem_sigh : f_sigh sg := mk_f_sigh _ None None.
 
   Definition ghost_spec := f_spec lem_sigh.
-  
+
+  (* The semantics of lemmas is an [SLprop.imp]. *)
   Definition ghost_lem (s : ghost_spec) : Prop :=
     forall (x    : f_arg_t    sg), let s  := s x tt in
     forall (sel0 : Spec.sel0_t s), let s0 := s sel0 in
@@ -403,6 +424,17 @@ Section GhostLemma.
 End GhostLemma.
 
 Section VProg.
+
+(* A vprog instruction [i] contains a concrete program [i_impl i].
+   Given an initial context [ctx], we build using the [build_HasSpec] tactic an equivalent
+   functional program.
+   When building [HasSpec i ctx s], we also infer:
+   - The subset of consumed vprops of [ctx]: [sf_csm s].
+     The complementary subset of vprops of [ctx] are preserved, that is, they appear in the
+     postcondition with the same selector.
+   - A list of produced vprops: [sf_prd s].
+     The functional specification [sf_spec s] returns their selectors.
+ *)
 
 (* [i_spec_t] *)
 
@@ -465,12 +497,12 @@ Definition i_spec_p [A : Type] (i : @CP.instr SIG A) (ctx : CTX.t) : Type :=
 
 Local Set Implicit Arguments.
 Record instr (A : Type) := mk_instr {
+  (* underlying concrete program *)
   i_impl : @CP.instr SIG A;
+  (* a predicate to build a functional specification *)
   i_spec : forall ctx : CTX.t, i_spec_p i_impl ctx;
 }.
 Local Unset Implicit Arguments.
-
-Inductive post_hint [A : Type] (post : A -> VpropList.t) : Prop := mk_post_hint.
 
 Inductive HasSpec [A : Type] (i : instr A) (ctx : CTX.t) (s : i_spec_t A ctx) : Prop :=
   HasSpecI (S : sound_spec (i_impl i) ctx s).
@@ -484,6 +516,7 @@ Qed.
 
 (* Transformation *)
 
+(* [TrSpecH s0 s1] means that any instruction that admits [s0] as specification also admits [s1]. *)
 Definition TrSpecH [A : Type] [ctx0 ctx1 : CTX.t] (s0 : i_spec_t A ctx0) (s1 : i_spec_t A ctx1) : Prop :=
   forall (i : @CP.instr SIG A) (S0 : sound_spec i ctx0 s0), sound_spec i ctx1 s1.
 
@@ -740,6 +773,9 @@ Section FunImpl.
   Definition impl_match :=
     forall (gi : ghin_t GI), impl_match_0 (i_impl (OptTy.to_fun' body gi)) (spec gi).
 
+  (* Given a functional representation [f] of an implementation [body] of a function,
+     we can prove the correctness of [body] with respect to some specification [spec]
+     using the WLP of [f]. *)
   Lemma intro_impl_match
     (H : forall (gi : ghin_t GI) (sel0 : Spec.sel0_t (spec gi)) (REQ : Spec.req (spec gi sel0)),
          let ctx : CTX.t := Spec.pre (spec gi sel0) ++ Spec.prs (spec gi sel0) in
@@ -846,6 +882,12 @@ Section FunImpl.
 End FunImpl.
 
 Section FunImplBody.
+  (* [f_ebody] encapsulates an implementation with a signature [f_body] that includes the ghost
+     argument and result (if any) into an implementation with a signature [CP.f_impl] that does
+     not mention them.
+     This is achieved by introducing the ghost argument using [Oracle] and dropping the ghost result.
+   *)
+
   Local Set Implicit Arguments.
   Variables (sg : f_sig) (sgh : f_sigh sg).
 
@@ -921,19 +963,19 @@ Section FunImplBody.
     eapply SP.Cons; eassumption.
   Qed.
 
-  Definition f_extract : Type :=
-    { i : @CP.f_impl SIG sg | forall x : f_arg_t sg, CP.extract (f_ebody x) (i x) }.
+  Definition f_erase : Type :=
+    { i : @CP.f_impl SIG sg | forall x : f_arg_t sg, CP.erase (f_ebody x) (i x) }.
 
-  Variable (i : f_extract).
+  Variable (i : f_erase).
 
-  Lemma f_extract_match_spec:
+  Lemma f_erase_match_spec:
     CP.f_match_spec SPC (proj1_sig i) (cp_f_spec spec).
   Proof.
     intros arg s S m0 PRE.
     apply (proj2_sig i arg), f_ebody_match_spec; assumption.
   Qed.
 
-  Lemma f_extract_oracle_free:
+  Lemma f_erase_oracle_free:
     forall x : f_arg_t sg, CP.oracle_free (proj1_sig i x).
   Proof.
     intro; apply (proj2_sig i x).
@@ -943,6 +985,8 @@ End FunImplBody.
 (* Fragment *)
 
 Section Fragment.
+  (* A fragment is similar to a function but it is inlined and has no corresponding concrete
+     function. *)
   Local Set Implicit Arguments.
   Variables (sg : f_sig) (sgh : f_sigh sg).
 
@@ -1388,7 +1432,7 @@ Global Arguments Frag [_ _ _ _ _] _ _.
 
 
 Module NotationsDef.
-  (* types notation *)
+  (* types notations *)
 
   Record FDecl [sg : f_sig] [sgh : f_sigh sg] (e : f_spec_exp sgh)
     : Type := mk_FDecl {
@@ -1488,15 +1532,15 @@ Section F_ENTRY.
     exact (fd_mk f F CT (proj1_sig H) (proj2_sig H)).
   Defined.
 
-  Definition f_entry_extract [CT A C] [impl : f_body CT _] [r]
+  Definition f_entry_erase [CT A C] [impl : f_body CT _] [r]
     (CR : f_body_match impl (m_spec (fd_FSpec F)))
-    (EX : f_extract impl)
+    (EX : f_erase impl)
     (E  : r = proj1_sig EX):
     CP.entry_impl_correct CT (@f_entry A C) r.
   Proof.
     rewrite E; split.
-    - apply f_extract_match_spec, CR.
-    - apply f_extract_oracle_free.
+    - apply f_erase_match_spec, CR.
+    - apply f_erase_oracle_free.
   Defined.
 End F_ENTRY.
 
@@ -1606,6 +1650,8 @@ Module Tac.
 
   Ltac get_post_hint t(* pt_hint_t *) k(* post_hint -> ltac *) :=
     t k ltac:(fun _ => fail).
+
+  Inductive post_hint [A : Type] (post : A -> VpropList.t) : Prop := mk_post_hint.
 
   Ltac save_post_hint t(* pt_hint_t *) :=
     t ltac:(fun pt =>
@@ -1974,21 +2020,21 @@ Module Tac.
     [ (* F   *) build_HasSpec_exact
     | (* WLP *) cbn ].
 
-  Lemma extract_cont_change [SG A B i k] r0 [r1]
-    (C : CP.extract_cont i k r0)
+  Lemma erase_cont_change [SG A B i k] r0 [r1]
+    (C : CP.erase_cont i k r0)
     (E : r0 = r1):
-    @CP.extract_cont SG A B i k r1.
+    @CP.erase_cont SG A B i k r1.
   Proof.
     subst; exact C.
   Qed.
 
-  Ltac build_extract_cont_match build_f x :=
-    lazymatch goal with |- @CP.extract_cont ?SG ?A ?B (@i_impl ?CT _ ?i) ?k ?r =>
+  Ltac build_erase_cont_match build_f x :=
+    lazymatch goal with |- @CP.erase_cont ?SG ?A ?B (@i_impl ?CT _ ?i) ?k ?r =>
     (* A B k *)
     let i_v := fresh "i" in
     let F_d := fresh "F'" in
     pose (F_d := fun i_v : instr CT A =>
-      @CP.extract_cont SG A B (@i_impl CT A i_v) k);
+      @CP.erase_cont SG A B (@i_impl CT A i_v) k);
     let case_x := fresh "case_x" in
     set (case_x := x) in F_d;
     let F' := eval cbv delta [F_d] in F_d in clear F_d;
@@ -1996,41 +2042,41 @@ Module Tac.
     Tac.generalize_match_args x case_x i ltac:(fun i' rev_args =>
 
     change (F' i' r); cbn beta;
-    simple refine (Tac.extract_cont_change _ _ _);
+    simple refine (Tac.erase_cont_change _ _ _);
     [ (* r0 *) rev_args tt; case case_x as []; intros; shelve
     | (* C  *) rev_args tt; case case_x as []; intros;
       build_f tt
     | (* E  *) CP.simplify_match case_x ]
     )end.
 
-  Ltac build_extract_cont :=
+  Ltac build_erase_cont :=
     cbn;
-    lazymatch goal with | |- @CP.extract_cont ?SG ?A ?B ?i ?k ?r =>
+    lazymatch goal with | |- @CP.erase_cont ?SG ?A ?B ?i ?k ?r =>
     intro_evar_args r ltac:(fun r' =>
-    change (@CP.extract_cont SG A B i k r');
+    change (@CP.erase_cont SG A B i k r');
 
     lazymatch i with
     | i_impl ?v =>
         head_of v ltac:(fun v_head =>
         lazymatch v_head with
         | (match ?x with _ => _ end) =>
-            build_extract_cont_match ltac:(fun _ => build_extract_cont) x
+            build_erase_cont_match ltac:(fun _ => build_erase_cont) x
         | _ =>
             let v' := eval hnf in v in
-            progress change (@CP.extract_cont SG A B (i_impl v') k r');
-            build_extract_cont
+            progress change (@CP.erase_cont SG A B (i_impl v') k r');
+            build_erase_cont
         end)
     | _ =>
-        CP.build_extract_cont_k build_extract_cont
+        CP.build_erase_cont_k build_erase_cont
     end)
-    | |- ?g => fail "build_extract_cont" g
+    | |- ?g => fail "build_erase_cont" g
     end.
 
-  (* solves a goal [f_extract bd] *)
-  Ltac extract_impl :=
+  (* solves a goal [f_erase bd] *)
+  Ltac erase_impl :=
     eexists; intro;
-    refine (CP.extract_by_cont _ _ _);
-    [ build_extract_cont
+    refine (CP.erase_by_cont _ _ _);
+    [ build_erase_cont
     | Tac.cbn_refl
     | try solve [ CP.build_oracle_free ] ].
 
@@ -2045,10 +2091,10 @@ Module Tac.
   (* solves a goal [CP.entry_impl_correct CT (f_entry F PF) ?impl] *)
   Ltac build_f_entry_impl_correct :=
     match goal with |- CP.entry_impl_correct _ (f_entry _ ?C) _ =>
-    simple refine (f_entry_extract _ _ _ _);
+    simple refine (f_entry_erase _ _ _ _);
     [ shelve
     | unshelve eapply C; sassumption
-    | Tac.extract_impl
+    | Tac.erase_impl
     | cbn; reflexivity ]
     end.
 
@@ -2069,7 +2115,7 @@ Module Tactics.
   #[export] Hint Extern 1 (NotationsDef.FDecl _) => Tac.build_FDecl : DeriveDB.
   #[export] Hint Extern 1 (NotationsDef.LDecl _) => Tac.build_LDecl : DeriveDB.
 
-  #[export] Hint Extern 1 (f_extract _) => Tac.extract_impl : DeriveDB.
+  #[export] Hint Extern 1 (f_erase _) => Tac.erase_impl : DeriveDB.
 
   (* Changes a goal [f_body_match impl spec] into a goal [pre -> FP.wlpa f post]
      where [f : FP.instr _] is a functionnal program.

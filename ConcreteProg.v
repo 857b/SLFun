@@ -74,6 +74,7 @@ Inductive instr : Type -> Type :=
   | Call [sg : f_sig] (f : fid) (SIG : SG f = Some sg) (x : f_arg_t sg) : instr (f_ret_t sg)
   | Loop [A B] (ini : A + B) (f : A -> instr (A + B)) : instr B
   | Oracle (A : Type) : instr A
+    (* [Oracle] is used to introduce ghost variables. *)
   | Assert (P : mem -> Prop) : instr unit
   (* Memory *)
   | Read (p : ptr) : instr memdata
@@ -133,6 +134,10 @@ End Semantics.
 
 (* Specification and proof *)
 
+(* [Oracle] is blocking for the small-step semantics but interpreted as an existential
+   quantification ("best choice") in the WLP. The WLP is thus sound only on programs that
+   do not contain oracles. The erasure pass removes the oracles from a program while preserving
+   its WLP. *)
 Fixpoint oracle_free [A] (i : instr A) : Prop :=
   match i with
   | Oracle _ => False
@@ -324,7 +329,7 @@ Section WLP_Correct.
   Qed.
 End WLP_Correct.
 
-Section Extraction.
+Section Erasure.
   Inductive k_opt (A : Type) : forall B : Type, Type :=
     | KNone : k_opt A A
     | KDrop : k_opt A unit
@@ -368,26 +373,26 @@ Section Extraction.
     Ret (k_f k x).
 
 
-  Inductive extract_cont [A B] (i : instr A) (k : k_opt A B) (r : instr B) : Prop :=
-    extract_contI (E : forall SPEC, Spec.wp_le (wlp SPEC r) (wlp SPEC (k_apply i k))).
+  Inductive erase_cont [A B] (i : instr A) (k : k_opt A B) (r : instr B) : Prop :=
+    erase_contI (E : forall SPEC, Spec.wp_le (wlp SPEC r) (wlp SPEC (k_apply i k))).
 
-  Record extract [A] (i0 i1 : instr A) := {
-    extract_wlp : forall SPEC, Spec.wp_le (wlp SPEC i1) (wlp SPEC i0);
-    extract_oracle_free : oracle_free i1;
+  Record erase [A] (i0 i1 : instr A) := {
+    erase_wlp : forall SPEC, Spec.wp_le (wlp SPEC i1) (wlp SPEC i0);
+    erase_oracle_free : oracle_free i1;
   }.
 
-  Lemma extract_by_cont [A i0 i1 i2]
-    (E : @extract_cont A A i0 KNone i1)
+  Lemma erase_by_cont [A i0 i1 i2]
+    (E : @erase_cont A A i0 KNone i1)
     (R : i2 = i1)
     (F : oracle_free i2):
-    extract i0 i2.
+    erase i0 i2.
   Proof.
     subst i2.
     split. apply E. apply F.
   Qed.
 
   Lemma ERefl [A B] [i : instr A] (k : k_opt A B):
-    extract_cont i k (k_apply_c i k).
+    erase_cont i k (k_apply_c i k).
   Proof.
     constructor.
     setoid_rewrite k_apply_c_eq.
@@ -400,7 +405,7 @@ Section Extraction.
 
   Lemma EDrop [A i]
     (D : @edroppable A i):
-    @extract_cont A unit i KDrop (Ret tt).
+    @erase_cont A unit i KDrop (Ret tt).
   Proof.
     constructor; intros SPEC post m0; destruct D; cbn; auto.
     intros [? ?]; auto.
@@ -408,7 +413,7 @@ Section Extraction.
 
   Lemma EDropUnit [B i k]
     (D : @edroppable unit i):
-    @extract_cont unit B i k (k_apply_Ret tt k).
+    @erase_cont unit B i k (k_apply_Ret tt k).
   Proof.
     constructor; intros SPEC post m0; destruct D; cbn.
     - case x; auto.
@@ -416,14 +421,14 @@ Section Extraction.
   Qed.
 
   Lemma EDropAssert [B P] k:
-    @extract_cont unit B (Assert P) k (k_apply_Ret tt k).
+    @erase_cont unit B (Assert P) k (k_apply_Ret tt k).
   Proof.
     constructor; intros SPEC post m0; cbn.
     destruct k; cbn; tauto.
   Qed.
 
   Lemma ECompRet [A B] x f:
-    @extract_cont A B (Ret x) (KFun f) (Ret (f x)).
+    @erase_cont A B (Ret x) (KFun f) (Ret (f x)).
   Proof.
     constructor; do 3 intro; cbn. auto.
   Qed.
@@ -446,10 +451,10 @@ Section Extraction.
 
 
   Lemma EBind [A0 A1 B C] [f0 f1 g0 g1 g2] [kg kf]
-    (Eg : forall x : A0, @extract_cont B C (g0 x) kg (g1 x))
+    (Eg : forall x : A0, @erase_cont B C (g0 x) kg (g1 x))
     (Eb : @ebind A0 C g1 A1 kf g2)
-    (Ef : @extract_cont A0 A1 f0 kf f1):
-    @extract_cont B C (Bind f0 g0) kg (Bind f1 g2).
+    (Ef : @erase_cont A0 A1 f0 kf f1):
+    @erase_cont B C (Bind f0 g0) kg (Bind f1 g2).
   Proof.
     constructor.
     intros SPEC post m0; cbn.
@@ -483,8 +488,8 @@ Section Extraction.
 
   Lemma ELoop [A A' B C f0 f1 f2 x kl ke]
     (El : @ebind A _ f1 A' kl f2)
-    (Ef : forall x : A, @extract_cont (A + B) (A' + C) (f0 x) (k_sum kl ke) (f1 x)):
-    @extract_cont B C (@Loop A B x f0) ke (@Loop A' C (sum_map (k_f kl) (k_f ke) x) f2).
+    (Ef : forall x : A, @erase_cont (A + B) (A' + C) (f0 x) (k_sum kl ke) (f1 x)):
+    @erase_cont B C (@Loop A B x f0) ke (@Loop A' C (sum_map (k_f kl) (k_f ke) x) f2).
   Proof.
     constructor; intros SPEC post m0; cbn.
     intros (Inv & INI & PRS & EXIT).
@@ -500,7 +505,7 @@ Section Extraction.
       setoid_rewrite k_sum_f; eauto.
     - apply EXIT, INV.
   Qed.
-End Extraction.
+End Erasure.
 
 End Concrete.
 Global Arguments impl_context : clear implicits.
@@ -665,15 +670,15 @@ Ltac simplify_match x :=
     rev_args tt; case x as []; Tac.cbn_refl
   )end.
 
-(* solves a goal [extract_cont i k ?r].
+(* solves a goal [erase_cont i k ?r].
    The head of [i] must be a constructor of [instr].
-   [ktac] is a tactic that solves [extract_cont i k ?r] for a more general form of [i],
-   defined latter using [build_extract_cont_k] *)
-Ltac build_extract_cont_k ktac :=
+   [ktac] is a tactic that solves [erase_cont i k ?r] for a more general form of [i],
+   defined latter using [build_erase_cont_k] *)
+Ltac build_erase_cont_k ktac :=
   lazymatch goal with
-  |- @extract_cont ?SG ?A ?B ?i0 ?k ?i1 =>
+  |- @erase_cont ?SG ?A ?B ?i0 ?k ?i1 =>
       let i0' := eval hnf in i0 in
-      change (@extract_cont SG A B i0' k i1);
+      change (@erase_cont SG A B i0' k i1);
       lazymatch i0' with
       | Assert _ =>
           exact (EDropAssert _)

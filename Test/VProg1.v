@@ -32,8 +32,8 @@ Definition vprog_a0a : m_body spec_a0a := fun ps =>
   Ret tt.
 Goal f_body_match vprog_a0a (m_spec spec_a0a).
 Proof. solve_by_wlp. Qed.
-Goal f_extract vprog_a0a.
-Proof. Tac.extract_impl. Defined.
+Goal f_erase vprog_a0a.
+Proof. Tac.erase_impl. Defined.
 
 
 Definition spec_a0b : FSpec _
@@ -46,8 +46,8 @@ Definition vprog_a0b : m_body spec_a0b := fun ps =>
   Read p0.
 Goal f_body_match vprog_a0b (m_spec spec_a0b).
 Proof. solve_by_wlp. Qed.
-Goal f_extract vprog_a0b.
-Proof. Tac.extract_impl. Defined.
+Goal f_erase vprog_a0b.
+Proof. Tac.erase_impl. Defined.
 
 
 Definition spec_a0c : FSpec _
@@ -64,8 +64,8 @@ Proof.
   build_fun_spec.
   FunProg.solve_by_wlp.
 Qed.
-Goal f_extract vprog_a0c.
-Proof. Tac.extract_impl. Defined.
+Goal f_erase vprog_a0c.
+Proof. Tac.erase_impl. Defined.
 
 
 Definition spec_a0d : FSpec _
@@ -82,8 +82,8 @@ Proof.
   build_fun_spec.
   FunProg.solve_by_wlp.
 Qed.
-Goal f_extract vprog_a0d.
-Proof. Tac.extract_impl. Defined.
+Goal f_erase vprog_a0d.
+Proof. Tac.erase_impl. Defined.
 
 
 Definition spec_a0e : FSpec _
@@ -100,8 +100,8 @@ Proof.
   build_fun_spec.
   FunProg.solve_by_wlp.
 Qed.
-Goal f_extract vprog_a0e.
-Proof. Tac.extract_impl. Defined.
+Goal f_erase vprog_a0e.
+Proof. Tac.erase_impl. Defined.
 
 
 Definition spec_a1a : FSpec _
@@ -116,8 +116,8 @@ Definition vprog_a1a : m_body spec_a1a := fun '(b, p0, p1, p2) =>
   else Write p2 1.
 Goal f_body_match vprog_a1a (m_spec spec_a1a).
 Proof. solve_by_wlp; congruence. Qed.
-Goal f_extract vprog_a1a.
-Proof. Tac.extract_impl. Defined.
+Goal f_erase vprog_a1a.
+Proof. Tac.erase_impl. Defined.
 
 
 Inductive bool3 : Set := B0 | B1 | B2.
@@ -135,8 +135,8 @@ Definition vprog_a1b : m_body spec_a1b := fun '(b, p) =>
   end.
 Goal f_body_match vprog_a1b (m_spec spec_a1b).
 Proof. solve_by_wlp; congruence. Qed.
-Goal f_extract vprog_a1b.
-Proof. Tac.extract_impl. Defined.
+Goal f_erase vprog_a1b.
+Proof. Tac.erase_impl. Defined.
 
 
 Definition spec_a1c : FSpec _
@@ -152,8 +152,8 @@ Definition vprog_a1c : m_body spec_a1c := fun '(o, p) =>
   end.
 Goal f_body_match vprog_a1c (m_spec spec_a1c).
 Proof. solve_by_wlp. Qed.
-Goal f_extract vprog_a1c.
-Proof. Tac.extract_impl. Defined.
+Goal f_erase vprog_a1c.
+Proof. Tac.erase_impl. Defined.
 
 
 Definition spec_a1d : FSpec _
@@ -168,8 +168,8 @@ Definition vprog_a1d : m_body spec_a1d := fun b =>
   else gLem remove_vdummy bool.
 Goal f_body_match vprog_a1d (m_spec spec_a1d).
 Proof. solve_by_wlp. Qed.
-Goal f_extract vprog_a1d.
-Proof. Tac.extract_impl. Defined.
+Goal f_erase vprog_a1d.
+Proof. Tac.erase_impl. Defined.
 
 
 Definition spec_a1e : FSpec _
@@ -188,8 +188,8 @@ Proof.
   build_fun_spec.
   FunProg.solve_by_wlp.
 Qed.
-Goal f_extract vprog_a1e.
-Proof. Tac.extract_impl. Defined.
+Goal f_erase vprog_a1e.
+Proof. Tac.erase_impl. Defined.
 
 
 Definition spec_a2a : FSpec _
@@ -205,8 +205,8 @@ Definition vprog_a2a : m_body spec_a2a := fun '(p0, p1) =>
   Write p1 (S v1).
 Goal f_body_match vprog_a2a (m_spec spec_a2a).
 Proof. solve_by_wlp. Qed.
-Goal f_extract vprog_a2a.
-Proof. Tac.extract_impl. Defined.
+Goal f_erase vprog_a2a.
+Proof. Tac.erase_impl. Defined.
 
 Definition vprog_a2b : m_body spec_a2a := fun '(p0, p1) =>
   'v1 v0 <- (
@@ -217,8 +217,8 @@ Definition vprog_a2b : m_body spec_a2a := fun '(p0, p1) =>
   Write p1 (S v1).
 Goal f_body_match vprog_a2b (m_spec spec_a2a).
 Proof. solve_by_wlp. Qed.
-Goal f_extract vprog_a2b.
-Proof. Tac.extract_impl. Defined.
+Goal f_erase vprog_a2b.
+Proof. Tac.erase_impl. Defined.
 
 
 Definition spec_a3a : FSpec _
@@ -231,8 +231,8 @@ Definition vprog_a3a : m_body spec_a3a := fun _ '(n0, n1) =>
   RetG tt (n0 + n1).
 Goal f_body_match vprog_a3a (m_spec spec_a3a).
 Proof. solve_by_wlp. Qed.
-Goal f_extract vprog_a3a.
-Proof. Tac.extract_impl. Defined.
+Goal f_erase vprog_a3a.
+Proof. Tac.erase_impl. Defined.
 
 
 Definition spec_a3b : FSpec _
@@ -245,8 +245,8 @@ Definition vprog_a3b : m_body spec_a3b := fun '(n, _) _ =>
   Ret n.
 Goal f_body_match vprog_a3b (m_spec spec_a3b).
 Proof. solve_by_wlp. Qed.
-Goal f_extract vprog_a3b.
-Proof. Tac.extract_impl. Defined.
+Goal f_erase vprog_a3b.
+Proof. Tac.erase_impl. Defined.
 
 
 Definition spec_a4a : FSpec _
@@ -262,8 +262,8 @@ Proof.
   build_fun_spec.
   FunProg.solve_by_wlp.
 Qed.
-Goal f_extract vprog_a3b.
-Proof. Tac.extract_impl. Defined.
+Goal f_erase vprog_a3b.
+Proof. Tac.erase_impl. Defined.
 
 
 Definition spec_a4b : FSpec _
