@@ -140,7 +140,7 @@ Section Rewrite.
 
   Context [CT : CP.context] [A : Type] (x y : A).
 
-  Inductive Rewrite_Spec (ctx : CTX.t) : i_spec_t unit ctx -> Prop
+  Inductive Rewrite_Spec (ctx : CTX.t): forall (s : i_sig_t unit ctx), i_spec_t s -> Prop
     := Rewrite_SpecI
     [csm : Sub.t ctx] [c1 : forall E : x = y, CTX.t]
     (R : forall E : x = y, rewrite_ctx ctx csm (c1 E))
@@ -149,13 +149,14 @@ Section Rewrite.
     Rewrite_Spec ctx {|
       sf_csm  := csm;
       sf_prd  := fun _ => prd;
-      sf_spec := FunProg.Bind (@FunProg.Call DTuple.unit {|
-                    FunProg.Spec.pre_p  := Some (x = y);
-                    FunProg.Spec.post_p := None;
-                 |}) (fun E => FunProg.Ret (
-                    TF.mk _ tt (eq_rect_r VpropList.sel_t (VpropList.sel_of_ctx (c1 E)) (PRD E))
-                 ))
-    |}.
+    |} (
+    FunProg.Bind (@FunProg.Call DTuple.unit {|
+      FunProg.Spec.pre_p  := Some (x = y);
+      FunProg.Spec.post_p := None;
+    |}) (fun E =>
+    FunProg.Ret (
+      TF.mk _ tt (eq_rect_r VpropList.sel_t (VpropList.sel_of_ctx (c1 E)) (PRD E))
+    ))).
 
   Program Definition gRewrite : instr CT unit := {|
     i_impl := CP.Ret tt;
@@ -215,7 +216,7 @@ Ltac build_rewrite_ctx x E :=
 Ltac build_Rewrite :=
   Tac.init_HasSpec_tac ltac:(fun _ =>
   lazymatch goal with
-  | |- Rewrite_Spec ?x _ _ _ =>
+  | |- Rewrite_Spec ?x _ _ _ _ =>
     simple refine (Rewrite_SpecI _ _ _ _ _);
     [ shelve | (* c1 *) intro; shelve
     | (* R *)
@@ -291,14 +292,15 @@ Qed.
 Section GGet.
   Context [CT : CP.context] [A : Type] (v : Vprop.p A).
 
-  Inductive GGet_Spec (ctx : CTX.t) (F : i_spec_t A ctx) : Prop
+  Inductive GGet_Spec (ctx : CTX.t) (s : i_sig_t A ctx) : i_spec_t s -> Prop
     := GGet_SpecI
     (a : A)
+    [F]
     (IJ : InjPre_Frame_Spec [CTX.mka (v, a)] ctx {|
       sf_csm  := Vector.cons _ false _ (Vector.nil _) <: Sub.t [_];
       sf_prd  := fun _ => nil;
-      sf_spec := FunProg.Ret (TF.mk0 _ a Tuple.tt)
-    |} F).
+    |} s F):
+    GGet_Spec ctx s (F (FunProg.Ret (TF.mk0 _ a Tuple.tt))).
 
   Program Definition gGet : instr CT A := {|
     i_impl := CP.Oracle A;
@@ -318,20 +320,22 @@ End GGet.
 Local Ltac build_GGet :=
   Tac.init_HasSpec_tac ltac:(fun _ =>
   simple refine (GGet_SpecI _ _ _ _ _);
-  [ shelve | Tac.build_InjPre_Frame ]).
+  [ shelve | shelve | Tac.build_InjPre_Frame ]).
 
 Section Assert.
   Context [CT : CP.context] [A : Type] (P : A -> CTX.t * Prop).
 
-  Inductive Assert_Spec (ctx : CTX.t) (F : i_spec_t unit ctx) : Prop
+  Inductive Assert_Spec (ctx : CTX.t) (s : i_sig_t unit ctx) : i_spec_t s -> Prop
     := Assert_SpecI
     (p : A)
+    [F]
     (IJ : InjPre_Frame_Spec (fst (P p)) ctx {|
       sf_csm  := Sub.const (fst (P p)) false;
       sf_prd  := fun _ => nil;
-      sf_spec := FunProg.Bind (FunProg.Assert (snd (P p)))
-                 (TF.of_fun (fun _ => FunProg.Ret (TF.mk0 _ tt Tuple.tt)))
-    |} F).
+    |} s F):
+    Assert_Spec ctx s
+      (F (FunProg.Bind (FunProg.Assert (snd (P p))) (TF.of_fun (fun _ =>
+          FunProg.Ret (TF.mk0 _ tt Tuple.tt))))).
   
   Program Definition Assert : instr CT unit := {|
     i_impl := SP.sl_assert (SLprop.ex A (fun p =>
@@ -361,18 +365,18 @@ End Assert.
 Local Ltac build_Assert :=
   Tac.init_HasSpec_tac ltac:(fun _ =>
   simple refine (Assert_SpecI _ _ _ _ _);
-  [ shelve
+  [ shelve | shelve
   | (* IJ *)
     cbn;
     (* [p : A] can be a tuple let-matched by [P] *)
-    repeat lazymatch goal with |- InjPre_Frame_Spec (fst ?x) _ _ _ =>
+    repeat lazymatch goal with |- InjPre_Frame_Spec (fst ?x) _ _ _ _ =>
       Tac.build_matched_shape x; cbn
     end;
     Tac.build_InjPre_Frame ]).
 
 Module Tactics.
-  #[export] Hint Extern 1 (Rewrite_Spec _ _ _ _) => build_Rewrite : HasSpecDB.
-  #[export] Hint Extern 1 (GGet_Spec      _ _ _) => build_GGet    : HasSpecDB.
-  #[export] Hint Extern 1 (Assert_Spec    _ _ _) => build_Assert  : HasSpecDB.
+  #[export] Hint Extern 1 (Rewrite_Spec _ _ _ _ _) => build_Rewrite : HasSpecDB.
+  #[export] Hint Extern 1 (GGet_Spec      _ _ _ _) => build_GGet   : HasSpecDB.
+  #[export] Hint Extern 1 (Assert_Spec    _ _ _ _) => build_Assert : HasSpecDB.
 End Tactics.
 Export Tactics.

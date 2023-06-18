@@ -355,7 +355,7 @@ Definition Length_impl_frag : FImpl Length := fun p0 =>
   'r <- llist_case p0;
   match r with
   | None =>
-      gLem elim_empty_group tt;;
+      (* gLem elim_empty_group tt;; *)
       gLem replace1 (llist NULL, llist p0);;
       Ret 0
   | Some p1 =>

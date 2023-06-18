@@ -163,9 +163,32 @@ Module Tac.
     dummy_goal (t = _);
     [ build tt | reflexivity | ].
 
+  Ltac build_evar e build :=
+    let tmp := fresh "_tmp" in
+    pose (tmp := e);
+    unshelve instantiate (1 := _) in (value of tmp);
+    [ build tt
+    | clear tmp ].
+
   Ltac pose_build x ty build :=
     evar (x : ty);
     unshelve instantiate (1 := _) in (value of x); [build tt|].
+
+  Ltac term_build ty build k(* term -> ltac *) :=
+    let tmp := fresh "_tmp" in
+    unshelve epose (tmp := _ : ty);
+     [ build tt
+     | let t := eval cbv delta [tmp] in tmp in
+       clear tmp;
+       k t ].
+
+  Ltac mk_evar ty k(* term -> ltac *) :=
+    let tmp := fresh "_tmp" in
+    evar (tmp : ty);
+    let e   := eval cbv delta [tmp] in tmp in
+    clear tmp;
+    k e.
+
 
   (* [t] must be a term [?evar arg0 ... arg9].
      Instantiate [?evar] by introducing the arguments, continue with a reduced
@@ -177,14 +200,18 @@ Module Tac.
       | _    => k ltac:(fun _ => idtac)
       end
     in
-    let x := fresh "_tmp" in pose (x := t);
-    count_app t ltac:(fun intro_args =>
-    unshelve instantiate (1 := _) in (value of x);
-      [cbn; intro_args tt; shelve|]
-    );
-    let t' := eval cbv beta delta [x] in x in
-    clear x;
-    k t'.
+    lazymatch t with
+    | _ _ =>
+        let x := fresh "_tmp" in pose (x := t);
+        count_app t ltac:(fun intro_args =>
+        unshelve instantiate (1 := _) in (value of x);
+          [cbn; intro_args tt; shelve|]
+        );
+        let t' := eval cbv beta delta [x] in x in
+        clear x;
+        k t'
+    | _ => k t
+    end.
 
 
   (* fails iff [f] succeeds (or fail with level > 0) *)
@@ -283,12 +310,12 @@ Module Tac.
   (* given [u := x0 :: ... :: x9 :: ?tail], instantiate [?tail] to [x :: ?tail'] *)
   Ltac elist_add u x :=
     elist_tail u ltac:(fun tail =>
-    build_term tail ltac:(fun _ => refine (cons x _); shelve)).
+    build_evar tail ltac:(fun _ => refine (cons x _); shelve)).
 
   (* given [u := x0 :: ... :: x9 :: ?tail], instantiate [?tail] to [nil] *)
   Ltac elist_end u :=
     elist_tail u ltac:(fun tail =>
-    build_term tail ltac:(fun _ => refine nil)).
+    build_evar tail ltac:(fun _ => refine nil)).
 
   Ltac iter f(* (unit -> ltac) -> ltac *) :=
     f ltac:(fun _ => iter f).

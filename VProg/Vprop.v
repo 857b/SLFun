@@ -315,7 +315,7 @@ Module CTX.
 
        Consider the inference of an [HasSpec] judgment for a [Read p] in a context containing a [cell2 p]:
          [cell2 p ~> v] |- Read p : ?csm -> ?prd
-       using `ctx |- i : sf_csm s -> sf_prd s` to denote [HasSpec i ctx s], ignoring [sf_spec s].
+       using `ctx |- i : sf_csm s -> sf_prd s` to denote [HasSpec i ctx s f] for some [f].
        [Read p] has a precondition [vptr p ~> ?r], so we solve a goal:
          [Trf.p [cell2 p ~> v] ([vptr p ~> ?r] ++ ?frame) ?rev_f]
        using an elimination rule for [cell2], we unify [?r := fst v], [?frame := [vptr (S p) ~> snd v]]
@@ -1168,16 +1168,16 @@ Module CTX.
                  [mka vp0 ?sel0 ; ... ; mka vp9 ?sel5 ]
                  ?rev_f
        *)
-      Ltac build_p_end k :=
+      Ltac build_p_end oc0 oc1 k :=
         lazymatch goal with
         | H : B ?a _ (StBFirst _) _  |- _ =>
-            k ltac:(fun _ => ffail "Trf.build: remaining B" a)
+            k ltac:(fun _ => ffail "Trf.build: remaining B" a oc0 oc1)
         | H : B ?a _ (StBTrf None) _ |- _ =>
-            k ltac:(fun _ => ffail "Trf.build: remaining B" a)
+            k ltac:(fun _ => ffail "Trf.build: remaining B" a oc0 oc1)
         | H : A ?a (StAFirst _) _    |- _ =>
-            k ltac:(fun _ => ffail "Trf.build: remaining A" a)
+            k ltac:(fun _ => ffail "Trf.build: remaining A" a oc0 oc1)
         | H : A ?a (StATrf _ None) _ |- _ =>
-            k ltac:(fun _ => ffail "Trf.build: remaining A" a)
+            k ltac:(fun _ => ffail "Trf.build: remaining A" a oc0 oc1)
         | _ =>
             iter ltac:(fun k =>
             (* commit transformations that produce no children *)
@@ -1195,10 +1195,12 @@ Module CTX.
         end.
 
       Ltac build_p :=
+        lazymatch goal with |- Trf.p ?oc0 ?oc1 _ =>
         simple refine (build_trf_lem _ _ _ _ _ _ _);
-        [ (* W *) build_until build_p_end
+        [ (* W *) build_until ltac:(build_p_end oc0 oc1)
         | shelve | shelve | (* EW *) Tac.cbn_refl 
-        | (* E *) Tac.cbn_refl ].
+        | (* E *) Tac.cbn_refl ]
+        end.
 
       (* solves a goal:
            Trf.t [mka vp0' sel0'; ... ; mka vp9' sel9']
@@ -1208,16 +1210,17 @@ Module CTX.
         eexists; build_p.
 
       (* solves a goal:
-           itrf [mka vp0' sel0'; ... ; mka vp9' sel9']
+           Trf.inj_p
+                [mka vp0' sel0'; ... ; mka vp9' sel9']
                 [mka vp0 ?sel0 ; ... ; mka vp9 ?sel5 ]
                 ?add ?rev_f
        *)
-      Ltac build_inj_p_end k :=
+      Ltac build_inj_p_end oc0 oc1 k :=
         lazymatch goal with
         | H : B ?a _ (StBFirst _) _ |- _ =>
-            k ltac:(fun _ => ffail "Trf.build_inj: remaining B" a)
+            k ltac:(fun _ => ffail "Trf.build_inj: remaining B" a oc0 oc1)
         | H : B ?a _ (StBTrf None) _ |- _ =>
-            k ltac:(fun _ => ffail "Trf.build_inj: remaining B" a)
+            k ltac:(fun _ => ffail "Trf.build_inj: remaining B" a oc0 oc1)
         | _ =>
             iter ltac:(fun k =>
             lazymatch goal with
@@ -1233,10 +1236,12 @@ Module CTX.
         end.
 
       Ltac build_inj_p :=
+        lazymatch goal with |- Trf.inj_p ?oc0 ?oc1 _ _ =>
         simple refine (build_inj_lem _ _ _ _ _ _ _ _);
-        [ (* W *) build_until build_inj_p_end
+        [ (* W *) build_until ltac:(build_inj_p_end oc0 oc1)
         | shelve | shelve | (* EW *) Tac.cbn_refl
-        | (* E *) Tac.cbn_refl ].
+        | (* E *) Tac.cbn_refl ]
+        end.
 
 
       Section Test.

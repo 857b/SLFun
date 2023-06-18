@@ -8,14 +8,15 @@ Import SL.Tactics.
 Section Read.
   Context [CT : CP.context] (p : ptr).
 
-  Inductive Read_Spec (ctx : CTX.t) (F : i_spec_t memdata ctx) : Prop
+  Inductive Read_Spec (ctx : CTX.t) (s : i_sig_t memdata ctx) : i_spec_t s -> Prop
     := Read_SpecI
     (d : memdata)
+    [F]
     (IJ : InjPre_Frame_Spec [CTX.mka (SLprop.cell p, d)] ctx {|
       sf_csm  := Vector.cons _ false _ (Vector.nil _) <: Sub.t [_];
       sf_prd  := fun _ => nil;
-      sf_spec := FP.Ret (TF.mk0 _ d Tuple.tt);
-    |} F).
+    |} s F):
+    Read_Spec ctx s (F (FunProg.Ret (TF.mk0 _ d Tuple.tt))).
 
   Program Definition Read : instr CT memdata := {|
     i_impl := CP.Read p;
@@ -39,19 +40,20 @@ End Read.
 Local Ltac build_Read :=
   Tac.init_HasSpec_tac ltac:(fun _ =>
   simple refine (Read_SpecI _ _ _ _ _);
-  [ shelve | (*IJ *) Tac.build_InjPre_Frame ]).
+  [ shelve | shelve | (*IJ *) Tac.build_InjPre_Frame ]).
 
 Section Write.
   Context [CT : CP.context] (p : ptr) (d : memdata).
 
-  Inductive Write_Spec (ctx : CTX.t) (F : i_spec_t unit ctx) : Prop
+  Inductive Write_Spec (ctx : CTX.t) (s : i_sig_t unit ctx) : i_spec_t s -> Prop
     := Write_SpecI
     (d0 : memdata)
+    [F]
     (IJ : InjPre_Frame_Spec [CTX.mka (SLprop.cell p, d0)] ctx {|
       sf_csm  := Vector.cons _ true _ (Vector.nil _) <: Sub.t [_];
       sf_prd  := fun _ => [Vprop.mk (SLprop.cell p)];
-      sf_spec := FP.Ret (TF.mk0 (fun _ => [memdata]) tt (d, tt));
-    |} F).
+    |} s F):
+    Write_Spec ctx s (F (FunProg.Ret (TF.mk0 (fun _ => [memdata]) tt (d, tt)))).
 
   Program Definition Write : instr CT unit := {|
     i_impl := CP.Write p d;
@@ -75,7 +77,7 @@ End Write .
 Local Ltac build_Write :=
   Tac.init_HasSpec_tac ltac:(fun _ =>
   simple refine (Write_SpecI _ _ _ _ _ _);
-  [ shelve | (* IJ *) Tac.build_InjPre_Frame ]).
+  [ shelve | shelve | (* IJ *) Tac.build_InjPre_Frame ]).
 
 Section Loop.
   Context [CT : CP.context] [A B : Type]
@@ -157,19 +159,21 @@ Section Loop.
     Defined.
 
     Let s_f_t :=
-      TF.arrow RA (fun r1 => i_spec_t (A + B) (ctx1 r1)).
+      TF.arrow RA (fun r1 => i_sig_t (A + B) (ctx1 r1)).
+    Let f_f_t (s_f : s_f_t) :=
+      TF.arrow RA (fun r1 => i_spec_t (TF.to_fun s_f r1)).
     Let sel2_t (s_f : s_f_t) :=
       TF.arrow RA (fun r1 => TF.arrow (sf_rvar (TF.to_fun s_f r1)) (fun r2 =>
         VpropList.sel_t (vs2 (TF.v_val r2)))).
 
     Let sel_0 :=
       VpropList.app_sel sel0 (VpropList.sel_of_ctx (CTX.sub add csm1)).
-    Let ret_2 (s_f : s_f_t) (sel2 : sel2_t s_f) (r1 : TF.t RA) (r2 : sf_rvar_t (TF.to_fun s_f r1)):
+    Let ret_2 (f_s : s_f_t) (sel2 : sel2_t f_s) (r1 : TF.t RA) (r2 : sf_rvar_t (TF.to_fun f_s r1)):
       TF.mk_t (A + B) vs2 :=
       TF.mk _ (TF.v_val r2) (TF.to_fun (TF.to_fun sel2 r1) r2).
       
 
-    Definition loop_sf_spec1 (s_f : s_f_t) (sel2 : sel2_t s_f)
+    Definition loop_sf_spec1 (s_f : s_f_t) (f_f : f_f_t s_f) (sel2 : sel2_t s_f)
         (Inv : TF.arrow (TF.mk_p (A+B) vs2) (fun _ => Prop)):
       FP.instr (TF.mk_p B (fun x : B => vs2 (inr x))) :=
       @FunProg.Loop A B (fun x => TF.p_tu (VpropList.sel (vs2 x)))
@@ -177,19 +181,19 @@ Section Loop.
         ini (TF.of_tu sel_0)
         (fun x : A => DTuple.of_fun (fun r1a =>
          let r1 : TF.t RA := r1_of_sub x r1a in
-         FunProg.Bind (sf_spec (TF.to_fun s_f r1)) (TF.of_fun (fun r2 =>
+         FunProg.Bind (TF.to_fun f_f r1) (TF.of_fun (fun r2 =>
          FunProg.Ret (ret_2 s_f sel2 r1 r2))))).
 
     Local Transparent FP.Bind FP.Ret FP.Loop.
     Local Opaque ret_2 r1_of_sub TF.to_fun.
 
-    Lemma loop_sf_spec1_wlp s_f sel2 Inv post
-      (WLP : FP.wlp (loop_sf_spec1 s_f sel2 Inv) post):
+    Lemma loop_sf_spec1_wlp f_s f_f sel2 Inv post
+      (WLP : FP.wlp (loop_sf_spec1 f_s f_f sel2 Inv) post):
       TF.to_fun Inv (TF.mk _ ini sel_0) /\
       (forall x1 sl1,
         let r1 : TF.t RA := r1_of_sub x1 (TF.of_tu sl1) in
         TF.to_fun Inv (TF.mk _ (inl x1) sl1) ->
-        FP.wlp (sf_spec (TF.to_fun s_f r1)) (fun r2 => TF.to_fun Inv (ret_2 s_f sel2 r1 r2))) /\
+        FP.wlp (TF.to_fun f_f r1) (fun r2 => TF.to_fun Inv (ret_2 f_s sel2 r1 r2))) /\
       (forall x3 sl3,
         TF.to_fun Inv (TF.mk _ (inr x3) sl3) ->
         post (TF.mk _ x3 sl3)).
@@ -216,11 +220,11 @@ Section Loop.
                   FP.instr R),
       FP.instr R).
 
-    Inductive Loop_Spec1 : i_spec_t B (m sel0 ++ add) -> Prop
+    Inductive Loop_Spec1 : forall s : i_sig_t B (m sel0 ++ add), i_spec_t s -> Prop
       := Loop_Spec1I
-      (s_f    : s_f_t)
+      (s_f : s_f_t) (f_f : f_f_t s_f)
       (S_F : TF.arrow RA (fun r =>
-        HasSpec CT (f (TF.v_val r)) (ctx1 r) (TF.to_fun s_f r)))
+        HasSpec CT (f (TF.v_val r)) (ctx1 r) (TF.to_fun s_f r) (TF.to_fun f_f r)))
       (sel2_f : sel2_t s_f)
       (E : TF.arrow RA (fun r1 =>
         let (ncsm, csm_add) :=
@@ -233,13 +237,12 @@ Section Loop.
       Loop_Spec1 {|
         sf_csm  := Sub.app (Sub.const (m sel0) true) csm1;
         sf_prd  := fun x : B => vs2 (inr x);
-        sf_spec := EX _ (loop_sf_spec1 s_f sel2_f)
-      |}.
+      |} (EX _ (loop_sf_spec1 s_f f_f sel2_f)).
 
     Lemma Loop_Spec1_correct
       (EX_correct : forall R f post, FP.wlp (EX R f) post -> exists Inv, FP.wlp (f Inv) post)
-      s (SP : Loop_Spec1 s):
-      sound_spec CT (CP.Loop ini (fun x0 : A => i_impl (f x0))) (m sel0 ++ add) s.
+      s_l f_l (SP : Loop_Spec1 s_l f_l):
+      sound_spec CT (CP.Loop ini (fun x0 : A => i_impl (f x0))) (m sel0 ++ add) s_l f_l.
     Proof.
       destruct SP; do 2 intro; cbn in post, PRE.
       apply EX_correct in PRE as (Inv & (INI & PRS & EXIT)%loop_sf_spec1_wlp).
@@ -261,14 +264,16 @@ Section Loop.
           { apply S_F, PRS, INV1. }
         clear S_F PRS INV1.
 
-        subst s_f_t sel2_t ret_2 ctx1; cbn beta in *.
+        subst s_f_t f_f_t sel2_t ret_2 ctx1; cbn beta in *.
         set (r1'     := r1_of_sub _ _); change r1' with r1; clear r1'.
         set (sel2_f1 := TF.to_fun sel2_f r1) in *; clearbody sel2_f1; clear sel2_f; cbn in sel2_f1.
+        set (f_f1    := TF.to_fun f_f r1) in *; clearbody f_f1; clear f_f; cbn in f_f1.
         set (s_f1    := TF.to_fun s_f r1) in *.
           set (t := TF.to_fun _ _) in sel2_f1; change t with s_f1 in sel2_f1; clear t;
+          set (t := TF.to_fun _ _) in f_f1;    change t with s_f1 in f_f1;    clear t;
           clearbody s_f1; clear s_f; cbn in s_f1.
         unfold r1_of_sub in r1.
-        set (t := VpropList.split_sel _ _ _) in r1, s_f1, sel2_f1; subst r1.
+        set (t := VpropList.split_sel _ _ _) in r1, s_f1, f_f1, sel2_f1; subst r1.
         set (t' := TF.to_tu _) in t;
           assert (t' = sl1) by apply TF.to_of_tu;
           clearbody t'; subst t'.
@@ -277,7 +282,7 @@ Section Loop.
           fold t in sl1_eq; case t as [sl1i sl1a]; cbn in sl1_eq;
           subst sl1.
         cbn in E; cbn.
-        set (t := TF.to_tu _) in s_f1, E, sel2_f1; fold t.
+        set (t := TF.to_tu _) in s_f1, f_f1, E, sel2_f1; fold t.
         eassert (t = _) by apply TF.to_of_tu; clearbody t; subst t.
 
         split; unfold sf_post, sf_post_ctx; cbn.
@@ -324,13 +329,14 @@ Section Loop.
     Qed.
   End Loop_Spec1.
 
-  Inductive Loop_Spec (ctx : CTX.t) (F : i_spec_t B ctx) : Prop
+  Inductive Loop_Spec (ctx : CTX.t): forall s : i_sig_t B ctx, i_spec_t s -> Prop
     := Loop_SpecI
     (sel0 : VpropList.sel_t (vinv ini))
     (add  : CTX.t)
     (csm1 : Sub.t add)
-    (s    : i_spec_t B (m sel0 ++ add))
-    (IJ   : InjPre_Spec (m sel0) ctx add s F)
+    (s_l  : i_sig_t B (m sel0 ++ add)) (f_l : i_spec_t s_l)
+    [s' F]
+    (IJ   : InjPre_Spec (m sel0) ctx add s_l s' F)
     (L1   : Loop_Spec1 sel0 add csm1 (fun R f =>
               let ivp  (x : A + B) := vinv x ++ VpropList.of_ctx (CTX.sub add csm1) in
               match sinv with
@@ -344,7 +350,8 @@ Section Loop.
                   (FunProg.Oracle (DTuple.Psingl
                     (forall x : A + B, DTuple.arrow (DTuple.p_tu (VpropList.sel' (ivp x))) (fun _ => Prop))))
                   f
-              end) s).
+              end) s_l f_l):
+    Loop_Spec ctx s' (F f_l).
   
   Program Definition Loop0 : instr CT B := {|
     i_impl := CP.Loop ini (fun x => i_impl (f x));
@@ -377,26 +384,28 @@ Definition Loop_inv [CT A B]
 
 Ltac build_Loop :=
   Tac.init_HasSpec_tac ltac:(fun _ =>
-  lazymatch goal with |- Loop_Spec ?vinv _ _ _ _ _ =>
+  lazymatch goal with |- Loop_Spec ?vinv _ _ _ _ _ _ =>
   simple refine (Loop_SpecI _ _ _ _ _ _ _ _ _ _ _ _);
   [ (* sel0 *) cbn; Tuple.build_shape
-  | (* add  *) shelve | (* csm1 *) shelve | (* s    *) shelve
+  | (* add  *) shelve | (* csm1 *) shelve
+  | (* s_l  *) shelve | (* f_l  *) shelve | (* F *) shelve
   | (* IJ   *) Tac.build_InjPre
   | (* L1   *)
-    simple refine (Loop_Spec1I _ _ _ _ _ _ _ _ _ _ _);
-    [ (* s_f    *) shelve
+    simple refine (Loop_Spec1I _ _ _ _ _ _ _ _ _ _ _ _);
+    [ (* s_f    *) shelve | (* f_f *) shelve
     | (* S_F    *) cbn; intros; Tac.build_HasSpec ltac:(Tac.post_hint_Some vinv)
     | (* sel2_f *) (* wait for csm1 *)
     | (* E      *) cbn; intros; split; [reflexivity (* csm1 *)|] ];
     [ (* sel2_f *) cbn; intros; Tuple.build_shape
     | (* E      *) cbn; intros; constructor; CTX.Trf.Tac.build_t ]
   ];
-  (* IJ spec eq *) Tac.cbn_refl
+  (* IJ spec eq *) Tac.solve_InjPre_sig_eq
   end).
 
+
 Module Tactics.
-  #[export] Hint Extern 1 (Read_Spec       _ _ _) => build_Read   : HasSpecDB.
-  #[export] Hint Extern 1 (Write_Spec    _ _ _ _) => build_Write  : HasSpecDB.
-  #[export] Hint Extern 1 (Loop_Spec _ _ _ _ _ _) => build_Loop   : HasSpecDB.
+  #[export] Hint Extern 1 (Read_Spec       _ _ _ _) => build_Read   : HasSpecDB.
+  #[export] Hint Extern 1 (Write_Spec    _ _ _ _ _) => build_Write  : HasSpecDB.
+  #[export] Hint Extern 1 (Loop_Spec _ _ _ _ _ _ _) => build_Loop   : HasSpecDB.
 End Tactics.
 Export Tactics.

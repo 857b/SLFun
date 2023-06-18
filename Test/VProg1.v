@@ -21,6 +21,43 @@ Qed.
 
 Definition m_body [sg sgh e] (F : @FSpec sg sgh e) : Type := f_body CT sgh.
 
+Inductive Test [sg sgh] (e : @f_spec_exp sg sgh) (b : f_body CT sgh) : Prop :=
+  mk_test_fun
+    (S : FSpec sgh e)
+    (E : f_erase b)
+    (M : f_body_match b (m_spec S)).
+Arguments Test _ _ e%vprog_spec.
+
+Ltac init_Test :=
+  unshelve eexists; [ Tac.build_FSpec | Tac.erase_impl | cbn ].
+
+
+Definition test_Ret :
+  Test SPEC (p : ptr)
+  'n [vptr p ~> n] [] True
+  '(r : nat) tt [] True
+(fun _ =>
+  Ret 42).
+Proof.
+  init_Test.
+  solve_by_wlp.
+Qed.
+
+Definition test_dlet :
+  Test SPEC ((ps, p1) : (ptr * ptr) * ptr)
+  '(n0, n1) [vptr (fst ps) ~> n0] [vptr p1 ~> n1] True
+  '(_ : unit) tt [vptr p1 ~> O] True
+(fun '(ps, p1) =>
+  let '(p0, _) := ps in
+  Write p1 O).
+Proof.
+  init_Test.
+  build_fun_spec.
+  FunProg.solve_by_wlp.
+Qed.
+
+
+(* destructive let *)
 
 Definition spec_a0a : FSpec _
   SPEC (ps : ptr * ptr) 'n [vptr (fst ps) ~> n] [] True
@@ -103,6 +140,7 @@ Qed.
 Goal f_erase vprog_a0e.
 Proof. Tac.erase_impl. Defined.
 
+(* branch *)
 
 Definition spec_a1a : FSpec _
   SPEC ((b, p0, p1, p2) : bool * ptr * ptr * ptr)
@@ -115,7 +153,10 @@ Definition vprog_a1a : m_body spec_a1a := fun '(b, p0, p1, p2) =>
   then Write p1 0
   else Write p2 1.
 Goal f_body_match vprog_a1a (m_spec spec_a1a).
-Proof. solve_by_wlp; congruence. Qed.
+Proof.
+  build_fun_spec.
+  FunProg.solve_by_wlp; congruence.
+Qed.
 Goal f_erase vprog_a1a.
 Proof. Tac.erase_impl. Defined.
 
