@@ -189,6 +189,15 @@ Module Tac.
     clear tmp;
     k e.
 
+  (* [H] must be an hypothesis [let x := d in f(x)].
+     Pose [n := d] and change [H] into [f(n)] *)
+  Ltac set_hyp_let H n :=
+    revert H;
+    lazymatch goal with |- (let x := ?d in ?t) -> ?g =>
+    change (let x := d in (t -> g));
+    intros n H
+    end.
+
 
   (* [t] must be a term [?evar arg0 ... arg9].
      Instantiate [?evar] by introducing the arguments, continue with a reduced

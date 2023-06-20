@@ -455,6 +455,8 @@ Module SLprop.
       exact (conj (H m M) M).
     - apply imp_pure_l. reflexivity.
   Qed.
+  
+  Global Arguments SLprop.pure : simpl never.
 
 
   (* [ex] : exists *)
@@ -510,6 +512,8 @@ Module SLprop.
   Proof.
     intros m [x M]; exact (C x m M).
   Qed.
+
+  Global Arguments SLprop.ex : simpl never.
 
 
   (* [wand] *)
@@ -594,7 +598,7 @@ Module SLprop.
       reifyI r h -> eq (reflect r) h.
     Proof.
       induction 1; simpl; try reflexivity.
-      - (* RIPureTrue *) intro; cbn; tauto.
+      - (* RIPureTrue *) unfold pure; intro; cbn; tauto.
       - (* RIStar     *) rewrite IHreifyI1, IHreifyI2; reflexivity.
       - (* RIEx       *) setoid_rewrite H; reflexivity.
       - (* RIExUnit   *)

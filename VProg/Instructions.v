@@ -233,18 +233,19 @@ Section Loop.
         csm1 = csm_add /\
         TF.all (sf_rvar (TF.to_fun s_f r1)) (fun r2 => inhabited (
           CTX.Trf.t (sf_prd_ctx (TF.to_fun s_f r1) r2 ++ ncsm)
-                    (VpropList.inst (vs2 (TF.v_val r2)) (TF.to_fun (TF.to_fun sel2_f r1) r2)))))):
+                    (VpropList.inst (vs2 (TF.v_val r2)) (TF.to_fun (TF.to_fun sel2_f r1) r2))))))
+      [l_F] (EF : l_F = fun f_f : f_f_t s_f => EX _ (loop_sf_spec1 s_f f_f sel2_f)):
       Loop_Spec1 {|
         sf_csm  := Sub.app (Sub.const (m sel0) true) csm1;
         sf_prd  := fun x : B => vs2 (inr x);
-      |} (EX _ (loop_sf_spec1 s_f f_f sel2_f)).
+      |} (l_F f_f).
 
     Lemma Loop_Spec1_correct
       (EX_correct : forall R f post, FP.wlp (EX R f) post -> exists Inv, FP.wlp (f Inv) post)
       s_l f_l (SP : Loop_Spec1 s_l f_l):
       sound_spec CT (CP.Loop ini (fun x0 : A => i_impl (f x0))) (m sel0 ++ add) s_l f_l.
     Proof.
-      destruct SP; do 2 intro; cbn in post, PRE.
+      destruct SP; do 2 intro; subst l_F; cbn in post, PRE.
       apply EX_correct in PRE as (Inv & (INI & PRS & EXIT)%loop_sf_spec1_wlp).
       clear EX_correct.
       pose (sl_inv := fun x : A + B =>
@@ -391,13 +392,15 @@ Ltac build_Loop :=
   | (* s_l  *) shelve | (* f_l  *) shelve | (* F *) shelve
   | (* IJ   *) Tac.build_InjPre
   | (* L1   *)
-    simple refine (Loop_Spec1I _ _ _ _ _ _ _ _ _ _ _ _);
+    simple refine (Loop_Spec1I _ _ _ _ _ _ _ _ _ _ _ _ _);
     [ (* s_f    *) shelve | (* f_f *) shelve
     | (* S_F    *) cbn; intros; Tac.build_HasSpec ltac:(Tac.post_hint_Some vinv)
     | (* sel2_f *) (* wait for csm1 *)
-    | (* E      *) cbn; intros; split; [reflexivity (* csm1 *)|] ];
+    | (* E      *) cbn; intros; split; [reflexivity (* csm1 *)|]
+    | (* l_F    *) shelve | (* EF *) ];
     [ (* sel2_f *) cbn; intros; Tuple.build_shape
-    | (* E      *) cbn; intros; constructor; CTX.Trf.Tac.build_t ]
+    | (* E      *) cbn; intros; constructor; CTX.Trf.Tac.build_t
+    | (* EF     *) Tac.cbn_refl ]
   ];
   (* IJ spec eq *) Tac.solve_InjPre_sig_eq
   end).

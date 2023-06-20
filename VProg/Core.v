@@ -657,24 +657,22 @@ End ChangePrd.
 Global Arguments change_prd   _ _ !s prd.
 Global Arguments change_prd_f _ _ !s prd rsel f/.
 
-Lemma Tr_change_exact [A ctx s s1 csm1 prd1]
-  (CSM  : csm1 = Sub.or (sf_csm s) csm1)
-  (S1   : add_csm s csm1 = s1)
+Lemma Tr_change_exact [A ctx s csm1 prd1 F]:
+  let s1 := add_csm s csm1 in forall
   (rsel : TF.arrow (sf_rvar s1) (fun r => VpropList.sel_t (prd1 (TF.v_val r))))
   (RSEL : TF.arrow (sf_rvar s1) (fun r =>
           CTX.Trf.t (sf_prd_ctx s1 r)
-                    (VpropList.inst (prd1 (TF.v_val r)) (TF.to_fun rsel r)))):
-  @TrSpec A ctx s (mk_i_sig csm1 prd1)
-    (fun f => change_prd_f s1 prd1 (TF.to_fun rsel)
-                (eq_rect _ (@i_spec_t _ _) (add_csm_f s csm1 f) s1 S1)).
+                    (VpropList.inst (prd1 (TF.v_val r)) (TF.to_fun rsel r))))
+  (E : i_sig_eq (FT := fun prd1 => i_spec_t s -> FP.instr (TF.mk_p A prd1))
+          (sf_csm s1) prd1
+          (fun f => change_prd_f s1 prd1 (TF.to_fun rsel) (add_csm_f s csm1 f))
+          csm1 prd1 F),
+  @TrSpec A ctx s (mk_i_sig csm1 prd1) F.
 Proof.
-  destruct S1; cbn.
+  intros; destruct E.
   constructor; apply TrSpecH_trans.
   - apply Tr_add_csm.
-  - specialize (Tr_change_prd (add_csm s csm1) prd1 _ (TF.to_fun RSEL)).
-    unfold change_prd; unfold add_csm at 2; cbn.
-    rewrite <- CSM.
-    intro H; apply H.
+  - apply (Tr_change_prd (add_csm s csm1) prd1 _ (TF.to_fun RSEL)).
 Qed.
 
 Section AddFrame.
@@ -1082,41 +1080,95 @@ Section Ret.
 End Ret.
 Section Bind.
   Context [A B : Type] (f : instr A) (g : A -> instr B).
-  
-  Inductive Bind_Spec (ctx : CTX.t) : forall s : i_sig_t B ctx, i_spec_t s -> Prop
-    := Bind_SpecI : forall
-    (s_fp : {s_f : i_sig_t A ctx & {f_f : i_spec_t s_f | HasSpec f ctx s_f f_f}}),
-    let s_f := projT1 s_fp in
-    let f_prd (r : sf_rvar_t s_f) :=
-      Sub.app (Sub.const (sf_prd_ctx s_f r) true)
-              (Sub.const (CTX.sub ctx (Sub.neg (sf_csm s_f))) false)
-    in forall
-    (s_gp : forall r : sf_rvar_t s_f,
-            let ctx1 := sf_post_ctx s_f r in
-            {s_g : i_sig_t B ctx1 & {f_g : i_spec_t s_g | HasSpec (g (TF.v_val r)) ctx1 s_g f_g}}),
-    let s_g (r : sf_rvar_t s_f) := add_csm (projT1 (s_gp r)) (f_prd r) in
-    let f_g (r : sf_rvar_t s_f) : i_spec_t (s_g r)
-      := add_csm_f (projT1 (s_gp r)) (f_prd r) (proj1_sig (projT2 (s_gp r)))
-    in forall
-    (csm : Sub.t ctx)
-    (CSM : forall r : sf_rvar_t s_f,
-      Sub.pull (sf_csm s_f) (Sub.const _ true) (snd (Sub.split _ _ (sf_csm (s_g r))))
-      = csm)
-    (prd : B -> VpropList.t)
-    (PRD : forall r, sf_prd (s_g r) = prd)
-    (spec : FP.instr (TF.mk_p B prd))
-    (SPEC : FP.eqv spec (
-                let TF_A     := TF.mk_p A (sf_prd s_f) in
-                let TF_B prd := TF.mk_p B prd in
-                @FP.Bind TF_A (TF_B prd)
-                    (proj1_sig (projT2 s_fp))
-                    (TF.of_fun (T := TF_A) (fun r =>
-                     eq_rect _ (fun prd => FP.instr (TF_B prd)) (f_g r) _ (PRD r)))
-            )),
-    Bind_Spec ctx {|
-      sf_csm  := csm;
-      sf_prd  := prd;
-    |} spec.
+
+  Section Spec1.
+    Variables (ctx : CTX.t) (s_f : i_sig_t A ctx) (r : sf_rvar_t s_f).
+
+    Inductive Bind_Spec1:
+      forall s : i_sig_t B ctx(* bind sig *), FP.instr (TF.mk_p B (sf_prd s)) (* g spec *) -> Prop
+      := Bind_SpecI1
+      [s_g : i_sig_t B (sf_post_ctx s_f r)] [f_g : i_spec_t s_g]
+      (S_G : HasSpec (g (TF.v_val r)) (sf_post_ctx s_f r) s_g f_g)
+      [b_csm b_prd F]
+      (E :
+        let f_prd : Sub.t (sf_post_ctx s_f r) :=
+            Sub.app (Sub.const (sf_prd_ctx s_f r) true)
+                    (Sub.const (CTX.sub ctx (Sub.neg (sf_csm s_f))) false) in
+        let s_g' : i_sig_t B (sf_post_ctx s_f r) := add_csm s_g f_prd in
+        i_sig_eq (FT := fun prd => i_spec_t s_g -> FP.instr (TF.mk_p B prd))
+             (Sub.pull (sf_csm s_f)
+                (Sub.const (Sub.sub ctx (sf_csm s_f)) true)
+                (snd (Sub.split
+                        (VpropList.inst (sf_prd s_f (TF.v_val r)) (TF.v_sel r))
+                        (CTX.sub ctx (Sub.neg (sf_csm s_f)))
+                        (sf_csm s_g'))))
+             (sf_prd s_g')
+             (fun f_g => add_csm_f s_g f_prd f_g)
+             b_csm b_prd F):
+      Bind_Spec1 (mk_i_sig b_csm b_prd) (F f_g).
+
+    Lemma Bind_Spec1_correct s f_g
+      (H : Bind_Spec1 s f_g)
+      post (PRE : FP.wlp f_g post):
+      SP.sls SPC (i_impl (g (TF.v_val r))) {|
+        SP.Spec.pre  := CTX.sl (sf_post_ctx s_f r);
+        SP.Spec.post := sf_post s post;
+      |}.
+    Proof.
+      destruct H.
+      Tac.set_hyp_let E f_prd.
+      Tac.set_hyp_let E s_g'.
+      destruct E.
+      cbn in post, PRE.
+      eapply transform_spec in S_G.
+        2:{ apply Tr_add_csm with (csm := f_prd). }
+      eapply SP.Cons.
+        { apply S_G, PRE. }
+      clear PRE S_G.
+      split; unfold sf_post; cbn.
+      - reflexivity.
+      - intro y.
+        change (add_csm _ _) with s_g'.
+        Intro sel2. Intro POST.
+        Apply sel2. Apply POST.
+        clear.
+        unfold sf_post_ctx, sf_prd_ctx in *; cbn.
+        rewrite !CTX.sl_app.
+          apply SLprop.star_morph_imp. reflexivity.
+        assert (exists csm, sf_csm s_g' = Sub.app (Sub.const _ true) csm) as [g_csm ->]. {
+          exists (snd (Sub.split _ _ (sf_csm s_g'))).
+          unfold s_g', f_prd, add_csm; cbn; clear.
+          rewrite (Sub.app_split _ _ (sf_csm s_g)).
+            case (Sub.split _ _ (sf_csm s_g)) as [g_csm0 g_csm1]; cbn.
+          unfold Sub.const, Sub.or.
+          etransitivity. apply Sub.map2_app.
+          f_equal.
+          - apply Vector.ext; intro k;
+            erewrite Vector.nth_map2, !Vector.const_nth by reflexivity;
+            destruct (Vector.nth _ k); reflexivity.
+          - symmetry.
+            eassert (Vector.map2 _ _ _ = _) as -> by apply Sub.map2_app.
+            rewrite Sub.split_app; cbn.
+            reflexivity.
+        }
+        clearbody f_prd s_g'.
+        unfold Sub.neg, Sub.const.
+        rewrite Sub.map_app, Sub.sub_app, Sub.split_app, Sub.map_pull,
+                Sub.sl_pull, !Vector.map_const, !Sub.sub_const_false;
+        SL.normalize.
+        reflexivity.
+    Qed.
+  End Spec1.
+
+  Inductive Bind_Spec (ctx : CTX.t) (s : i_sig_t B ctx): i_spec_t s -> Prop
+    := Bind_SpecI
+    [s_f : i_sig_t A ctx] [f_f : i_spec_t s_f]
+    (S_F : HasSpec f ctx s_f f_f)
+    [f_g : TF.arrow (sf_rvar s_f) (fun _ => FP.instr (TF.mk_p B (sf_prd s)))]
+    (S_1 : TF.arrow (sf_rvar s_f) (fun r => Bind_Spec1 ctx s_f r s (TF.to_fun f_g r))):
+    Bind_Spec ctx s (FunProg.Bind f_f f_g).
+
+
 
   Program Definition Bind : instr B := {|
     i_impl := CP.Bind (i_impl f) (fun x => i_impl (g x));
@@ -1124,151 +1176,28 @@ Section Bind.
   |}.
   Next Obligation.
     destruct SP; do 2 intro.
-    apply SPEC in PRE; clear SPEC.
-    assert (s_g_sound : forall r : sf_rvar_t s_f, sound_spec (i_impl (g (TF.v_val r))) _ (s_g r) (f_g r)).
-      { intros; apply Tr_add_csm, (proj2_sig (projT2 (s_gp r))). }
-    assert (s_g_csm : forall r, exists csm,
-        sf_csm (s_g r) = Sub.app (Sub.const _ true) csm). {
-      intro; exists (snd (Sub.split _ _ (sf_csm (projT1 (s_gp r))))).
-      unfold s_g, f_prd; simpl; clear.
-      rewrite (Sub.app_split _ _ (sf_csm (projT1 (s_gp r)))) at 1.
-      unfold Sub.const, Sub.or.
-      etransitivity. apply Sub.map2_app.
-      f_equal; apply Vector.ext; intro k;
-        erewrite Vector.nth_map2, !Vector.const_nth by reflexivity;
-        destruct (Vector.nth _ k); reflexivity.
-    }
-    clearbody s_g f_g; clear s_gp.
     eapply SP.Bind.
-    - apply (proj2_sig (projT2 s_fp)).
-      simpl in PRE; apply PRE.
-    - clear PRE.
-      intro x; unfold sf_post; simpl.
-      apply SP.ExistsE; intro sels0.
-      apply SP.PureE; simpl; rewrite TF.to_of_fun.
-      set (r := existT _ x _).
-      intro PRE.
-      destruct (PRD r); simpl in PRE.
-      eapply SP.Cons.
-        { apply (s_g_sound r), PRE. }
-      clear PRE.
-      split. reflexivity.
-      intro y; unfold sf_post, sf_post_ctx, sf_rsel; simpl.
-      Intro sels1.
-      Intro POST.
-      Apply sels1.
-      Apply POST.
-      rewrite <- (CSM r).
-      ecase s_g_csm as [g_csm E]. unfold sf_post_ctx in *; erewrite E.
-      clear.
-      rewrite !CTX.sl_app. apply SLprop.star_morph_imp. reflexivity.
-      rewrite Sub.split_app; simpl.
-      unfold Sub.neg, Sub.const.
-      rewrite Sub.map_app, Sub.sub_app, Sub.map_pull, !Vector.map_const; simpl.
-      rewrite Sub.sl_pull.
-      rewrite !Sub.sub_const_false; simpl; SL.normalize; reflexivity.
-  Qed.
-
-  Local Opaque TF.of_fun TF.to_fun.
-
-  Local Lemma bind_eq_rect_g [ctx] [s_g0 s_g1 : i_sig_t B ctx] [prd : B -> VpropList.t]
-    (f_g : i_spec_t s_g0)
-    (E0 : s_g0 = s_g1)
-    (E1 : sf_prd s_g1 = prd):
-    FP.instr (TF.mk_p B prd).
-  Proof.
-    rewrite <- E0 in E1.
-    rewrite <- E1.
-    exact f_g.
-  Defined.
-
-  Lemma Bind_SpecI1
-    [ctx : CTX.t]
-    [s_f : i_sig_t A ctx]
-    [f_f : i_spec_t s_f]
-    (S_F : HasSpec f ctx s_f f_f)
-    [f_prd : TF.arrow (sf_rvar s_f) (fun r => Sub.t (sf_post_ctx s_f r))]
-    (F_PRD : TF.arrow (sf_rvar s_f) (fun r =>
-              Sub.app (Sub.const (sf_prd_ctx s_f r) true)
-                      (Sub.const (CTX.sub ctx (Sub.neg (sf_csm s_f))) false) =
-              TF.to_fun f_prd r))
-    [s_g0 : TF.arrow (sf_rvar s_f) (fun r => i_sig_t B (sf_post_ctx s_f r))]
-    [f_g0 : TF.arrow (sf_rvar s_f) (fun r => i_spec_t (TF.to_fun s_g0 r))]
-    (S_G0 : TF.arrow (sf_rvar s_f) (fun r =>
-              HasSpec (g (TF.v_val r)) _ (TF.to_fun s_g0 r) (TF.to_fun f_g0 r)))
-    [s_g  : TF.arrow (sf_rvar s_f) (fun r => i_sig_t B (sf_post_ctx s_f r))]
-    (S_G  : TF.arrow (sf_rvar s_f) (fun r =>
-              add_csm (TF.to_fun s_g0 r) (TF.to_fun f_prd r) = TF.to_fun s_g r))
-    [csm  : Sub.t ctx]
-    (CSM  : TF.arrow (sf_rvar s_f) (fun x =>
-              Sub.pull (sf_csm s_f)
-                (Sub.const (Sub.sub ctx (sf_csm s_f)) true)
-                (snd (Sub.split (VpropList.inst (sf_prd s_f (TF.v_val x)) (TF.v_sel x))
-                                (CTX.sub ctx (Sub.neg (sf_csm s_f))) 
-                                (sf_csm (TF.to_fun s_g x)))) = csm))
-    [prd : B -> VpropList.t]
-    (PRD : TF.arrow (sf_rvar s_f) (fun x => sf_prd (TF.to_fun s_g x) = prd))
-    [spec : FP.instr (TF.mk_p B prd)]
-    (SPEC : spec = 
-        let TF_A := sf_rvar s_f in
-        let TF_B (prd : B -> VpropList.t) :=
-          TF.mk_p B prd in
-        FunProg.Bind f_f
-           (TF.of_fun (fun r =>
-              bind_eq_rect_g
-                (add_csm_f (TF.to_fun s_g0 r) (TF.to_fun f_prd r) (TF.to_fun f_g0 r))
-                (TF.to_fun S_G r) (TF.to_fun PRD r)))):
-    Bind_Spec ctx {|
-      sf_csm  := csm;
-      sf_prd  := prd;
-    |} spec.
-  Proof.
-    unshelve refine (Bind_SpecI ctx (existT _ s_f (exist _ f_f S_F)) _ csm _ prd _ spec _).
-    - intro r.
-      exists (TF.to_fun s_g0 r).
-      exists (TF.to_fun f_g0 r).
-      exact  (TF.to_fun S_G0 r).
-    - intro r; simpl.
-      apply TF.to_fun with (x := r) in CSM as <-.
-      rewrite <- (TF.to_fun PRD   r),
-              <- (TF.to_fun S_G   r),
-              <- (TF.to_fun F_PRD r).
-      reflexivity.
-    - intro r; simpl.
-      apply TF.to_fun with (x := r) in CSM as <-.
-      rewrite <- (TF.to_fun S_G   r),
-              <- (TF.to_fun F_PRD r).
-      reflexivity.
-    - unfold FP.eqv; subst spec; simpl; intro.
-      clear CSM S_F S_G0.
-      apply FP.Spec.wp_morph. apply FP.wlp_monotone.
-      intro r; rewrite !TF.to_of_fun; simpl in *.
-      revert post.
-
-      set (x_PRD := TF.to_fun (T := sf_rvar s_f) PRD r).
-      clearbody x_PRD; clear PRD.
-      case x_PRD; simpl; clear x_PRD.
-
-      set (x_S_G := TF.to_fun (T := sf_rvar s_f) S_G r).
-      clearbody x_S_G; clear S_G.
-      case x_S_G; clear x_S_G s_g.
-
-      set (x_F_PRD := TF.to_fun (T := sf_rvar s_f) F_PRD r).
-      clearbody x_F_PRD; clear F_PRD.
-      case x_F_PRD; clear x_F_PRD f_prd; simpl.
-
-      reflexivity.
+    - apply S_F, PRE.
+    - intro x.
+      unfold sf_post.
+      apply SP.ExistsE; intro sel1.
+        set (r := TF.mk _ x sel1).
+      apply SP.PureE.
+      eapply Bind_Spec1_correct, (DTuple.to_fun S_1 r).
   Qed.
 End Bind.
 Section Branch.
   Definition branch_csm_or [ctx : CTX.t] (csms : list (Sub.t ctx)) : Sub.t ctx :=
     List.fold_left (@Sub.or ctx) csms (Sub.const ctx false).
 
-  Lemma TrSpec_branch_0 [A ctx s0 s1]
-    (E : add_csm s0 (sf_csm s1) = s1):
-    @TrSpec A ctx s0 s1 (fun f => eq_rect _ (@i_spec_t _ _) (add_csm_f s0 (sf_csm s1) f) _ E).
+  Lemma TrSpec_branch_0 [A ctx s0 s1_csm s1_prd F] csm
+    (E : let s1 := add_csm s0 csm in
+         i_sig_eq (FT := fun prd => i_spec_t s0 -> FP.instr (TF.mk_p A prd))
+           (sf_csm s1) (sf_prd s1) (add_csm_f s0 csm)
+           s1_csm s1_prd F):
+    @TrSpec A ctx s0 (mk_i_sig s1_csm s1_prd) F.
   Proof.
-    case E; cbn.
+    destruct E.
     apply Tr_add_csm.
   Qed.
 End Branch.
@@ -1293,18 +1222,17 @@ Section Call.
       := Call_SpecI
       (sel0 : Spec.sel0_t s):
       let ppre := Spec.pre (s sel0) ++ Spec.prs (s sel0)        in
-      let TF_A := TF.mk_p0 AG (fun x => Spec.sel1_t (s sel0 x)) in
-      let TF_B := TF.mk_p  AG (fun x => Spec.vpost (s sel0 x))  in
-      forall
-      F
-      (IJ : InjPre_Frame_Spec ppre ctx {|
+      let sg0  := {|
         sf_csm  := Sub.app (Sub.const (Spec.pre (s sel0)) true)
                            (Sub.const (Spec.prs (s sel0)) false);
         sf_prd  := fun xG => Spec.vpost (s sel0 xG);
-      |} sg F),
-      Call_Spec ctx sg
-        (F
-         (FunProg.Bind
+      |} in
+      let TF_A := TF.mk_p0 AG (fun x => Spec.sel1_t (s sel0 x)) in
+      let TF_B := TF.mk_p  AG (fun x => Spec.vpost (s sel0 x))  in
+      forall
+      F (f : i_spec_t sg0)
+      (IJ : InjPre_Frame_Spec ppre ctx sg0 sg F)
+      (Ef : f = FunProg.Bind
             (@FunProg.Call TF_A {|
                 FunProg.Spec.pre_p  := Some (Spec.req (s sel0));
                 FunProg.Spec.post_p := Some (fun (REQ : Spec.req (s sel0)) => TF.of_fun (fun (r : TF.t TF_A) =>
@@ -1314,7 +1242,8 @@ Section Call.
              FunProg.Ret (TF.mk _ (TF.v_val r)
               (eq_rect _ VpropList.sel_t
                        (VpropList.sel_of_ctx (Spec.post (s sel0 (TF.v_val r) (TF.v_sel r) REQ)))
-                       _ (vpost_eq sel0 (TF.v_val r) (TF.v_sel r) REQ))))))).
+                       _ (vpost_eq sel0 (TF.v_val r) (TF.v_sel r) REQ)))))),
+      Call_Spec ctx sg (F f).
   End Spec.
   Section Impl.
     Context (f : fid) [sg : f_sig] (HSIG : SIG f = Some sg) (sgh : f_sigh sg)
@@ -1363,7 +1292,7 @@ Section Call.
     Lemma Call_spec_lem (impl : @CP.instr SIG (f_retgh_t sgh)) (H : correct_Call_impl impl) ctx s_s s_f:
       Call_Spec (s gi) ctx s_s s_f -> sound_spec impl ctx s_s s_f.
     Proof.
-      intros [].
+      intros []; subst f0.
       apply (Tr_InjPre_Frame IJ); clear IJ.
       do 2 intro; cbn in *.
       case PRE as (REQ & POST).
@@ -1414,7 +1343,7 @@ Section Call.
       i_spec := fun ctx => Call_Spec (s x tt) ctx;
     |}.
     Next Obligation.
-      destruct SP.
+      destruct SP; subst f.
       apply (Tr_InjPre_Frame IJ); clear IJ.
       do 2 intro; cbn in *.
       case PRE as (REQ & WLP).
@@ -1466,6 +1395,13 @@ Global Arguments Call [_ _ _ _] _ _ _ [_] _.
 Global Arguments Call_f_decl [_ _ _ _] _ _.
 Global Arguments gLem [_ _ _] _ _.
 Global Arguments Frag [_ _ _ _ _] _ _.
+
+Global Arguments transform_spec [CT A ctx i s0 s1 F f].
+Global Arguments Tr_change_exact [CT A ctx s csm1 prd1 F].
+Global Arguments intro_impl_match1 [CT GI A GO body spec] H.
+Global Arguments Impl_MatchI [CT A GO body_1 s_1 f] F [ex_sel1] EX_SEL1 WLP.
+Global Arguments HasSpec_ct [CT A i ctx s f].
+Global Arguments Call_SpecI [res_t ghout_t s ctx sg sel0 F f] IJ Ef.
 
 
 Module NotationsDef.
@@ -1606,6 +1542,14 @@ Module Tac.
     | _ => idtac
     end.
 
+  (* reduces an [i_sig_t] *)
+  Ltac eval_sig t k :=
+    let t := eval cbn in t in
+    let t := eval hnf in t in
+    let t := eval cbn in t in
+    k t.
+
+
   (* solves a goal [f_spec_equiv e ?s],
      instantiates [?s] *)
   Ltac build_of_expanded :=
@@ -1724,12 +1668,10 @@ Module Tac.
 
   (* solves a goal [TrSpec SPEC s (mk_i_sig csm prd) ?F] *)
   Ltac build_Tr_change_exact :=
-    simple refine (Tr_change_exact _ _ _ _ _);
-    [ shelve
-    | (* CSM  *) Tac.cbn_refl
-    | (* S1   *) Tac.cbn_refl
-    | (* rsel *) cbn; repeat intro; Tuple.build_shape
-    | (* RSEL *) cbn; repeat intro; CTX.Trf.Tac.build_t ].
+    simple refine (Tr_change_exact _ _ _);
+    [ (* rsel *) cbn; intros; Tuple.build_shape
+    | (* RSEL *) cbn; intros; CTX.Trf.Tac.build_t
+    | (* E    *) Tac.i_sig_reflexivity ].
 
   (* solves a goal [InjPre_Spec m ctx ?add s ?s' ?F]
      Leaves a goal solvable with [solve_InjPre_sig_eq] once [s] has been instanciated *)
@@ -1782,30 +1724,38 @@ Module Tac.
     | (* IJ   *) build_InjPre_Frame ]
     end.
 
+  Ltac build_Bind1_init :=
+    simple refine (Bind_SpecI1 _ _ _ _ _  _ _);
+    [ (* s_g *) shelve | (* f_g *) shelve | (* S_G *)
+    | (* F   *) shelve | (* E *) | (* b_csm *) shelve | (* b_prd *) shelve ].
+
+  Ltac build_Bind1 build_f :=
+    build_Bind1_init;
+    [ (* S_G *) build_f tt
+    | (* E   *) Tac.i_sig_reflexivity ].
+
   Ltac build_Bind_init :=
-    simple refine (Bind_SpecI1 _ _ _ _ _ _ _ _ _ _);
-    [ shelve | shelve | | shelve | | shelve | shelve | | shelve |
-    | shelve | | shelve | | ].
+    simple refine (Bind_SpecI _ _ _ _ _  _ _);
+    [ (* s_f *) shelve | (* f_f *) shelve
+    | (* S_F *) | (* f_g *) | (* S_1 *) ].
 
   Ltac build_Bind build_f pt_hint :=
     build_Bind_init;
-    [ (* S_F   *) build_f post_hint_None
-    | (* F_PRD *) cbn_refl
-    | (* S_G0  *) cbn; repeat intro; build_f pt_hint
-    | (* S_G   *) cbn_refl
-    | (* CSM   *) cbn_refl
-    | (* PRD   *) cbn_refl
-    | (* SPEC  *) cbn_refl ].
+    [ (* S_F *) build_f Tac.post_hint_None
+    | (* f_g *) cbn; intros; shelve
+    | (* S_1 *) cbn; intros; build_Bind1 ltac:(fun _ => build_f pt_hint) ].
 
   Ltac build_Call :=
-    simple refine (Call_SpecI _ _ _ _ _ _);
-    [ shelve | shelve
+    simple refine (Call_SpecI _ _);
+    [ shelve | shelve | shelve
     | (* IJ *)
       cbn;
       repeat lazymatch goal with |- InjPre_Frame_Spec (Spec.pre ?x ++ _) _ _ _ _ =>
-        build_matched_shape x; cbn
+        Tac.build_matched_shape x; cbn
       end;
-      build_InjPre_Frame ].
+      Tac.build_InjPre_Frame
+    | (* E  *) Tac.cbn_refl ].
+
 
   (* match *)
 
@@ -1917,13 +1867,9 @@ Module Tac.
         Tac.elist_end csms1;
         let csm1 := eval cbn in (@branch_csm_or ctx csms1) in
         lazymatch goal with |- @TrSpec _ ?A0 ?ctx0 ?s0 ?s1 _ =>
-        refine (@TrSpec_branch_0 CT A0 ctx0  s0 (@mk_i_sig A0 ctx0 csm1 _)  _);
-
-        hnf; lazymatch goal with |- @eq ?S ?s1_0 ?s1_1 =>
-        let s1_0' := eval hnf in s1_0  in
-        let s1_0' := eval cbn in s1_0' in
-        exact (@eq_refl S s1_0')
-        end end
+        refine (@TrSpec_branch_0 CT A0 ctx0  s0 csm1 _ _ csm1  _);
+        i_sig_reflexivity
+        end
       | .. ];
       (* other branches *)
       Tac.build_Tr_change_exact
@@ -1940,7 +1886,7 @@ Module Tac.
 
     lazymatch i' with
     | mk_instr _ =>
-        refine (HasSpec_ct _ _);
+        refine (HasSpec_ct _);
         hnf;
         lazymatch goal with
         | |- Ret_Spec    _ _ _ _ _ => build_Ret pt_hint
@@ -1961,11 +1907,11 @@ Module Tac.
 
   Ltac init_HasSpec_tac k(* pt_hint_t -> ltac *) :=
     load_post_hint k.
-  
+
   (* solves a goal [HasSpec i ctx (mk_i_sig csm prd) ?f] *)
   Ltac build_HasSpec_exact :=
     lazymatch goal with |- HasSpec _ _ _ (mk_i_sig _ ?prd) _ =>
-    refine (transform_spec _ _ _);
+    refine (transform_spec _ _);
     [ build_HasSpec ltac:(post_hint_Some prd)
     | build_Tr_change_exact ]
     | _ => ffail "build_HasSpec_exact"
@@ -2026,7 +1972,7 @@ Module Tac.
     repeat lazymatch goal with
     |- impl_match _ _ (match ?x with _ => _ end) => destruct x; cbn
     end;
-    refine (intro_impl_match1 _ _ _ _); cbn;
+    refine (intro_impl_match1 _); cbn;
     (* intro and destruct gi *)
     intro;
     repeat lazymatch goal with
@@ -2038,7 +1984,7 @@ Module Tac.
     |- Impl_Match _ _ (match ?x with _ => _ end) => destruct x; cbn
     end;
 
-    simple refine (@Impl_MatchI _ _ _ _ _ _ _ _ _ _);
+    simple refine (Impl_MatchI _ _ _);
     [ (* f *) shelve | (* F *) cbn | (* ex_sel1 *) shelve
     | (* EX_SEL1 *) cbn; repeat intro; simplify_ex_eq_tuple
     | (* WLP *) ].

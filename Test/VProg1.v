@@ -42,6 +42,18 @@ Proof.
   solve_by_wlp.
 Qed.
 
+Goal Test SPEC (p : ptr)
+  'n [] [vptr p ~> n] True
+  '(p' : ptr) tt [vptr p' ~> n] True
+(fun p =>
+  'p1 <- Ret p (pt := fun p => [vptr p~>]);
+  Ret p1 (pt := fun p => [vptr p~>])).
+Proof.
+  init_Test.
+  build_fun_spec.
+  FunProg.solve_by_wlp.
+Qed.
+
 Section DLet. (* destructive let *)
 
 Goal Test SPEC ((ps, p1) : (ptr * ptr) * ptr)

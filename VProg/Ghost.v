@@ -146,24 +146,27 @@ Section Rewrite.
     (R : forall E : x = y, rewrite_ctx ctx csm (c1 E))
     [prd : VpropList.t]
     (PRD : forall E : x = y, prd = VpropList.of_ctx (c1 E)):
-    Rewrite_Spec ctx {|
+    let s := {|
       sf_csm  := csm;
       sf_prd  := fun _ => prd;
-    |} (
-    FunProg.Bind (@FunProg.Call DTuple.unit {|
-      FunProg.Spec.pre_p  := Some (x = y);
-      FunProg.Spec.post_p := None;
-    |}) (fun E =>
-    FunProg.Ret (
-      TF.mk _ tt (eq_rect_r VpropList.sel_t (VpropList.sel_of_ctx (c1 E)) (PRD E))
-    ))).
+    |} in forall
+    (f : i_spec_t s)
+    (Ef : f = 
+      FunProg.Bind (@FunProg.Call DTuple.unit {|
+        FunProg.Spec.pre_p  := Some (x = y);
+        FunProg.Spec.post_p := None;
+      |}) (fun E =>
+      FunProg.Ret (
+        TF.mk _ tt (eq_rect_r VpropList.sel_t (VpropList.sel_of_ctx (c1 E)) (PRD E))
+      ))),
+    Rewrite_Spec ctx s f.
 
   Program Definition gRewrite : instr CT unit := {|
     i_impl := CP.Ret tt;
     i_spec := fun ctx => Rewrite_Spec ctx;
   |}.
   Next Obligation.
-    destruct SP; do 2 intro; cbn in *.
+    destruct SP; do 2 intro; subst f; cbn in *.
     apply SP.CRet.
     case PRE as (E & PRE); specialize (PRE tt Logic.I); cbn in PRE.
     set (PRD' := PRD E) in *; clearbody PRD'; clear PRD.
@@ -178,6 +181,7 @@ Section Rewrite.
     reflexivity.
   Qed.
 End Rewrite.
+Global Arguments Rewrite_SpecI [A x y ctx csm c1] R [prd] PRD [f] Ef.
 
 (* solves [E : x = y |- lhs = ?rhs] by rewriting [E] in [lhs] *)
 Ltac rewrite_in_lhs x E :=
@@ -217,12 +221,13 @@ Ltac build_Rewrite :=
   Tac.init_HasSpec_tac ltac:(fun _ =>
   lazymatch goal with
   | |- Rewrite_Spec ?x _ _ _ _ =>
-    simple refine (Rewrite_SpecI _ _ _ _ _);
+    simple refine (Rewrite_SpecI _ _ _);
     [ shelve | (* c1 *) intro; shelve
     | (* R *)
       let E := fresh "E" in intro E;
       build_rewrite_ctx x E
-    | shelve |(* PRD *) Tac.cbn_refl ]
+    | shelve | (* PRD *) Tac.cbn_refl
+    | (* Ef *) Tac.cbn_refl ]
   end).
 
 Section Impp.
