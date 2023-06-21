@@ -774,6 +774,42 @@ Section InjPre.
       eapply (Tr_InjPre ij), Tr_add_frame, S0.
     Qed.
   End Frame.
+  Section SFrame.
+    Context [A] (s : i_sig_t A m) (f : i_spec_t s).
+
+    Inductive InjPre_SFrame_Spec : forall s' : i_sig_t A ctx, i_spec_t s' -> Prop
+      := InjPre_SFrame_SpecI
+      (frame : CTX.t)
+      (rev_f : CTX.Trf.rev_f_t ctx (m ++ frame))
+      (ij : CTX.Trf.inj_p ctx m frame rev_f)
+      [csm' prd' f']
+      (E  : let s := add_frame s frame in
+            let (ncsm, rem) := rev_f (Sub.neg (sf_csm s)) in
+            i_sig_eq (FT := fun prd1 => FP.instr (TF.mk_p A prd1))
+              (Sub.neg ncsm) (fun x : A => sf_prd s x ++ VpropList.of_ctx rem)
+              (FunProg.Bind f (TF.of_fun (T := sf_rvar s) (fun r =>
+               FunProg.Ret (TF.mk _ (TF.v_val r) (VpropList.app_sel (TF.v_sel r) (VpropList.sel_of_ctx rem))))))
+              csm' prd' f'):
+      InjPre_SFrame_Spec (mk_i_sig csm' prd') f'.
+
+    Local Set Implicit Arguments.
+
+    Lemma Tr_InjPre_SFrame [s' f'] (SP : InjPre_SFrame_Spec s' f') [i]:
+      sound_spec i m s f -> sound_spec i ctx s' f'.
+    Proof.
+      destruct SP.
+      Tac.set_hyp_let E s0.
+      case (rev_f _) as (ncsm, rem) eqn:Rev in E.
+      destruct E.
+      eassert (InjPre_Frame_Spec s _ _) as IJ. {
+        exists frame, rev_f; auto.
+        fold s0; rewrite Rev.
+        split.
+      }
+      apply Tr_InjPre_Frame in IJ.
+      apply IJ.
+    Qed.
+  End SFrame.
 End InjPre.
 
 (* Function definition *)
@@ -1040,24 +1076,23 @@ Section Ret.
     Definition no_pt_hint : VpropList.t.
     Proof. exact nil. Qed.
 
-    Inductive Ret_Spec (pt_hint : A -> VpropList.t) (ctx : CTX.t) (s : i_sig_t A ctx) : i_spec_t s -> Prop
+    Inductive Ret_Spec (pt_hint : A -> VpropList.t) (ctx : CTX.t) (s : i_sig_t A ctx) (f : i_spec_t s): Prop
       := Ret_SpecI
       (pt : A -> VpropList.t)
-      (sels : Tuple.t (map Vprop.ty (pt x))):
-      let pre := VpropList.inst (pt x) sels in forall
-      F
-      (IJ : InjPre_Frame_Spec pre ctx {|
-        sf_csm  := Sub.const pre true;
-        sf_prd  := pt;
-      |} s F),
-      Ret_Spec pt_hint ctx s (F (FunProg.Ret (TF.mk pt x sels))).
+      (sels : Tuple.t (map Vprop.ty (pt x)))
+      (IJ :
+        let pre := VpropList.inst (pt x) sels in
+        InjPre_SFrame_Spec pre ctx {|
+          sf_csm  := Sub.const pre true;
+          sf_prd  := pt;
+        |} (FunProg.Ret (TF.mk pt x sels)) s f).
 
     Program Definition Ret0 pt_hint : instr A := {|
       i_impl := CP.Ret x;
       i_spec := fun ctx => Ret_Spec pt_hint ctx;
     |}.
     Next Obligation.
-      destruct SP; apply (Tr_InjPre_Frame IJ).
+      destruct SP; apply (Tr_InjPre_SFrame IJ).
       do 2 intro; cbn.
       apply SP.CRet.
       Apply sels.
@@ -1103,7 +1138,7 @@ Section Bind.
                         (CTX.sub ctx (Sub.neg (sf_csm s_f)))
                         (sf_csm s_g'))))
              (sf_prd s_g')
-             (fun f_g => add_csm_f s_g f_prd f_g)
+             (add_csm_f s_g f_prd)
              b_csm b_prd F):
       Bind_Spec1 (mk_i_sig b_csm b_prd) (F f_g).
 
@@ -1218,7 +1253,7 @@ Section Call.
       apply VpropList.of_inst.
     Defined.
 
-    Inductive Call_Spec (ctx : CTX.t) (sg : i_sig_t AG ctx) : i_spec_t sg -> Prop
+    Inductive Call_Spec (ctx : CTX.t) (sg : i_sig_t AG ctx) (f : i_spec_t sg): Prop
       := Call_SpecI
       (sel0 : Spec.sel0_t s):
       let ppre := Spec.pre (s sel0) ++ Spec.prs (s sel0)        in
@@ -1230,9 +1265,8 @@ Section Call.
       let TF_A := TF.mk_p0 AG (fun x => Spec.sel1_t (s sel0 x)) in
       let TF_B := TF.mk_p  AG (fun x => Spec.vpost (s sel0 x))  in
       forall
-      F (f : i_spec_t sg0)
-      (IJ : InjPre_Frame_Spec ppre ctx sg0 sg F)
-      (Ef : f = FunProg.Bind
+      (IJ : InjPre_SFrame_Spec ppre ctx sg0
+        (FunProg.Bind
             (@FunProg.Call TF_A {|
                 FunProg.Spec.pre_p  := Some (Spec.req (s sel0));
                 FunProg.Spec.post_p := Some (fun (REQ : Spec.req (s sel0)) => TF.of_fun (fun (r : TF.t TF_A) =>
@@ -1242,8 +1276,9 @@ Section Call.
              FunProg.Ret (TF.mk _ (TF.v_val r)
               (eq_rect _ VpropList.sel_t
                        (VpropList.sel_of_ctx (Spec.post (s sel0 (TF.v_val r) (TF.v_sel r) REQ)))
-                       _ (vpost_eq sel0 (TF.v_val r) (TF.v_sel r) REQ)))))),
-      Call_Spec ctx sg (F f).
+                       _ (vpost_eq sel0 (TF.v_val r) (TF.v_sel r) REQ))))))
+        sg f),
+      Call_Spec ctx sg f.
   End Spec.
   Section Impl.
     Context (f : fid) [sg : f_sig] (HSIG : SIG f = Some sg) (sgh : f_sigh sg)
@@ -1292,8 +1327,8 @@ Section Call.
     Lemma Call_spec_lem (impl : @CP.instr SIG (f_retgh_t sgh)) (H : correct_Call_impl impl) ctx s_s s_f:
       Call_Spec (s gi) ctx s_s s_f -> sound_spec impl ctx s_s s_f.
     Proof.
-      intros []; subst f0.
-      apply (Tr_InjPre_Frame IJ); clear IJ.
+      intros [].
+      apply (Tr_InjPre_SFrame IJ); clear IJ.
       do 2 intro; cbn in *.
       case PRE as (REQ & POST).
       eapply SP.Cons.
@@ -1343,8 +1378,8 @@ Section Call.
       i_spec := fun ctx => Call_Spec (s x tt) ctx;
     |}.
     Next Obligation.
-      destruct SP; subst f.
-      apply (Tr_InjPre_Frame IJ); clear IJ.
+      destruct SP.
+      apply (Tr_InjPre_SFrame IJ); clear IJ.
       do 2 intro; cbn in *.
       case PRE as (REQ & WLP).
       specialize (L _ _ REQ).
@@ -1401,7 +1436,7 @@ Global Arguments Tr_change_exact [CT A ctx s csm1 prd1 F].
 Global Arguments intro_impl_match1 [CT GI A GO body spec] H.
 Global Arguments Impl_MatchI [CT A GO body_1 s_1 f] F [ex_sel1] EX_SEL1 WLP.
 Global Arguments HasSpec_ct [CT A i ctx s f].
-Global Arguments Call_SpecI [res_t ghout_t s ctx sg sel0 F f] IJ Ef.
+Global Arguments Call_SpecI [res_t ghout_t s ctx sg f sel0] IJ.
 
 
 Module NotationsDef.
@@ -1674,7 +1709,7 @@ Module Tac.
     | (* E    *) Tac.i_sig_reflexivity ].
 
   (* solves a goal [InjPre_Spec m ctx ?add s ?s' ?F]
-     Leaves a goal solvable with [solve_InjPre_sig_eq] once [s] has been instanciated *)
+     Leaves a goal solvable with [solve_InjPre_sig_eq] once [s] has been instanced *)
   Ltac build_InjPre :=
     lazymatch goal with |- @InjPre_Spec ?m ?ctx ?add ?A ?s ?s' ?F =>
     Tac.mk_evar (Sub.t ctx) ltac:(fun csm' =>
@@ -1689,14 +1724,24 @@ Module Tac.
   Ltac solve_InjPre_sig_eq :=
     i_sig_reflexivity.
 
-  (* solves a goal [InjPre_Frame_Spec m ctx s ?s' ?F] *)
-  Ltac build_InjPre_Frame_ :=
+  (* solves a goal [InjPre_Frame_Spec m ctx s ?s' ?F].
+     Leaves a goal solvable with [solve_InjPre_sig_eq] once [s] has been instanced. *)
+  Ltac build_InjPre_Frame :=
     refine (InjPre_Frame_SpecI _ _ _ _ _ _ _);
     build_InjPre.
-  
-  Ltac build_InjPre_Frame :=
-    build_InjPre_Frame_;
-    solve_InjPre_sig_eq.
+
+  (* solves a goal [InjPre_SFrame_Spec m ctx s f ?s' ?f'] *)
+  Ltac build_InjPre_SFrame :=
+    cbn;
+    lazymatch goal with |- @InjPre_SFrame_Spec ?m ?ctx ?A ?s ?f ?s' ?f' =>
+    Tac.mk_evar (Sub.t ctx) ltac:(fun csm' =>
+    Tac.mk_evar (A -> VpropList.t) ltac:(fun prd' =>
+    unify s' (@mk_i_sig A ctx csm' prd');
+    simple refine (@InjPre_SFrame_SpecI m ctx A s f _ _ _ csm' prd' f' _);
+    [ (* frame *) shelve | (* rev_f *) shelve
+    | (* ij *) CTX.Trf.Tac.build_inj_p
+    | (* E  *) Tac.i_sig_reflexivity ]
+    ))end.
 
 
   (* Tactics to build the instruction specifications. *)
@@ -1704,9 +1749,10 @@ Module Tac.
   Global Hint Constants Opaque : HasSpecDB.
   Global Hint Variables Opaque : HasSpecDB.
 
+
   Ltac build_Ret pt_hint0(* pt_hint_t *) :=
     lazymatch goal with |- Ret_Spec ?x ?pt_hint1 _ _ _ =>
-    simple refine (Ret_SpecI _ _ _ _  _ _ _ _);
+    simple refine (Ret_SpecI _ _ _ _ _ _  _ _);
     [ (* pt *)
       let pt_hint1_x := eval hnf in (pt_hint1 x) in
       lazymatch pt_hint1_x with
@@ -1720,8 +1766,7 @@ Module Tac.
           exact pt_hint1
       end
     | (* sels *) Tuple.build_shape
-    | (* F    *) shelve
-    | (* IJ   *) build_InjPre_Frame ]
+    | (* IJ   *) build_InjPre_SFrame ]
     end.
 
   Ltac build_Bind1_init :=
@@ -1746,15 +1791,14 @@ Module Tac.
     | (* S_1 *) cbn; intros; build_Bind1 ltac:(fun _ => build_f pt_hint) ].
 
   Ltac build_Call :=
-    simple refine (Call_SpecI _ _);
-    [ shelve | shelve | shelve
+    simple refine (Call_SpecI _);
+    [ shelve
     | (* IJ *)
       cbn;
-      repeat lazymatch goal with |- InjPre_Frame_Spec (Spec.pre ?x ++ _) _ _ _ _ =>
+      repeat lazymatch goal with |- InjPre_SFrame_Spec (Spec.pre ?x ++ _) _  _ _ _ _ =>
         Tac.build_matched_shape x; cbn
       end;
-      Tac.build_InjPre_Frame
-    | (* E  *) Tac.cbn_refl ].
+      build_InjPre_SFrame ].
 
 
   (* match *)

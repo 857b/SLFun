@@ -8,15 +8,13 @@ Import SL.Tactics.
 Section Read.
   Context [CT : CP.context] (p : ptr).
 
-  Inductive Read_Spec (ctx : CTX.t) (s : i_sig_t memdata ctx) : i_spec_t s -> Prop
+  Inductive Read_Spec (ctx : CTX.t) (s : i_sig_t memdata ctx) (f : i_spec_t s) : Prop
     := Read_SpecI
     (d : memdata)
-    [F]
-    (IJ : InjPre_Frame_Spec [CTX.mka (SLprop.cell p, d)] ctx {|
+    (IJ : InjPre_SFrame_Spec [CTX.mka (SLprop.cell p, d)] ctx {|
       sf_csm  := Vector.cons _ false _ (Vector.nil _) <: Sub.t [_];
       sf_prd  := fun _ => nil;
-    |} s F):
-    Read_Spec ctx s (F (FunProg.Ret (TF.mk0 _ d Tuple.tt))).
+    |} (FunProg.Ret (TF.mk0 _ d Tuple.tt)) s f).
 
   Program Definition Read : instr CT memdata := {|
     i_impl := CP.Read p;
@@ -24,7 +22,7 @@ Section Read.
   |}.
   Next Obligation.
     destruct SP.
-    apply (Tr_InjPre_Frame IJ); clear IJ.
+    apply (Tr_InjPre_SFrame IJ); clear IJ.
     do 2 intro; cbn in *.
     eapply SP.Cons.
       { apply SP.Read with (d := d). }
@@ -38,22 +36,19 @@ Section Read.
 End Read.
 
 Local Ltac build_Read :=
-  Tac.init_HasSpec_tac ltac:(fun _ =>
-  simple refine (Read_SpecI _ _ _ _ _);
-  [ shelve | shelve | (*IJ *) Tac.build_InjPre_Frame ]).
+  simple refine (Read_SpecI _ _ _ _ _ _);
+  [ shelve | (* IJ *) Tac.build_InjPre_SFrame ].
 
 Section Write.
   Context [CT : CP.context] (p : ptr) (d : memdata).
 
-  Inductive Write_Spec (ctx : CTX.t) (s : i_sig_t unit ctx) : i_spec_t s -> Prop
+  Inductive Write_Spec (ctx : CTX.t) (s : i_sig_t unit ctx) (f : i_spec_t s): Prop
     := Write_SpecI
     (d0 : memdata)
-    [F]
-    (IJ : InjPre_Frame_Spec [CTX.mka (SLprop.cell p, d0)] ctx {|
+    (IJ : InjPre_SFrame_Spec [CTX.mka (SLprop.cell p, d0)] ctx {|
       sf_csm  := Vector.cons _ true _ (Vector.nil _) <: Sub.t [_];
       sf_prd  := fun _ => [Vprop.mk (SLprop.cell p)];
-    |} s F):
-    Write_Spec ctx s (F (FunProg.Ret (TF.mk0 (fun _ => [memdata]) tt (d, tt)))).
+    |} (FunProg.Ret (TF.mk0 (fun _ => [memdata]) tt (d, tt))) s f).
 
   Program Definition Write : instr CT unit := {|
     i_impl := CP.Write p d;
@@ -61,7 +56,7 @@ Section Write.
   |}.
   Next Obligation.
     destruct SP.
-    apply (Tr_InjPre_Frame IJ); clear IJ.
+    apply (Tr_InjPre_SFrame IJ); clear IJ.
     do 2 intro; cbn in *.
     eapply SP.Cons.
       { apply SP.Write with (d0 := d0). }
@@ -72,12 +67,11 @@ Section Write.
       Apply PRE.
       SL.normalize; reflexivity.
   Qed.
-End Write .
+End Write.
 
 Local Ltac build_Write :=
-  Tac.init_HasSpec_tac ltac:(fun _ =>
-  simple refine (Write_SpecI _ _ _ _ _ _);
-  [ shelve | shelve | (* IJ *) Tac.build_InjPre_Frame ]).
+  simple refine (Write_SpecI _ _ _ _ _ _ _);
+  [ shelve | (* IJ *) Tac.build_InjPre_SFrame ].
 
 Section Loop.
   Context [CT : CP.context] [A B : Type]
@@ -384,7 +378,6 @@ Definition Loop_inv [CT A B]
   := Loop0 (fun x => projT1 (inv x)) (Some (fun x => projT2 (inv x))) ini body.
 
 Ltac build_Loop :=
-  Tac.init_HasSpec_tac ltac:(fun _ =>
   lazymatch goal with |- Loop_Spec ?vinv _ _ _ _ _ _ =>
   simple refine (Loop_SpecI _ _ _ _ _ _ _ _ _ _ _ _);
   [ (* sel0 *) cbn; Tuple.build_shape
@@ -403,12 +396,15 @@ Ltac build_Loop :=
     | (* EF     *) Tac.cbn_refl ]
   ];
   (* IJ spec eq *) Tac.solve_InjPre_sig_eq
-  end).
+  end.
 
 
 Module Tactics.
-  #[export] Hint Extern 1 (Read_Spec       _ _ _ _) => build_Read   : HasSpecDB.
-  #[export] Hint Extern 1 (Write_Spec    _ _ _ _ _) => build_Write  : HasSpecDB.
-  #[export] Hint Extern 1 (Loop_Spec _ _ _ _ _ _ _) => build_Loop   : HasSpecDB.
+  #[export] Hint Extern 1 (Read_Spec       _ _ _ _) =>
+    Tac.init_HasSpec_tac ltac:(fun _ => build_Read)  : HasSpecDB.
+  #[export] Hint Extern 1 (Write_Spec    _ _ _ _ _) =>
+    Tac.init_HasSpec_tac ltac:(fun _ => build_Write) : HasSpecDB.
+  #[export] Hint Extern 1 (Loop_Spec _ _ _ _ _ _ _) =>
+    Tac.init_HasSpec_tac ltac:(fun _ => build_Loop)  : HasSpecDB.
 End Tactics.
 Export Tactics.
