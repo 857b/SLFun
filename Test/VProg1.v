@@ -54,6 +54,20 @@ Proof.
   FunProg.solve_by_wlp.
 Qed.
 
+Goal forall (p : ptr) (n : memdata), exists s f,
+  HasSpec CT
+    ('p1 <- Ret p (pt := fun p => [vptr p~>]);
+     Ret p1 (pt := fun p => [vptr p~>]))
+    [vptr p ~> n]
+    s f /\
+  Tac.display f.
+Proof.
+  do 3 eexists. {
+    Tac.build_HasSpec Tac.post_hint_None.
+  }
+  split.
+Qed.
+
 Section DLet. (* destructive let *)
 
 Goal Test SPEC ((ps, p1) : (ptr * ptr) * ptr)

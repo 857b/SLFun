@@ -1787,7 +1787,7 @@ Module Tac.
   Ltac build_Bind build_f pt_hint :=
     build_Bind_init;
     [ (* S_F *) build_f Tac.post_hint_None
-    | (* f_g *) cbn; intros; shelve
+    | (* f_g *) nant_cbn; intros; shelve
     | (* S_1 *) cbn; intros; build_Bind1 ltac:(fun _ => build_f pt_hint) ].
 
   Ltac build_Call :=

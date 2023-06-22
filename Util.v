@@ -142,6 +142,15 @@ Module Tac.
 
   Ltac cbn_refl := cbn; repeat intro; reflexivity.
 
+  (* non-annotated cbn
+     Contrary to [cbn], this tactic does not add an annotation [_ : original_goal] on
+     the proof term. *)
+  Ltac nant_cbn :=
+    lazymatch goal with |- ?g =>
+    let g' := eval cbn in g in
+    change g'
+    end.
+
   Ltac head_of t k(* head -> ltac *) :=
     lazymatch t with
     | ?t _ => head_of t k
