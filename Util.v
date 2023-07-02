@@ -340,6 +340,12 @@ Module Tac.
 End Tac.
 Export Tac.Notations_Ext.
 
+Ltac splits :=
+  lazymatch goal with
+  | |- and _ _ => split; splits
+  | |- _ => idtac
+  end.
+
 (* Optional argument *)
 
 Class opt_arg (A : Type) (def : A) := get_opt_arg : A.
@@ -663,6 +669,76 @@ Global Arguments sum_map _ _ _ _ _ _ !x.
 
 
 (* propositions *)
+
+Definition unique [A : Type] (e : relation A) (P : A -> Prop) : Prop :=
+  forall x x' : A, P x -> P x' -> e x x'.
+
+Global Add Parametric Morphism A e : (@unique A e)
+  with signature (Morphisms.pointwise_relation A iff) ==> iff
+  as unique_morph.
+Proof.
+  intros P0 P1 E.
+  unfold unique; setoid_rewrite E.
+  reflexivity.
+Qed.
+
+Lemma unique_elim_iff [A e P] (U : @unique A e P) [x : A] (H : P x)
+  (M : forall x x', e x x' -> P x -> P x'):
+  forall x', P x' <-> e x x'.
+Proof.
+  split.
+  - apply U, H.
+  - intro; eapply M; eauto.
+Qed.
+
+
+Definition ex1 [A : Type] (e : relation A) (P : A -> Prop) : Prop :=
+  exists x : A, P x /\ forall x', P x' -> e x x'.
+
+Global Add Parametric Morphism A e : (@ex1 A e)
+  with signature (Morphisms.pointwise_relation A iff) ==> iff
+  as ex1_morph.
+Proof.
+  intros P0 P1 E.
+  unfold ex1; setoid_rewrite E.
+  reflexivity.
+Qed.
+
+Lemma ex1_intro2 [A : Type] (e : relation A) (P : A -> Prop)
+  (E : ex P)
+  (U : unique e P):
+  ex1 e P.
+Proof.
+  case E as [x Px].
+  exists x; intuition.
+Qed.
+
+Lemma ex1_elim_iff [A : Type] [e : relation A] [P : A -> Prop]
+  (M : forall x x', e x x' -> P x -> P x')
+  (EX : ex1 e P):
+  exists x : A, forall x', P x' <-> e x x'.
+Proof.
+  case EX as (x & SAT & UNQ).
+  exists x.
+  split.
+  - apply UNQ.
+  - intros E.
+    apply (M _ _ E), SAT.
+Qed.
+
+Lemma ex1_unique [A : Type] [e : relation A] [P : A -> Prop]
+  {eqv : Equivalence e}
+  (M : forall x x', e x x' -> P x -> P x')
+  (EX : ex1 e P):
+  unique e P.
+Proof.
+  unfold unique.
+  apply ex1_elim_iff in EX as [? E].
+  setoid_rewrite E.
+  - intros ? ? <- <-; reflexivity.
+  - exact M.
+Qed.
+
 
 Lemma exists_eq_const [A : Type] (P : A -> Prop) (x0 : A)
   (C : forall x, P x -> x = x0):

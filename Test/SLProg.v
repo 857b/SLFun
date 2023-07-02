@@ -132,17 +132,22 @@ Proof.
   eapply CP.func_okstate in STEPS; eauto using match_context, context_oracle_free.
   simpl; eexists _, SLprop.True; repeat esplit.
   simpl.
-  eexists (fmem_of_mem m); split. apply match_fmem_of_mem.
-  ecase FMem.build_join as [fm0 FM0]; cycle 1.
-  eexists fm0, (fun p => if Mem.ptr_eq p p0 then None else if Mem.ptr_eq p p1 then None else Some (m p));
-    intuition; cycle 1.
-  - normalize; exists (m p0), (m p1).
-    simpl; eexists _, _; intuition; try reflexivity.
-    exact FM0.
+  eexists (FMem.of_mem m); split. apply FMem.match_of_mem.
+  exists (fun p => UPred.one (if Mem.ptr_eq p p0 then Some (m p0)
+                         else if Mem.ptr_eq p p1 then Some (m p1)
+                            else None)),
+         (fun p => UPred.one (if Mem.ptr_eq p p0 then None
+                         else if Mem.ptr_eq p p1 then None
+                            else Some (m p))).
+  split. {
+    intro p; unfold FMem.of_mem; repeat setoid_rewrite UPred.bind_one.
+    repeat case Mem.ptr_eq as []; subst; constructor.
+  }
+  split.
+  - eexists _, _; split; [|split; (do 2 esplit; [assumption|reflexivity])].
+    intro p; unfold FMem.cell;
+    do 2 case Mem.ptr_eq as [|]; subst; try congruence;
+    repeat setoid_rewrite UPred.bind_one;
+    constructor.
   - constructor.
-  - intro p; generalize (FM0 p); unfold FMem.cell.
-    do 2 case Mem.ptr_eq as [|]; simpl; subst;
-    simplify_eq 1; intros <-; reflexivity.
-  - intro p; unfold FMem.cell; simpl.
-    do 2 case Mem.ptr_eq as [|]; simpl; congruence.
 Qed.

@@ -8,37 +8,6 @@ Import SLNotations.
 Open Scope slprop.
 
 
-Definition match_fmem (f : FMem.t) (m : mem) :=
-  forall p v, f p = Some v -> m p = v.
-
-Definition fmem_of_mem (m : mem) : FMem.t :=
-  fun p => Some (m p).
-
-Lemma match_fmem_of_mem m:
-  match_fmem (fmem_of_mem m) m.
-Proof.
-  injection 1 as ->; reflexivity.
-Qed.
-
-Definition mem_match_sl (sl : SLprop.t) (m : mem) :=
-  exists fm : FMem.t, match_fmem fm m /\ sl fm.
-
-Lemma mem_match_sl_morph_imp (sl0 sl1 : SLprop.t) (slE : SLprop.imp sl0 sl1) (m : mem):
-  mem_match_sl sl0 m -> mem_match_sl sl1 m.
-Proof.
-  intros (fm & ? & ?); exists fm; auto.
-Qed.
-
-Global Add Morphism mem_match_sl
-  with signature SLprop.eq ==> Logic.eq ==> iff
-  as mem_match_sl_morph.
-Proof.
-  symmetric_iff; intros ? ? slE.
-  apply mem_match_sl_morph_imp.
-  rewrite slE; reflexivity.
-Qed.
-
-
 Module Spec. Section Spec.
   Local Set Implicit Arguments.
   Variable A : Type.
@@ -79,8 +48,8 @@ Module Spec. Section Spec.
   |}.
 
   Definition tr (s : t): CP.Spec.t A := {|
-    CP.Spec.pre  := mem_match_sl (pre s);
-    CP.Spec.post := fun _ r => mem_match_sl (post s r);
+    CP.Spec.pre  := SLprop.mem_match (pre s);
+    CP.Spec.post := fun _ r => SLprop.mem_match (post s r);
   |}.
 
   Definition wp_match (s : t) (wp : CP.Spec.wp_t A): Prop :=
@@ -133,10 +102,10 @@ Section SLS.
   Proof.
     intros SLS fr m0; simpl; intro M0.
     eapply CP.wlp_monotone, SLS with (fr := fr); cycle 1; simpl.
-    - eapply mem_match_sl_morph_imp, M0.
+    - eapply SLprop.mem_match_morph_imp, M0.
       apply SLprop.star_morph_imp; [apply LE|reflexivity].
     - intros x m1.
-      apply mem_match_sl_morph_imp, SLprop.star_morph_imp; [apply LE|reflexivity].
+      apply SLprop.mem_match_morph_imp, SLprop.star_morph_imp; [apply LE|reflexivity].
   Qed.
 
   Global Add Parametric Morphism A i : (@sls A i)
@@ -263,7 +232,7 @@ Section SLS.
     Lemma Loop : sls (CP.Loop ini f) (Spec.mk (inv ini) (fun x => inv (inr x))).
     Proof.
       intros fr m0; cbn; intros M0.
-      exists (fun x => mem_match_sl (inv x ** fr)).
+      exists (fun x => SLprop.mem_match (inv x ** fr)).
       split; [|split]; auto.
       - (* PRS *)
         intros x1 m1 M1.
@@ -296,7 +265,7 @@ Section SLS.
     Variable (P : SLprop.t).
 
     Definition sl_assert : @CP.instr SG unit :=
-      CP.Assert (fun m => exists fr, mem_match_sl (P ** fr) m).
+      CP.Assert (fun m => exists fr, SLprop.mem_match (P ** fr) m).
 
     Definition assert_spec (Q : SLprop.t) : Spec.t unit :=
       Spec.mk Q (fun _ => Q).
@@ -306,7 +275,7 @@ Section SLS.
     Proof.
       intros fr m; simpl; intuition eauto.
       exists fr.
-      eapply mem_match_sl_morph_imp; eauto.
+      eapply SLprop.mem_match_morph_imp; eauto.
       apply SLprop.star_morph_imp; auto; reflexivity.
     Qed.
 
@@ -334,9 +303,12 @@ Section SLS.
       SL.normalize.
       eapply SLprop.star_pure; split; auto.
       - apply FM.
-        specialize (JOIN p); unfold FMem.cell in JOIN.
-        case Mem.ptr_eq in JOIN. 2:congruence.
-        case fm_frame in JOIN; simpl in JOIN; congruence.
+        generalize (JOIN p).
+        unfold FMem.cell.
+        case Mem.ptr_eq as []. 2:congruence.
+        rewrite UPred.bind_one, UPred.p_iff_bind.
+        do 2 UPred.auto_Get.
+        inversion 1; reflexivity.
     Qed.
   End Read.
   Section Write.
@@ -352,14 +324,16 @@ Section SLS.
       intros fr m; simpl; intros (fm0 & FM0 & fm_0 & fm_f & J0 & (NNULL & C0) & F0).
       split. exact NNULL.
       rewrite C0 in J0; clear C0 fm_0.
-      exists (fset Mem.ptr_eq p (Some d1) fm0).
+      exists (fset Mem.ptr_eq p (UPred.one (Some d1)) fm0).
       simpl; split.
       - intros q d; unfold Mem.write, fset.
         destruct Mem.ptr_eq. congruence. apply FM0.
       - exists (FMem.cell p d1), fm_f; intuition.
         intro q; generalize (J0 q).
         unfold FMem.cell, fset; case Mem.ptr_eq as [|]; auto.
-        destruct fm_f; simpl; [discriminate 1|reflexivity].
+        do 2 setoid_rewrite UPred.bind_one.
+        do 2 UPred.auto_Get.
+        inversion 1; constructor.
     Qed.
   End Write.
 
