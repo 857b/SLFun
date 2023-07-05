@@ -1625,3 +1625,22 @@ Module VGroup.
     Qed.
   End Test.
 End VGroup.
+
+
+Definition vtrue : Vprop.p unit :=
+  fun _ => SLprop.True.
+
+Module VTrue.
+  Lemma emp_intro_rule u :
+    CTX.Trf.Tac.intro_rule false
+      (vtrue ~> u) []
+      (u = tt) True.
+  Proof.
+    constructor; intros ->; cbn; SL.normalize.
+    split.
+  Qed.
+
+  Module Tactics.
+    #[export] Hint Resolve emp_intro_rule | 1 : CtxTrfDB.
+  End Tactics.
+End VTrue.

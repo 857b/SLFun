@@ -1,4 +1,5 @@
-From SLFun Require Import Util Values SL VProg.Main.
+From SLFun     Require Import Util Values SL VProg.Main.
+From SLFun.Lib Require Malloc.
 
 Import Util.List.
 Import SLNotations ListNotations VProg.Main.Notations FunProg.Notations.
@@ -96,6 +97,21 @@ Definition lcell_unfold p sl:
   CTX.Trf.Tac.unfold_rule (lcell p ~> sl) (VRecord.v (lcell_p p) ~> sl).
 Proof.
   reflexivity.
+Qed.
+
+(* Lemma to create/destruct a list cell from/to a free range of memory,
+   using [Malloc.make_struct]/[Malloc.unmake_struct]. *)
+Global Instance lcell_Struct : Malloc.Struct lcell 2.
+Proof.
+  split; intro p.
+  rewrite Malloc.split_free_range with (n := 1),
+          !Malloc.free_range_1,
+          PeanoNat.Nat.add_1_r
+       by (cbn; auto).
+  unfold Malloc.free_cell, lcell; SL.normalize.
+  apply SLprop.eq_iff_imp; split.
+  - Intro v0; Intro v1; Apply (mk_lcell v0 v1); SL.normalize; reflexivity.
+  - Intro [v0 v1]; Apply v0; Apply v1; SL.normalize; reflexivity.
 Qed.
 
 (* A specification (for a function or a lemma) is declared using the following notation (from [VProg.Core]):
@@ -274,6 +290,10 @@ End Lemmas.
 
 Section Program.
   Variable CT : ConcreteProg.context.
+
+Variables
+  (Init   : Malloc.Init_spec   CT)
+  (Malloc : Malloc.Malloc_spec CT).
 
 (* Set up automatic intro/elim of vprops *)
 Local Hint Resolve lcell_unfold | 1 : CtxTrfDB.
@@ -469,18 +489,64 @@ Proof.
     Intro E; auto.
 Qed.
 
+
+Definition Main_spec : FDecl SPEC
+  (_ : unit)
+  'u [] [Malloc.full_mem ~> u] True
+  '(r : nat) tt [vtrue ~> tt] (r = 1).
+Proof. Derived. Defined.
+Variable Main : Main_spec CT.
+
+Definition Main_impl : FImpl Main := fun _ =>
+  Init tt;;
+  'p <- Malloc 2;
+  gLem (Malloc.make_struct lcell) p;;
+  Write (p_next p) NULL;;
+  gLem intro_lseg_cons (p, NULL, NULL);;
+  'r <- Length p;
+  gLem intro_true (vgroup [Malloc.malloc_env ~>; Malloc.allocated p ~>; llist p ~>]);;
+  Ret r.
+Lemma Main_correct : FCorrect Main_impl.
+Proof.
+  build_fun_spec.
+  FunProg.solve_by_wlp.
+Qed.
+
 End Program.
 
 (* We combine the different functions into a concrete program.
    This also removes the ghost code (erasure) and resolves the dependencies between the functions,
    which can fail. *)
 Derive prog SuchThat (ConcreteProg.of_entries [
-  f_entry Length_spec    Length_loop_correct;
-  f_entry Rev_spec       Rev_correct;
-  f_entry Seg_Next_spec  Seg_Next_correct
+  f_entry Main_spec          Main_correct;
+  f_entry Malloc.Init_spec   Malloc.Init_correct;
+  f_entry Malloc.Malloc_spec Malloc.Malloc_correct;
+  f_entry Length_spec        Length_loop_correct;
+  f_entry Rev_spec           Rev_correct;
+  f_entry Seg_Next_spec      Seg_Next_correct
 ] prog) As prog_correct.
 Proof. Derived. Qed.
 
 (* [prog] is a tuple of function implementation: *)
 (* Print prog. *)
 (* [prog_correct] is a proof that they are correct with respect to their specifications. *)
+
+(* Representation of the program as a function. *)
+Definition IMPL : ConcreteProg.impl_context _ := ConcreteProg.impl_of_list prog.
+
+(* Starting from the main function (identifier 0) and any memory, the program cannot get stuck. *)
+Lemma main_okstate m s'
+  (STEPS  : ConcreteProg.steps IMPL (m, ConcreteProg.get_fun_body IMPL 0 eq_refl tt) s'):
+  ConcreteProg.okstate IMPL s'.
+Proof.
+  eapply ConcreteProg.func_okstate in STEPS; eauto.
+  1,2:apply prog_correct.
+  { cbn.
+    eexists _, SLprop.True.
+    split. 2:reflexivity.
+    unfold tr_f_spec, Spec.tr, Spec.Expanded.tr; cbn.
+    exists tt, tt, Logic.I; cbn; reflexivity. }
+  cbn.
+  eapply SLprop.mem_match_sl_morph; try SL.normalize.
+  apply Malloc.match_full_mem.
+Qed.

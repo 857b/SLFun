@@ -10,6 +10,7 @@ VProg/Core.v
 VProg/Ghost.v
 VProg/Instructions.v
 VProg/Main.v
+Lib/Malloc.v
 Test/ConcreteProg.v
 Test/SLProg.v
 Test/VProg0.v

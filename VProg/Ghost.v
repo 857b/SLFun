@@ -282,16 +282,46 @@ Section Exploit.
 
   Definition gExploit : instr CT unit := gLem exploit_correct tt.
 End Exploit.
+Section Change.
+  Context [CT : CP.context] [A : Type] (P : A -> CTX.t * CTX.t).
 
-Derive elim_empty_group_spec SuchThat (
-  VLem SPEC (_ : unit)
-  'v [] [vgroup [] ~> v] True
-  '(_ : unit) tt [] True
-  elim_empty_group_spec) As elim_empty_group.
-Proof.
-  init_lemma () () ?; reflexivity.
-Qed.
+  Inductive Change_Spec (ctx : CTX.t) (s : i_sig_t unit ctx) (f : i_spec_t s) : Prop
+    := Change_SpecI
+    (p : A)
+    (IJ : InjPre_SFrame_Spec (fst (P p)) ctx {|
+      sf_csm  := Sub.const (fst (P p)) true;
+      sf_prd  := fun _ => VpropList.of_ctx (snd (P p));
+    |} (FunProg.Bind (FunProg.Assert (SLprop.imp (CTX.sl (fst (P p))) (CTX.sl (snd (P p))))) (TF.of_fun (fun _ =>
+        FunProg.Ret (TF.mk _ tt (VpropList.sel_of_ctx (snd (P p)))))))
+    s f).
+  
+  Program Definition gChange : instr CT unit := {|
+    i_impl := CP.Ret tt;
+    i_spec := fun ctx => Change_Spec ctx;
+  |}.
+  Next Obligation.
+    destruct SP.
+    apply (Tr_InjPre_SFrame IJ); clear IJ.
+    do 2 intro; cbn in *.
+    case PRE as (IMP & POST); cbn in POST.
+    apply SP.CRet.
+    EApply. Apply POST.
+    rewrite TF.to_of_tu, VpropList.inst_of_ctx, CTX.sl_app.
+    unfold Sub.neg, Sub.const; rewrite Vector.map_const, CTX.Sub.sub_const_false.
+    SL.normalize; exact IMP.
+  Qed.
+End Change.
 
+Local Ltac build_Change :=
+  simple refine (Change_SpecI _ _ _ _ _ _);
+  [ shelve
+  | (* IJ *)
+    cbn;
+    (* [p : A] can be a tuple let-matched by [P] *)
+    repeat lazymatch goal with |- InjPre_SFrame_Spec (fst ?x) _  _ _ _ _ =>
+      Tac.build_matched_shape x; cbn
+    end;
+    Tac.build_InjPre_SFrame ].
 
 Section GGet.
   Context [CT : CP.context] [A : Type] (v : Vprop.p A).
@@ -372,9 +402,37 @@ Local Ltac build_Assert :=
     end;
     Tac.build_InjPre_SFrame ].
 
+
+(* Lemmas for common vprops *)
+
+Derive elim_empty_group_spec SuchThat (
+  VLem SPEC (_ : unit)
+  'v [] [vgroup [] ~> v] True
+  '(_ : unit) tt [] True
+  elim_empty_group_spec) As elim_empty_group.
+Proof.
+  init_lemma () () ?; reflexivity.
+Qed.
+
+Section Intro_True.
+  Context {A : Type}.
+
+Derive intro_true_spec SuchThat (
+  VLem SPEC (v : Vprop.p A)
+  'sel [] [v ~> sel] True
+  '(_ : unit) tt [vtrue ~> tt] True
+  intro_true_spec) As intro_true.
+Proof.
+  init_lemma ? ? ?; split.
+Qed.
+End Intro_True.
+
+
 Module Tactics.
   #[export] Hint Extern 1 (Rewrite_Spec _ _ _ _ _) =>
     Tac.init_HasSpec_tac ltac:(fun _ => build_Rewrite) : HasSpecDB.
+  #[export] Hint Extern 1 (Change_Spec _ _ _ _) =>
+    Tac.init_HasSpec_tac ltac:(fun _ => build_Change)  : HasSpecDB.
   #[export] Hint Extern 1 (GGet_Spec      _ _ _ _) =>
     Tac.init_HasSpec_tac ltac:(fun _ => build_GGet)    : HasSpecDB.
   #[export] Hint Extern 1 (Assert_Spec    _ _ _ _) =>

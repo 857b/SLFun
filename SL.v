@@ -1525,12 +1525,12 @@ Module SLprop.
     - left; case y; reflexivity.
   Qed.
 
-  Lemma all_1 h:
+  Lemma all_1_unit h:
     SLprop.eq (@all unit Logic.eq (fun _ => h)) h.
   Proof.
     setoid_rewrite <- star_emp_r at 3.
     setoid_rewrite <- all_2.
-    eapply all_F with (F := fun _ b => b = true);
+    apply all_F with (F := fun _ b => b = true);
       intuition subst; auto; try reflexivity.
     - case x, x'; reflexivity.
     - right; eauto.
@@ -1538,6 +1538,22 @@ Module SLprop.
       + right; exists tt; reflexivity.
       + left; reflexivity.
   Qed.
+
+  Lemma all_1 (h : t) [A] (eA : relation A) (hs : A -> t)
+    (U : forall x0 x1, eA x0 x1)
+    (H : forall x, SLprop.eq (hs x) h)
+    (E : inhabited A):
+    SLprop.eq (@all A eA hs) h.
+  Proof.
+    etransitivity. 2:apply all_1_unit.
+    apply all_F with (F := fun _ _ => True); auto.
+    - intros ? ? [] []; intuition.
+    - intros; rewrite !H; reflexivity.
+    - reflexivity.
+    - right; exists tt; split.
+    - right; case E as [x]; eauto.
+  Qed.
+
 
   Lemma all_split [A] (f : A -> bool) (eA : relation A) (hs : A -> t)
     {eA_eqv : Equivalence eA}
@@ -1564,6 +1580,37 @@ Module SLprop.
         auto_tc; eauto.
       1,2,3:intuition subst; auto; try reflexivity.
       + intros ? b ->; case b; reflexivity.
+  Qed.
+
+  Lemma all_sub_conj [A] (eA : relation A) (P0 : A -> Prop) (P1 : A -> Prop) (hs : A -> t)
+    {_ : Reflexive eA}
+    (HmH : forall x0 x1, eA x0 x1 -> SLprop.eq (hs x0) (hs x1)):
+    SLprop.eq
+      (@all {x : sig P0 | P1 (proj1_sig x)}
+            (fun x0 x1 => eA (proj1_sig (proj1_sig x0)) (proj1_sig (proj1_sig x1)))
+            (fun x => hs (proj1_sig (proj1_sig x))))
+      (@all_sub A eA (fun x => P0 x /\ P1 x) hs).
+  Proof.
+    apply all_F with (F := fun x y => proj1_sig (proj1_sig x) = proj1_sig y); auto.
+    - intros [[]] [[]] [] [] -> ->; cbn; reflexivity.
+    - intros [[]] [] ->; cbn; reflexivity.
+    - intros [[x]]; right.
+      unshelve eexists (exist _ x _); cbn; auto.
+    - intros [x []]; right.
+      unshelve eexists (exist _ (exist _ x _) _); cbn; auto.
+  Qed.
+
+  Lemma all_sub_iff [A] (eA : relation A) (P0 : A -> Prop) (P1 : A -> Prop) (hs : A -> t)
+    {_ : Reflexive eA}
+    (HmH : forall x0 x1, eA x0 x1 -> SLprop.eq (hs x0) (hs x1))
+    (P_iff : forall x, P0 x <-> P1 x):
+    SLprop.eq (all_sub eA P0 hs) (all_sub eA P1 hs).
+  Proof.
+    apply all_F with (F := fun x y => proj1_sig x = proj1_sig y); auto.
+    3,4:intros [x]; right; unshelve eexists (exist _ x _); cbn; auto;
+        apply P_iff; auto.
+    - intros [] [] [] [] -> ->; cbn; reflexivity.
+    - intros [] [] ->; cbn; reflexivity.
   Qed.
 
 
