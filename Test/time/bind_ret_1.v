@@ -23,13 +23,13 @@ Definition Test_impl : FImpl Test := fun '(p0, _) =>
 
 Lemma Test_correct : FCorrect Test_impl.
 Proof.
-  time "correct" (
+  time "tactics" (
   intro;
   time "build_impl_match" Tac.build_impl_match;
   time "simpl_prog_1" FunProg.simpl_prog;
   time "simpl_prog_2" FunProg.simpl_prog;
   time "build_wlp"    FunProg.by_wlp;
   time "solve_wlp"    FunProg.solve_wlp).
-Qed.
+Time Qed.
 
 End Test.
