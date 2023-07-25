@@ -140,7 +140,8 @@ Module Tac.
 
   Inductive display [A : Type] (x : A) : Prop := mk_display.
 
-  Ltac cbn_refl := cbn; repeat intro; reflexivity.
+  Local Tactic Notation "ret_constr" constr(t) :=
+    constr:(ltac:(exact t)).
 
   (* non-annotated cbn
      Contrary to [cbn], this tactic does not add an annotation [_ : original_goal] on
@@ -151,50 +152,70 @@ Module Tac.
     change g'
     end.
 
-  Ltac head_of t k(* head -> ltac *) :=
-    lazymatch t with
-    | ?t _ => head_of t k
-    | _    => k t
+  Ltac cbn_refl :=
+    nant_cbn; repeat intro;
+    lazymatch goal with |- @eq ?A ?x _ =>
+    exact (@eq_refl A x)
     end.
 
-  Ltac matched_term t k :=
+  (* Returns the body of a local definition [l]. *)
+  Ltac body_of l :=
+    eval cbv delta [l] in l.
+
+  (* Returns the head of an application [h arg0...arg9] *)
+  Ltac head_of t :=
     lazymatch t with
-    | (match ?x with _ => _ end) => k x
+    | ?t _ => head_of t
+    | _    => t
+    end.
+
+  (* Given [t := match x with _ end], returns [x] *)
+  Ltac matched_term t :=
+    lazymatch t with
+    | (match ?x with _ => _ end) => x
     | _ => fail "matched_term" t
     end.
 
-  Tactic Notation "dummy_goal" uconstr(G) :=
-    let D := fresh "Dummy" in
-    unshelve eassert G as D;
-    [..|clear D].
+  (* Adds a local definition [x] of type [ty] and builds its body
+     using [build], possibly leaving evars *)
+  Ltac pose_build x ty build :=
+    epose (x := ltac:(
+      instantiate (1 := ty);
+      build tt
+    )).
 
-  Ltac build_term t build :=
-    dummy_goal (t = _);
-    [ build tt | reflexivity | ].
+  (* Given a term [t] of type [ty] containing evars,
+     builds a term [t' : ty] using [build] and unify [t] with [t'] *)
+  Ltac build_unify t build :=
+    let ty  := type of t   in
+    let tmp := fresh "tmp" in
+    pose_build tmp ty build;
+    let t' := body_of tmp in
+    clear tmp;
+    unify t t'.
 
+  (* Instantiates an evar [e] using [build]. *)
   Ltac build_evar e build :=
+    is_evar e;
     let tmp := fresh "_tmp" in
     pose (tmp := e);
     unshelve instantiate (1 := _) in (value of tmp);
     [ build tt
     | clear tmp ].
 
-  Ltac pose_build x ty build :=
-    evar (x : ty);
-    unshelve instantiate (1 := _) in (value of x); [build tt|].
-
-  Ltac term_build ty build k(* term -> ltac *) :=
+  (* Continues with a term of type [ty] built using [build]. *)
+  Ltac build_term ty build k(* term -> ltac *) :=
     let tmp := fresh "_tmp" in
-    unshelve epose (tmp := _ : ty);
-     [ build tt
-     | let t := eval cbv delta [tmp] in tmp in
-       clear tmp;
-       k t ].
+    pose_build tmp ty build;
+    let bdy := body_of tmp in
+    clear tmp;
+    k bdy.
 
+  (* Continues with a fresh evar of type [ty]. *)
   Ltac mk_evar ty k(* term -> ltac *) :=
     let tmp := fresh "_tmp" in
     evar (tmp : ty);
-    let e   := eval cbv delta [tmp] in tmp in
+    let e   := body_of tmp in
     clear tmp;
     k e.
 
@@ -282,8 +303,9 @@ Module Tac.
     unfold gl; clear gl
     end.
 
-  (* given [t] with shape [match x with _ => _ end arg0 ... arg9],
-     continue with [k t' rev_args] where:
+  (* Given [t] with shape [match x with _ => _ end arg0 ... arg9],
+     and [case_x] is convertible to [x],
+     continues with [k t' rev_args] where:
      - [t'] is [match case_x with _ => _ end arg0' ... arg9']
        where [arg'_i := arg_i]
      - [rev_args tt] generalize [arg0' ... arg9']
@@ -316,25 +338,24 @@ Module Tac.
     eapply apply_Arrow_lem in H; cycle 1.
 
 
-  (* given [u := x0 :: ... :: x9 :: tail], call [f tail] *)
-  Ltac elist_tail u f :=
-    let rec iter u :=
-      lazymatch u with
-      | cons _ ?u => iter u
-      | _         => f u
-      end
-    in iter u.
+  (* Given [u := x0 :: ... :: x9 :: tail], returns [tail] *)
+  Ltac elist_tail u :=
+    lazymatch u with
+    | cons _ ?u => elist_tail u
+    | _         => u
+    end.
 
-  (* given [u := x0 :: ... :: x9 :: ?tail], instantiate [?tail] to [x :: ?tail'] *)
+  (* Given [u := x0 :: ... :: x9 :: ?tail], instantiates [?tail] to [x :: ?tail'] *)
   Ltac elist_add u x :=
-    elist_tail u ltac:(fun tail =>
-    build_evar tail ltac:(fun _ => refine (cons x _); shelve)).
+    let tail := elist_tail u in
+    build_evar tail ltac:(fun _ => refine (cons x _); shelve).
 
-  (* given [u := x0 :: ... :: x9 :: ?tail], instantiate [?tail] to [nil] *)
+  (* Given [u := x0 :: ... :: x9 :: ?tail], instantiates [?tail] to [nil] *)
   Ltac elist_end u :=
-    elist_tail u ltac:(fun tail =>
-    build_evar tail ltac:(fun _ => refine nil)).
+    let tail := elist_tail u in
+    build_evar tail ltac:(fun _ => refine nil).
 
+  (* Fixpoint operator *)
   Ltac iter f(* (unit -> ltac) -> ltac *) :=
     f ltac:(fun _ => iter f).
 End Tac.

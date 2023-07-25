@@ -932,7 +932,7 @@ Module CTX.
         end.
 
       Ltac commit_trf_B c :=
-        build_term c ltac:(fun _ => left; solve [split]).
+        build_unify c ltac:(fun _ => left; solve [split]).
  
       Ltac commit_parents_B ps :=
         lazymatch ps with
@@ -952,7 +952,7 @@ Module CTX.
       Ltac cancel_tr_opt_B c :=
         lazymatch c with
         | None                => idtac
-        | Some (mk_cb _ _ ?c) => Util.Tac.build_term c ltac:(fun _ => right; solve [split])
+        | Some (mk_cb _ _ ?c) => Util.Tac.build_unify c ltac:(fun _ => right; solve [split])
         end.
 
       Ltac mark_A n sA :=

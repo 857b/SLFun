@@ -384,9 +384,9 @@ Ltac build_instr_morphism :=
   | Oracle _     => exact (instr_morph_refl e)
   | Loop _ _ _ _ => refine (instr_moprh_Loop e); shelve
   | _ =>
-      Tac.head_of i ltac:(fun i_head =>
-      Tac.matched_term i_head ltac:(fun x =>
-      build_instr_morphism_match x))
+      let i_head := Tac.head_of i      in
+      let x := Tac.matched_term i_head in
+      build_instr_morphism_match x
   end
   | |- ?g => fail "instr_morph" g
   end.
@@ -574,17 +574,15 @@ Ltac build_wlp_formula :=
       lazymatch dmatch with
       | true =>
           (* TODO? handle more general matches *)
-          Tac.matched_term i ltac:(fun x =>
+          let x := Tac.matched_term i      in
           tryif Tac.is_single_case x
           then build_wlp_formula_dlet   build x
           else build_wlp_formula_branch build x
-          )
       | false =>
-          Tac.head_of i ltac:(fun i_head =>
-          Tac.matched_term i_head ltac:(fun x =>
+          let i_head := Tac.head_of i      in
+          let x := Tac.matched_term i_head in
           init_wlp_formula_match x;
           build tt
-          ))
       end)
   end
   | |- ?g => fail "build_wlp_formula:1" g
@@ -887,7 +885,7 @@ Ltac build_simpl_cont :=
       try refine (simpl_cont_Call_triv _);
       refine (simpl_cont_def _ _) ]
   | _ =>
-      Tac.head_of i ltac:(fun i_head =>
+      let i_head := Tac.head_of i in
       lazymatch i_head with
       | (match ?x with _ => _ end) =>
           (tryif Tac.is_single_case x
@@ -900,7 +898,7 @@ Ltac build_simpl_cont :=
           le_instr_morph;
           refine (le_by_simpl_cont _);
           build_simpl_cont
-      end)
+      end
   end
   | |- ?g => fail "build_simpl_cont" g
   end.

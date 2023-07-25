@@ -1559,7 +1559,7 @@ Module Tac.
      partially instantiate [?u] by applying the constructor, allowing the let to be reduced. *)
   Ltac build_matched_shape t :=
     lazymatch t with (match ?p with _ => _ end) =>
-      build_term p ltac:(fun _ => econstructor; shelve)
+      build_unify p ltac:(fun _ => econstructor; shelve)
     end.
   
   Ltac case_until_triv :=
@@ -1570,9 +1570,9 @@ Module Tac.
 
   Ltac of_expanded_arg :=
     lazymatch goal with |- _ (match ?x with _ => _ end) ?s =>
-      Tac.build_term s ltac:(fun _ => destruct x; shelve);
+      Tac.build_unify s ltac:(fun _ => destruct x; shelve);
       destruct x;
-      cbn;
+      nant_cbn;
       of_expanded_arg
     | _ => idtac
     end.
@@ -1588,12 +1588,12 @@ Module Tac.
   (* solves a goal [f_spec_equiv e ?s],
      instantiates [?s] *)
   Ltac build_of_expanded :=
-    hnf; cbn;
+    hnf; nant_cbn;
     intro (* arg  *); of_expanded_arg;
     intro (* gi   *); of_expanded_arg;
-    refine (Spec.Expanded.of_expanded0I _ _ _); cbn;
+    refine (Spec.Expanded.of_expanded0I _ _ _); nant_cbn;
     intro (* sel0 *); of_expanded_arg;
-    refine (Spec.Expanded.of_expanded1I _ _ _); cbn;
+    refine (Spec.Expanded.of_expanded1I _ _ _); nant_cbn;
     (* ret, TODO? allow matching *)
     try lazymatch goal with |- forall x, _ (match x with _ => _ end) _ =>
       idtac "WARNING: matching on the returned value is not supported, use projections instead"
@@ -1601,9 +1601,9 @@ Module Tac.
     intro (* ret *);
     simple refine (Spec.Expanded.of_expanded2I _ _ _ _ _ _);
     [ shelve | shelve | shelve | shelve
-    | (* sel1_TU_GOAL *) cbn; intro (* sel1 *); Tuple.build_type_iso_tu
+    | (* sel1_TU_GOAL *) nant_cbn; intro (* sel1 *); Tuple.build_type_iso_tu
     | shelve | (* S_VPOST *) Tac.cbn_refl
-    | shelve | (* S3      *) cbn; repeat intro; refine (Spec.Expanded.of_expanded3I _) ].
+    | shelve | (* S3      *) nant_cbn; repeat intro; refine (Spec.Expanded.of_expanded3I _) ].
 
   Local Lemma mk_red_FSpec [sg : f_sig] [sgh : f_sigh sg] [e : f_spec_exp sgh]
     [s0 s1 : f_spec sgh]
@@ -1619,7 +1619,7 @@ Module Tac.
   Ltac build_FSpec :=
     refine (mk_red_FSpec _ _);
     [ build_of_expanded
-    | cbn; reflexivity ].
+    | nant_cbn; reflexivity ].
 
   (* solves a goal [FDecl espec] *)
   Ltac build_FDecl :=
@@ -1650,7 +1650,7 @@ Module Tac.
     simple refine (mk_red_VLem _ _ _);
     [ shelve
     | (* E *) build_of_expanded
-    | (* R *) cbn; reflexivity
+    | (* R *) nant_cbn; reflexivity
     | (* L *) try clear s ]
     end.
 
@@ -1687,7 +1687,7 @@ Module Tac.
   (* build_HasSpec *)
 
   Ltac i_sig_reflexivity :=
-    cbn;
+    nant_cbn;
     lazymatch goal with |- @i_sig_eq ?ctxn ?A ?FT ?csm0 ?prd0 ?F0 _ _ _ =>
       exact (@i_sig_eq_refl ctxn A FT csm0 prd0 F0)
     end.
@@ -1704,8 +1704,8 @@ Module Tac.
   (* solves a goal [TrSpec SPEC s (mk_i_sig csm prd) ?F] *)
   Ltac build_Tr_change_exact :=
     simple refine (Tr_change_exact _ _ _);
-    [ (* rsel *) cbn; intros; Tuple.build_shape
-    | (* RSEL *) cbn; intros; CTX.Trf.Tac.build_t
+    [ (* rsel *) nant_cbn; intros; Tuple.build_shape
+    | (* RSEL *) nant_cbn; intros; CTX.Trf.Tac.build_t
     | (* E    *) Tac.i_sig_reflexivity ].
 
   (* solves a goal [InjPre_Spec m ctx ?add s ?s' ?F]
@@ -1732,7 +1732,7 @@ Module Tac.
 
   (* solves a goal [InjPre_SFrame_Spec m ctx s f ?s' ?f'] *)
   Ltac build_InjPre_SFrame :=
-    cbn;
+    nant_cbn;
     lazymatch goal with |- @InjPre_SFrame_Spec ?m ?ctx ?A ?s ?f ?s' ?f' =>
     Tac.mk_evar (Sub.t ctx) ltac:(fun csm' =>
     Tac.mk_evar (A -> VpropList.t) ltac:(fun prd' =>
@@ -1788,15 +1788,15 @@ Module Tac.
     build_Bind_init;
     [ (* S_F *) build_f Tac.post_hint_None
     | (* f_g *) nant_cbn; intros; shelve
-    | (* S_1 *) cbn; intros; build_Bind1 ltac:(fun _ => build_f pt_hint) ].
+    | (* S_1 *) nant_cbn; intros; build_Bind1 ltac:(fun _ => build_f pt_hint) ].
 
   Ltac build_Call :=
     simple refine (Call_SpecI _);
     [ shelve
     | (* IJ *)
-      cbn;
+      nant_cbn;
       repeat lazymatch goal with |- InjPre_SFrame_Spec (Spec.pre ?x ++ _) _  _ _ _ _ =>
-        Tac.build_matched_shape x; cbn
+        Tac.build_matched_shape x; nant_cbn
       end;
       build_InjPre_SFrame ].
 
@@ -1858,7 +1858,7 @@ Module Tac.
 
     Tac.mk_evar (Sub.t ctx) ltac:(fun csm' =>
     Tac.mk_evar (A' -> VpropList.t) ltac:(fun prd' =>
-    Tac.term_build (i_spec_t (@mk_i_sig A' ctx' csm' prd')) ltac:(fun _ =>
+    Tac.build_term (i_spec_t (@mk_i_sig A' ctx' csm' prd')) ltac:(fun _ =>
       rev_args tt; case case_x as []; intros; shelve) ltac:(fun f' =>
     unify s (@mk_i_sig A' ctx' csm' prd');
     unify f f';
@@ -1871,7 +1871,7 @@ Module Tac.
 
   Ltac build_HasSpec_dlet build_f x :=
     Tac.case_in_HasSpec x ltac:(fun case_x CT A A' i' ctx ctx' s f rev_args =>
-      rev_args tt; case case_x as []; intros; cbn;
+      rev_args tt; case case_x as []; intros; nant_cbn;
       simple refine (Tac.change_HasSpec_sig CT _ _ _  _ _  _ _ _  _ _);
       [ (* s0 *) shelve | (* f0 *) shelve | (* F *) shelve
       | (* H  *) build_f tt
@@ -1883,10 +1883,10 @@ Module Tac.
   Ltac build_HasSpec_branch build_f x :=
     Tac.case_in_HasSpec x ltac:(fun case_x CT A A' i' ctx ctx' s f rev_args =>
       let ctxn := eval cbv in (length ctx) in
-      Tac.term_build (list (Vector.t bool ctxn)) ltac:(fun _ =>
+      Tac.build_term (list (Vector.t bool ctxn)) ltac:(fun _ =>
         clear; shelve) ltac:(fun csms1 =>
 
-      rev_args tt; case case_x as []; (intros; cbn;
+      rev_args tt; case case_x as []; (intros; nant_cbn;
       lazymatch goal with |- @HasSpec _ ?A0 ?i0 ?ctx0 ?s1 ?f1 =>
       Tac.mk_evar (i_sig_t A0 ctx0) ltac:(fun s0 =>
       simple refine (@transform_spec CT A0 ctx0 i0 s0 s1 _ _  _ _);
@@ -1921,7 +1921,7 @@ Module Tac.
 
   (* solves a goal [HasSpec i ctx ?s ?f] *)
   Ltac build_HasSpec pt_hint(* pt_hint_t *) :=
-    cbn;
+    nant_cbn;
     lazymatch goal with |- @HasSpec ?C ?A ?i ?ctx ?s ?f =>
     let i' := eval hnf in i in
     intro_evar_args s ltac:(fun s' =>
@@ -1941,12 +1941,11 @@ Module Tac.
             solve_db HasSpecDB
         end
     | _ =>
-        Tac.head_of i' ltac:(fun i_head =>
-        Tac.matched_term i_head ltac:(fun x =>
+        let i_head := Tac.head_of i'     in
+        let x := Tac.matched_term i_head in
         tryif is_single_case x
         then build_HasSpec_dlet   ltac:(fun _ => build_HasSpec pt_hint) x (* destructive let *)
         else build_HasSpec_branch ltac:(fun _ => build_HasSpec pt_hint) x (* multiple branches *)
-        ))
     end end.
 
   Ltac init_HasSpec_tac k(* pt_hint_t -> ltac *) :=
@@ -1992,52 +1991,52 @@ Module Tac.
         refine (exists_eq_const _ _ (fun x => _));
         repeat refine (ex_ind (fun x => _));
         refine (elim_tuple_eq_conj _);
-        cbn; repeat intro; eassumption
+        nant_cbn; repeat intro; eassumption
         |]
       | (* otherwise, conitinue with the next [exists] *)
         refine (Morphisms_Prop.ex_iff_morphism _ _ (fun x => _))
       | (* if no more [exists] remains *)
         reflexivity
       ]
-    | cbn;
+    | nant_cbn;
       repeat refine (Morphisms_Prop.ex_iff_morphism _ _ (fun x => _));
       refine (simpl_tuple_eq_conj _ _);
       (* remove trivial equalities [x = x] *)
-      [ cbn;
+      [ nant_cbn;
         repeat first [ refine (simpl_and_list_r1 eq_refl _)
                      | refine (simpl_and_list_e1 _) ];
         exact simpl_and_list_0
-      | cbn; reflexivity ]
+      | nant_cbn; reflexivity ]
     ].
 
   Ltac build_impl_match_init :=
     (* destruct arg *)
-    cbn;
+    nant_cbn;
     repeat lazymatch goal with
-    |- impl_match _ _ (match ?x with _ => _ end) => destruct x; cbn
+    |- impl_match _ _ (match ?x with _ => _ end) => destruct x; nant_cbn
     end;
-    refine (intro_impl_match1 _); cbn;
+    refine (intro_impl_match1 _); nant_cbn;
     (* intro and destruct gi *)
     intro;
     repeat lazymatch goal with
-    |- forall _ : Spec.sel0_t (match ?x with _ => _ end), _ => destruct x; cbn
+    |- forall _ : Spec.sel0_t (match ?x with _ => _ end), _ => destruct x; nant_cbn
     end;
     (* intro and destruct sel0 *)
     intro;
     repeat lazymatch goal with
-    |- Impl_Match _ _ (match ?x with _ => _ end) => destruct x; cbn
+    |- Impl_Match _ _ (match ?x with _ => _ end) => destruct x; nant_cbn
     end;
 
     simple refine (Impl_MatchI _ _ _);
-    [ (* f *) shelve | (* F *) cbn | (* ex_sel1 *) shelve
-    | (* EX_SEL1 *) cbn; repeat intro; simplify_ex_eq_tuple
+    [ (* f *) shelve | (* F *) nant_cbn | (* ex_sel1 *) shelve
+    | (* EX_SEL1 *) nant_cbn; repeat intro; simplify_ex_eq_tuple
     | (* WLP *) ].
 
   (* change a goal [impl_match CT vprog spec] into a condition [forall (REQ : req), wlp f post] *)
   Ltac build_impl_match :=
     build_impl_match_init;
     [ (* F   *) build_HasSpec_exact
-    | (* WLP *) cbn ].
+    | (* WLP *) nant_cbn ].
 
   Lemma erase_cont_change [SG A B i k] r0 [r1]
     (C : CP.erase_cont i k r0)
@@ -2069,14 +2068,14 @@ Module Tac.
     )end.
 
   Ltac build_erase_cont :=
-    cbn;
+    nant_cbn;
     lazymatch goal with | |- @CP.erase_cont ?SG ?A ?B ?i ?k ?r =>
     intro_evar_args r ltac:(fun r' =>
     change (@CP.erase_cont SG A B i k r');
 
     lazymatch i with
     | i_impl ?v =>
-        head_of v ltac:(fun v_head =>
+        let v_head := head_of v in
         lazymatch v_head with
         | (match ?x with _ => _ end) =>
             build_erase_cont_match ltac:(fun _ => build_erase_cont) x
@@ -2084,7 +2083,7 @@ Module Tac.
             let v' := eval hnf in v in
             progress change (@CP.erase_cont SG A B (i_impl v') k r');
             build_erase_cont
-        end)
+        end
     | _ =>
         CP.build_erase_cont_k build_erase_cont
     end)
