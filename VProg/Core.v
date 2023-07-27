@@ -1919,6 +1919,14 @@ Module Tac.
       Tac.build_Tr_change_exact
     )).
 
+  Local Lemma change_HasSpec_spec CT A i ctx s f0 f1
+    (H : HasSpec CT i ctx s f0)
+    (E : f0 = f1):
+    @HasSpec CT A i ctx s f1.
+  Proof.
+    case E; exact H.
+  Qed.
+
   (* solves a goal [HasSpec i ctx ?s ?f] *)
   Ltac build_HasSpec pt_hint(* pt_hint_t *) :=
     nant_cbn;
@@ -1926,8 +1934,9 @@ Module Tac.
     let i' := eval hnf in i in
     intro_evar_args s ltac:(fun s' =>
     intro_evar_args f ltac:(fun f' =>
-    change (@HasSpec C A i' ctx s' f')));
-
+    simple refine (change_HasSpec_spec C A i' ctx s' _ f' _ _)));
+    [ (* f0 *) shelve
+    | (* H  *)
     lazymatch i' with
     | mk_instr _ =>
         refine (HasSpec_ct _);
@@ -1946,7 +1955,11 @@ Module Tac.
         tryif is_single_case x
         then build_HasSpec_dlet   ltac:(fun _ => build_HasSpec pt_hint) x (* destructive let *)
         else build_HasSpec_branch ltac:(fun _ => build_HasSpec pt_hint) x (* multiple branches *)
-    end end.
+    end
+    | (* E  *)
+      abstract_refl
+    ]
+    end.
 
   Ltac init_HasSpec_tac k(* pt_hint_t -> ltac *) :=
     load_post_hint k.

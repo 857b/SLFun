@@ -228,6 +228,19 @@ Module Tac.
     intros n H
     end.
 
+  (* On a goal [x0 = ?x1],
+     saves [x0] in a transparent lemma and instantiates [x1] using this lemma. *)
+  Ltac abstract_refl :=
+    lazymatch goal with |- ?x0 = _ =>
+      (* See https://github.com/coq/coq/issues/16534#issuecomment-1256930507 *)
+      let x0 := eval cbv beta in x0 in
+      is_ground x0;
+      unshelve instantiate (1 := _);
+      [ transparent_abstract (exact x0) |]
+    end;
+    lazymatch goal with |- @eq ?T _ ?x1 =>
+      exact (@eq_refl T x1)
+    end.
 
   (* [t] must be a term [?evar arg0 ... arg9].
      Instantiate [?evar] by introducing the arguments, continue with a reduced
@@ -324,6 +337,7 @@ Module Tac.
           k (t' arg')
             ltac:(fun _ => generalize arg'; clear arg'; rev_args tt)
         )
+    | _ => fail "generalize_match_args" t
     end.
 
 

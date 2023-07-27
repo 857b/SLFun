@@ -857,9 +857,10 @@ Ltac init_simpl_cont_match x :=
 (* solves a goal [simpl_cont i k ?r] *)
 Ltac build_simpl_cont :=
   cbn;
-  lazymatch goal with | |- @simpl_cont ?A ?B ?i ?k ?r =>
-  Tac.intro_evar_args r ltac:(fun r' =>
-  change (@simpl_cont A B i k r'));
+  lazymatch goal with | |- @simpl_cont ?A ?B ?i0 ?k ?r0 =>
+  let i := eval hnf in i0 in
+  Tac.intro_evar_args r0 ltac:(fun r =>
+  change (@simpl_cont A B i k r));
 
   lazymatch i with
   | Ret _ =>
