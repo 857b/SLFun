@@ -211,6 +211,21 @@ Module Tac.
     clear tmp;
     k bdy.
 
+  (* Builds a term of type [ty] using [build], abstracts it and continues with the
+     resulting lemma. *)
+  Ltac build_abstract ty build k(* term -> ltac *) :=
+    let tmp := fresh "_tmp" in
+    unshelve epose (tmp := _);
+    [ exact ty | transparent_abstract build tt | ];
+    let r := body_of tmp in
+    clear tmp;
+    k r.
+
+  (* Abstracts the term [t] *)
+  Ltac abstract_term t k(* term -> ltac *) :=
+    let ty := type of t in
+    build_abstract ty ltac:(fun _ => exact t) k.
+
   (* Continues with a fresh evar of type [ty]. *)
   Ltac mk_evar ty k(* term -> ltac *) :=
     let tmp := fresh "_tmp" in
@@ -236,7 +251,7 @@ Module Tac.
       let x0 := eval cbv beta in x0 in
       is_ground x0;
       unshelve instantiate (1 := _);
-      [ transparent_abstract (exact x0) |]
+      [ transparent_abstract exact x0 |]
     end;
     lazymatch goal with |- @eq ?T _ ?x1 =>
       exact (@eq_refl T x1)
@@ -593,6 +608,24 @@ Module List.
     | ForallT_nil  _      => nil
     | ForallT_cons x y ys => f x y :: rec _ ys
     end.
+
+  Definition ForallT_of_sigT [A : Type] (P : A -> Type):
+    forall u : list (sigT P), ForallT P (map (@projT1 _ _) u)
+    := fix rec u {struct u} :=
+    match u with
+    | nil     => ForallT_nil P
+    | x :: xs => ForallT_cons (projT1 x) (projT2 x) (rec xs)
+    end.
+
+  Definition ForallT_to_sigT [A : Type] (P : A -> Type):
+    forall (u : list A) (v : ForallT P u), {s : list (sigT P) | map (@projT1 _ _) s = u}.
+  Proof.
+    fix rec 2; intros ? [|x xs y v].
+    - exists []; reflexivity.
+    - case (rec xs v) as [ys E].
+      exists (existT P x y :: ys).
+      rewrite <- E; reflexivity.
+  Defined.
 
   (* Transparent lemmas *)
 

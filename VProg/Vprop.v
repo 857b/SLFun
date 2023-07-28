@@ -589,8 +589,21 @@ Module CTX.
       Section WitA.
         Inductive wit_A : CTX.atom -> Type :=
           | WitAAtom (i : ord_t) (a : atom) : wit_A a
-          | WitATrf [rev : bool] [a : atom] [r : CTX.t] (T : Trf.atomt rev [a] r)
+          | WitATrf0 [rev : bool] [a : atom] [r : CTX.t] (T : Trf.atomt rev [a] r)
               (C : ForallT wit_A r) : wit_A a.
+
+        Definition WitATrf [rev : bool] [a : atom]
+          (cs : list (sigT wit_A)) (T : Trf.atomt rev [a] (map (@projT1 _ _) cs)):
+          wit_A a :=
+          @WitATrf0 rev a (map (@projT1 _ _) cs) T (ForallT_of_sigT wit_A cs).
+
+        Definition WitATrf1 [rev : bool] [a : atom] [r : CTX.t] (T : Trf.atomt rev [a] r)
+          (C : ForallT wit_A r) : wit_A a.
+        Proof.
+          revert T.
+          apply ForallT_to_sigT in C as [cs []].
+          exact (WitATrf cs).
+        Defined.
 
         Definition wit_Al0_res
           (R : forall (a : atom) (w : wit_A a), list (ord_t * atom))
@@ -599,7 +612,7 @@ Module CTX.
         Fixpoint wit_A_res [a : atom] (w : wit_A a) {struct w} : list (ord_t * atom) :=
           match w with
           | WitAAtom a i => [(a, i)]
-          | WitATrf _ C  => wit_Al0_res (@wit_A_res) C
+          | WitATrf0 _ C => wit_Al0_res (@wit_A_res) C
           end.
         Definition wit_Al_res [r] C := @wit_Al0_res (@wit_A_res) r C.
 
@@ -616,7 +629,7 @@ Module CTX.
         Fixpoint wit_A_rev_f [a : atom] (w : wit_A a) {struct w} : rev_f_t [a] (map snd (wit_A_res w)) :=
           match w with
           | WitAAtom i a => refl_rev_f [a]
-          | @WitATrf rev a r T C =>
+          | @WitATrf0 rev a r T C =>
               trans_rev_f (atom_rev_f rev [a] r) (@wit_Al0_rev_f (@wit_A_rev_f) r C)
           end.
         Definition wit_Al_rev_f [r] C := @wit_Al0_rev_f (@wit_A_rev_f) r C.
@@ -647,8 +660,21 @@ Module CTX.
       Section WitB.
         Inductive wit_B : atom -> Type :=
           | WitBAtom (a : atom) : wit_B a
-          | WitBTrf [rev : bool] [a : atom] [r : CTX.t] (T : Trf.atomt rev r [a])
+          | WitBTrf0 [rev : bool] [a : atom] [r : CTX.t] (T : Trf.atomt rev r [a])
               (C : ForallT wit_B r) : wit_B a.
+
+        Definition WitBTrf [rev : bool] [a : atom]
+          (cs : list (sigT wit_B)) (T : Trf.atomt rev (map (@projT1 _ _) cs) [a]):
+          wit_B a :=
+          @WitBTrf0 rev a (map (@projT1 _ _) cs) T (ForallT_of_sigT wit_B cs).
+
+        Definition WitBTrf1 [rev : bool] [a : atom] [r : CTX.t] (T : Trf.atomt rev r [a])
+          (C : ForallT wit_B r) : wit_B a.
+        Proof.
+          revert T.
+          apply ForallT_to_sigT in C as [cs []].
+          exact (WitBTrf cs).
+        Defined.
 
         Definition wit_Bl0_res
           (R : forall (a : atom) (w : wit_B a), CTX.t)
@@ -657,7 +683,7 @@ Module CTX.
         Fixpoint wit_B_res [a : atom] (w : wit_B a) {struct w} : CTX.t :=
           match w with
           | WitBAtom a => [a]
-          | WitBTrf _ C  => wit_Bl0_res (@wit_B_res) C
+          | WitBTrf0 _ C  => wit_Bl0_res (@wit_B_res) C
           end.
         Definition wit_Bl_res [r] C := @wit_Bl0_res (@wit_B_res) r C.
 
@@ -673,7 +699,7 @@ Module CTX.
         Fixpoint wit_B_rev_f [a : atom] (w : wit_B a) {struct w} : rev_f_t (wit_B_res w) [a] :=
           match w with
           | WitBAtom a => refl_rev_f [a]
-          | @WitBTrf rev a r T C =>
+          | @WitBTrf0 rev a r T C =>
               trans_rev_f (@wit_Bl0_rev_f (@wit_B_rev_f) r C) (atom_rev_f rev r [a])
           end.
         Definition wit_Bl_rev_f [r] C := @wit_Bl0_rev_f (@wit_B_rev_f) r C.
@@ -780,6 +806,7 @@ Module CTX.
            [rord_t] to use [cons] rather than [snoc]. *)
         Definition rord_t := list nat.
         Definition ord_of_r (r : rord_t) : ord_t := Some (rev_append r []).
+        Global Arguments ord_of_r !r/.
         Definition ord_None : ord_t := None.
 
         Inductive state_A (a : atom) :=
@@ -801,11 +828,10 @@ Module CTX.
         Global Arguments StBTrf   [_].
         Inductive B (a : atom) (n : rord_t) (s : state_B a) (p : list committed_B_t) := mk_B.
 
-        Record trf_wit (c0 c1 : CTX.t) := mk_trf_wit {
-          w_witA : ForallT wit_A c0;
-          w_witB : ForallT wit_B c1;
+        Record trf_wit := mk_trf_wit {
+          w_witA : list (sigT wit_A);
+          w_witB : list (sigT wit_B);
         }.
-        Global Arguments mk_trf_wit [_ _].
 
         Definition intro_wit_A (ps : list bool) : Type -> CTX.t -> Type :=
           List.fold_right (fun a T => {w : wit_A a & A a (StAFirst w) ps -> T}).
@@ -842,10 +868,11 @@ Module CTX.
             exact w. exact y. exact x.
         Defined.
 
-        Definition wit_of_intro_trf [c0 c1] (W : intro_wit_trf c0 c1) : trf_wit c0 c1 :=
+        Definition wit_of_intro_trf [c0 c1] (W : intro_wit_trf c0 c1) : trf_wit :=
           let (wB, W) := wit_of_intro_B W in
           let (wA, _) := wit_of_intro_A W in
-          mk_trf_wit wA wB.
+          mk_trf_wit (proj1_sig (ForallT_to_sigT wit_A c0 wA))
+                     (proj1_sig (ForallT_to_sigT wit_B c1 wB)).
       End Helpers.
 
       Global Arguments wit_Al_rev_f   !r !C !_.
@@ -856,64 +883,73 @@ Module CTX.
       Global Arguments trf_sort_list  !l.
       Global Arguments trf_sort_rev_f !l _.
 
-      Local Lemma build_trf_lem (c0 c1 : CTX.t)
-        (W : intro_wit_trf c0 c1)
-        (wA : ForallT wit_A c0) (wB : ForallT wit_B c1)
-        (EW : mk_trf_wit wA wB = wit_of_intro_trf W):
-        let c0_0 := wit_Al_res wA     in
-        let c0_1 := trf_sort_res c0_0 in
-        let c1_0 := wit_Bl_res wB     in
-        forall (E : c1_0 = c0_1),
-        Trf.p c0 c1
-          (@trans_rev_f c0 c0_1 c1 (@trans_rev_f c0 (map snd c0_0) c0_1
-            (wit_Al_rev_f wA)
-            (trf_sort_rev_f c0_0))
-            (eq_rect c1_0 (fun c => rev_f_t c c1) (wit_Bl_rev_f wB) c0_1 E)).
-      Proof.
-        clear W EW.
-        intros c0_0 c0_1 c1_0 E.
-        set (f0 := trans_rev_f _ _) at 2.
-        assert (Trf.p c0 c0_1 f0) as T0. {
-          apply trans_p.
-          - apply wit_Al_trf.
-          - apply trf_sort_correct.
-        }
-        clearbody f0 c0_1; clear c0_0; destruct E; cbn.
-        apply trans_p.
-        - exact T0.
-        - apply wit_Bl_trf.
-      Qed.
+      Section Build_Trf_Lem.
+        Variables (wA : list (sigT wit_A)) (wB : list (sigT wit_B)).
 
-      Local Lemma build_inj_lem (c0 c1 add : CTX.t)
-        (W : intro_wit_trf c0 c1)
-        (wA : ForallT wit_A c0) (wB : ForallT wit_B c1)
-        (EW : mk_trf_wit wA wB = wit_of_intro_trf W):
-        let c0_0 := wit_Al_res wA     in
-        let c0_1 := trf_sort_res c0_0 in
-        let c1_0 := wit_Bl_res wB     in
-        forall (E : c1_0 ++ add = c0_1),
-        Trf.inj_p c0 c1 add
-          (@trans_rev_f c0 c0_1 (c1 ++ add) (@trans_rev_f c0 (map snd c0_0) c0_1
-            (wit_Al_rev_f wA)
-            (trf_sort_rev_f c0_0))
-            (eq_rect (c1_0 ++ add) (fun c => rev_f_t c (c1 ++ add))
-              (app_rev_f (wit_Bl_rev_f wB) (refl_rev_f add)) c0_1 E)).
-      Proof.
-        clear W EW.
-        intros c0_0 c0_1 c1_0 E.
-        set (f0 := trans_rev_f _ _) at 2.
-        assert (Trf.p c0 c0_1 f0) as T0. {
-          apply trans_p.
-          - apply wit_Al_trf.
-          - apply trf_sort_correct.
-        }
-        clearbody f0 c0_1; clear c0_0; destruct E; cbn.
-        apply trans_p.
-        - exact T0.
-        - apply app_p.
-          + apply wit_Bl_trf.
-          + apply refl_p.
-      Qed.
+        Local Definition c0 := map (@projT1 _ _) wA.
+        Local Definition c1 := map (@projT1 _ _) wB.
+        Local Definition wA' : ForallT wit_A c0 := ForallT_of_sigT wit_A wA.
+        Local Definition wB' : ForallT wit_B c1 := ForallT_of_sigT wit_B wB.
+
+        Let c0_0 := wit_Al_res wA'.
+        Let c0_1 := trf_sort_res c0_0.
+        Let c1_0 := wit_Bl_res wB'.
+
+        Section Trf.
+          Hypothesis E : c1_0 = c0_1.
+
+          Definition build_trf_rev_f : rev_f_t c0 c1 :=
+            @trans_rev_f c0 c0_1 c1 (@trans_rev_f c0 (map snd c0_0) c0_1
+             (wit_Al_rev_f wA')
+             (trf_sort_rev_f c0_0))
+             (eq_rect c1_0 (fun c => rev_f_t c c1) (wit_Bl_rev_f wB') c0_1 E).
+
+          Lemma build_trf_lem:
+            Trf.p c0 c1 build_trf_rev_f.
+          Proof.
+            unfold build_trf_rev_f.
+            set (f0 := trans_rev_f _ _) at 2.
+            assert (Trf.p c0 c0_1 f0) as T0. {
+              apply trans_p.
+              - apply wit_Al_trf.
+              - apply trf_sort_correct.
+            }
+            clearbody f0 c0_1; clear c0_0; destruct E; cbn.
+            apply trans_p.
+            - exact T0.
+            - apply wit_Bl_trf.
+          Qed.
+        End Trf.
+        Section Inj.
+          Variable add : CTX.t.
+          Hypothesis E : c1_0 ++ add = c0_1.
+
+          Definition build_inj_rev_f : rev_f_t c0 (c1 ++ add) :=
+            @trans_rev_f c0 c0_1 (c1 ++ add) (@trans_rev_f c0 (map snd c0_0) c0_1
+             (wit_Al_rev_f wA')
+             (trf_sort_rev_f c0_0))
+             (eq_rect (c1_0 ++ add) (fun c => rev_f_t c (c1 ++ add))
+               (app_rev_f (wit_Bl_rev_f wB') (refl_rev_f add)) c0_1 E).
+
+          Local Lemma build_inj_lem:
+            Trf.inj_p c0 c1 add build_inj_rev_f.
+          Proof.
+            unfold build_inj_rev_f.
+            set (f0 := trans_rev_f _ _) at 2.
+            assert (Trf.p c0 c0_1 f0) as T0. {
+              apply trans_p.
+              - apply wit_Al_trf.
+              - apply trf_sort_correct.
+            }
+            clearbody f0 c0_1; clear c0_0; destruct E; cbn.
+            apply trans_p.
+            - exact T0.
+            - apply app_p.
+              + apply wit_Bl_trf.
+              + apply refl_p.
+          Qed.
+        End Inj.
+      End Build_Trf_Lem.
 
       Ltac intro_wit_goal :=
         cbn;
@@ -1053,7 +1089,7 @@ Module CTX.
         [n : ord_t] [committed : bool] (G : Type)
         (C : A a (StATrf n (Some committed)) ps -> intro_wit_A (committed :: ps) G r)
         (W : w = if committed
-                 then @WitATrf rev a r T (fst (wit_of_intro_A (C (mk_A _ _ _))))
+                 then @WitATrf1 rev a r T (fst (wit_of_intro_A (C (mk_A _ _ _))))
                  else @WitAAtom n a)
         (H : A a (StAFirst w) ps): G.
       Proof.
@@ -1085,8 +1121,8 @@ Module CTX.
         (C : B a n (StBTrf (Some (mk_cb PT PF committed))) ps ->
              intro_wit_B (mk_cb PT PF committed :: ps) O n G r)
         (W : w = match committed with
-                 | left pf => @WitBTrf rev a r (get_intro_rule T pf)
-                                               (fst (wit_of_intro_B (C (mk_B _ _ _ _))))
+                 | left pf => @WitBTrf1 rev a r (get_intro_rule T pf)
+                                                (fst (wit_of_intro_B (C (mk_B _ _ _ _))))
                  | right _ => @WitBAtom a
                  end)
         (H : B a n (StBFirst w) ps): G.
@@ -1163,6 +1199,15 @@ Module CTX.
         intro_wit_goal;
         build_iter 10 try_end.
 
+      Local Ltac build_wits c0 c1 try_end k(* wA -> wB -> ltac *) :=
+        let w := constr:(@wit_of_intro_trf c0 c1 ltac:(build_until try_end)) in
+        let w := eval cbn iota beta zeta delta -[WitATrf WitBTrf] in w in
+        lazymatch w with mk_trf_wit ?wA ?wB =>
+        abstract_term wA ltac:(fun wA =>
+        abstract_term wB ltac:(fun wB =>
+        k wA wB
+        ))end.
+
       (* solves a goal:
            Trf.p [mka vp0' sel0'; ... ; mka vp9' sel9']
                  [mka vp0 ?sel0 ; ... ; mka vp9 ?sel5 ]
@@ -1196,11 +1241,10 @@ Module CTX.
 
       Ltac build_p :=
         lazymatch goal with |- Trf.p ?oc0 ?oc1 _ =>
-        simple refine (build_trf_lem _ _ _ _ _ _ _);
-        [ (* W *) build_until ltac:(build_p_end oc0 oc1)
-        | shelve | shelve | (* EW *) Tac.cbn_refl 
-        | (* E *) Tac.cbn_refl ]
-        end.
+        build_wits oc0 oc1 ltac:(build_p_end oc0 oc1) ltac:(fun wA wB =>
+        simple refine (build_trf_lem wA wB _);
+        (* E *) Tac.cbn_refl
+        )end.
 
       (* solves a goal:
            Trf.t [mka vp0' sel0'; ... ; mka vp9' sel9']
@@ -1237,11 +1281,10 @@ Module CTX.
 
       Ltac build_inj_p :=
         lazymatch goal with |- Trf.inj_p ?oc0 ?oc1 _ _ =>
-        simple refine (build_inj_lem _ _ _ _ _ _ _ _);
-        [ (* W *) build_until ltac:(build_inj_p_end oc0 oc1)
-        | shelve | shelve | (* EW *) Tac.cbn_refl
-        | (* E *) Tac.cbn_refl ]
-        end.
+        build_wits oc0 oc1 ltac:(build_inj_p_end oc0 oc1) ltac:(fun wA wB =>
+        simple refine (build_inj_lem wA wB _ _);
+        (* E *) Tac.cbn_refl
+        )end.
 
 
       Section Test.
