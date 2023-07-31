@@ -1722,7 +1722,21 @@ Module Tac.
     ))end.
 
   Ltac solve_InjPre_sig_eq :=
-    i_sig_reflexivity.
+    lazymatch goal with |- ?g0 =>
+    let g := eval cbn beta iota zeta delta -[CTX.Trf.Tac.build_inj_rev_f] in g0 in
+    lazymatch g with (let (ncsm, rem) := CTX.Trf.Tac.build_inj_rev_f ?w0 ?w1 _ _ _ in _) =>
+    let w0 := head_of w0 in
+    let w1 := head_of w1 in
+    cont ltac:(fun k => (let g := eval unfold w0 in g in k g) || k g) ltac:(fun g =>
+    cont ltac:(fun k => (let g := eval unfold w1 in g in k g) || k g) ltac:(fun g =>
+    let g := eval red_vprop_trf_wit in g in
+    let g := eval cbv beta iota zeta delta [CTX.Trf.Tac.build_inj_rev_f] in g in
+    lazymatch g with i_sig_eq _ _ _ _ _ _ => idtac (* OK *)
+    | _ => ffail "failed to reduce InjPre_sig_eq" g0 g
+    end;
+    change_no_check g;
+    i_sig_reflexivity
+    )) end end.
 
   (* solves a goal [InjPre_Frame_Spec m ctx s ?s' ?F].
      Leaves a goal solvable with [solve_InjPre_sig_eq] once [s] has been instanced. *)
@@ -1740,7 +1754,7 @@ Module Tac.
     simple refine (@InjPre_SFrame_SpecI m ctx A s f _ _ _ csm' prd' f' _);
     [ (* frame *) shelve | (* rev_f *) shelve
     | (* ij *) CTX.Trf.Tac.build_inj_p
-    | (* E  *) Tac.i_sig_reflexivity ]
+    | (* E  *) solve_InjPre_sig_eq ]
     ))end.
 
 

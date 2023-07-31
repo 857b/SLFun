@@ -143,6 +143,9 @@ Module Tac.
   Local Tactic Notation "ret_constr" constr(t) :=
     constr:(ltac:(exact t)).
 
+  (* Continuation Passing Style binding *)
+  Ltac cont f k := f k.
+
   (* non-annotated cbn
      Contrary to [cbn], this tactic does not add an annotation [_ : original_goal] on
      the proof term. *)
@@ -624,7 +627,7 @@ Module List.
     - exists []; reflexivity.
     - case (rec xs v) as [ys E].
       exists (existT P x y :: ys).
-      rewrite <- E; reflexivity.
+      case E; reflexivity.
   Defined.
 
   (* Transparent lemmas *)

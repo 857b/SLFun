@@ -541,6 +541,33 @@ Module CTX.
 
       Import Util.Tac.
 
+      Module Red.
+        (* We define here some aliases for common functions that we want to selectively reduce.
+           That is, we want to reduce only the occurrences coming from our definitions, not
+           the user ones. *)
+
+        Definition fst := Eval unfold fst in @fst.
+        Global Arguments fst {A B} p.
+
+        Definition proj1_sig := Eval unfold proj1_sig in @proj1_sig.
+        Global Arguments proj1_sig [A] [P] e.
+
+        Definition projT1 := Eval unfold projT1 in @projT1.
+        Global Arguments projT1 [A] [P] x.
+
+        Definition ForallT_to_sigT := Eval unfold ForallT_to_sigT in @ForallT_to_sigT.
+        Global Arguments ForallT_to_sigT [A] P u v.
+
+        Definition ForallT_of_sigT := Eval unfold ForallT_of_sigT, projT1, projT2 in @ForallT_of_sigT.
+        Global Arguments ForallT_of_sigT [A] P u.
+
+        Definition rev_append := Eval unfold rev_append in @rev_append.
+        Global Arguments rev_append [A] l l'.
+
+        Definition map := Eval unfold map in @map.
+        Global Arguments map [A B] f l.
+      End Red.
+
       Definition elim_rule (rev : bool) (a : atom) (r : CTX.t) :=
         atomt rev [a] r.
 
@@ -593,15 +620,15 @@ Module CTX.
               (C : ForallT wit_A r) : wit_A a.
 
         Definition WitATrf [rev : bool] [a : atom]
-          (cs : list (sigT wit_A)) (T : Trf.atomt rev [a] (map (@projT1 _ _) cs)):
+          (cs : list (sigT wit_A)) (T : Trf.atomt rev [a] (Red.map (@projT1 _ _) cs)):
           wit_A a :=
-          @WitATrf0 rev a (map (@projT1 _ _) cs) T (ForallT_of_sigT wit_A cs).
+          @WitATrf0 rev a (Red.map (@Red.projT1 _ _) cs) T (Red.ForallT_of_sigT wit_A cs).
 
         Definition WitATrf1 [rev : bool] [a : atom] [r : CTX.t] (T : Trf.atomt rev [a] r)
           (C : ForallT wit_A r) : wit_A a.
         Proof.
           revert T.
-          apply ForallT_to_sigT in C as [cs []].
+          apply Red.ForallT_to_sigT in C as [cs []].
           exact (WitATrf cs).
         Defined.
 
@@ -664,15 +691,15 @@ Module CTX.
               (C : ForallT wit_B r) : wit_B a.
 
         Definition WitBTrf [rev : bool] [a : atom]
-          (cs : list (sigT wit_B)) (T : Trf.atomt rev (map (@projT1 _ _) cs) [a]):
+          (cs : list (sigT wit_B)) (T : Trf.atomt rev (Red.map (@projT1 _ _) cs) [a]):
           wit_B a :=
-          @WitBTrf0 rev a (map (@projT1 _ _) cs) T (ForallT_of_sigT wit_B cs).
+          @WitBTrf0 rev a (Red.map (@Red.projT1 _ _) cs) T (Red.ForallT_of_sigT wit_B cs).
 
         Definition WitBTrf1 [rev : bool] [a : atom] [r : CTX.t] (T : Trf.atomt rev r [a])
           (C : ForallT wit_B r) : wit_B a.
         Proof.
           revert T.
-          apply ForallT_to_sigT in C as [cs []].
+          apply Red.ForallT_to_sigT in C as [cs []].
           exact (WitBTrf cs).
         Defined.
 
@@ -805,7 +832,7 @@ Module CTX.
            the end of the positions [ord_t]. We represent the positions in reverse order using
            [rord_t] to use [cons] rather than [snoc]. *)
         Definition rord_t := list nat.
-        Definition ord_of_r (r : rord_t) : ord_t := Some (rev_append r []).
+        Definition ord_of_r (r : rord_t) : ord_t := Some (Red.rev_append r []).
         Global Arguments ord_of_r !r/.
         Definition ord_None : ord_t := None.
 
@@ -871,8 +898,8 @@ Module CTX.
         Definition wit_of_intro_trf [c0 c1] (W : intro_wit_trf c0 c1) : trf_wit :=
           let (wB, W) := wit_of_intro_B W in
           let (wA, _) := wit_of_intro_A W in
-          mk_trf_wit (proj1_sig (ForallT_to_sigT wit_A c0 wA))
-                     (proj1_sig (ForallT_to_sigT wit_B c1 wB)).
+          mk_trf_wit (Red.proj1_sig (Red.ForallT_to_sigT wit_A c0 wA))
+                     (Red.proj1_sig (Red.ForallT_to_sigT wit_B c1 wB)).
       End Helpers.
 
       Global Arguments wit_Al_rev_f   !r !C !_.
@@ -886,14 +913,63 @@ Module CTX.
       Section Build_Trf_Lem.
         Variables (wA : list (sigT wit_A)) (wB : list (sigT wit_B)).
 
-        Local Definition c0 := map (@projT1 _ _) wA.
-        Local Definition c1 := map (@projT1 _ _) wB.
+        Local Definition c0 := Red.map (@projT1 _ _) wA.
+        Local Definition c1 := Red.map (@projT1 _ _) wB.
         Local Definition wA' : ForallT wit_A c0 := ForallT_of_sigT wit_A wA.
         Local Definition wB' : ForallT wit_B c1 := ForallT_of_sigT wit_B wB.
 
         Let c0_0 := wit_Al_res wA'.
         Let c0_1 := trf_sort_res c0_0.
         Let c1_0 := wit_Bl_res wB'.
+
+        Local Declare Reduction red_build_rev_f :=
+          cbv beta iota zeta delta [
+            c0 c1 wA' wB'
+            c0_0 c0_1 c1_0
+
+            refl_rev_f
+            trans_rev_f
+            atom_rev_f
+            cons_rev_f
+            swap_rev_f
+            app_rev_f
+
+            trf_sort_rev_f
+            trf_sort_list
+            trf_insert
+
+            wit_A_res   wit_A_rev_f
+            wit_Al_res  wit_Al_rev_f
+            wit_Al0_res wit_Al0_rev_f
+            wit_B_res   wit_B_rev_f
+            wit_Bl_res  wit_Bl_rev_f
+            wit_Bl0_res wit_Bl0_rev_f
+
+            ord_le Nat.compare
+
+            sub         Sub.sub
+            Sub.app     Sub.caseS'
+            Sub.split
+            Sub.cons    Sub.uncons
+
+            Red.map
+            Transp.map_app
+
+            andb
+
+            eq_rect eq_rect_r eq_sym eq_trans f_equal
+
+            Vector.caseS Vector.caseS'
+            Vector.const Vector.uncons
+            Vector.hd    Vector.tl
+            Vector.allb
+
+            nat_rect
+            List.length List.concat List.app List.map List.list_ind
+
+            ForallT_of_sigT ForallT_join
+            projT1 projT2
+        ].
 
         Section Trf.
           Hypothesis E : c1_0 = c0_1.
@@ -903,11 +979,22 @@ Module CTX.
              (wit_Al_rev_f wA')
              (trf_sort_rev_f c0_0))
              (eq_rect c1_0 (fun c => rev_f_t c c1) (wit_Bl_rev_f wB') c0_1 E).
+          (* Definition build_trf_rev_f : rev_f_t c0 c1.
+          Proof.
+            let t := constr:(build_trf_rev_f_expr)         in
+            let t := eval unfold build_trf_rev_f_expr in t in
+            let t := eval red_build_rev_f             in t in
+            exact t.
+          Defined. *)
 
           Lemma build_trf_lem:
             Trf.p c0 c1 build_trf_rev_f.
           Proof.
             unfold build_trf_rev_f.
+            (*
+            change build_trf_rev_f with build_trf_rev_f_expr;
+              unfold build_trf_rev_f_expr.
+             *)
             set (f0 := trans_rev_f _ _) at 2.
             assert (Trf.p c0 c0_1 f0) as T0. {
               apply trans_p.
@@ -924,17 +1011,25 @@ Module CTX.
           Variable add : CTX.t.
           Hypothesis E : c1_0 ++ add = c0_1.
 
-          Definition build_inj_rev_f : rev_f_t c0 (c1 ++ add) :=
+          Definition build_inj_rev_f_expr : rev_f_t c0 (c1 ++ add) :=
             @trans_rev_f c0 c0_1 (c1 ++ add) (@trans_rev_f c0 (map snd c0_0) c0_1
              (wit_Al_rev_f wA')
              (trf_sort_rev_f c0_0))
              (eq_rect (c1_0 ++ add) (fun c => rev_f_t c (c1 ++ add))
                (app_rev_f (wit_Bl_rev_f wB') (refl_rev_f add)) c0_1 E).
+          Definition build_inj_rev_f : rev_f_t c0 (c1 ++ add).
+          Proof.
+            let t := constr:(build_inj_rev_f_expr)         in
+            let t := eval unfold build_inj_rev_f_expr in t in
+            let t := eval red_build_rev_f             in t in
+            exact t.
+          Defined.
 
           Local Lemma build_inj_lem:
             Trf.inj_p c0 c1 add build_inj_rev_f.
           Proof.
-            unfold build_inj_rev_f.
+            change build_inj_rev_f with build_inj_rev_f_expr;
+              unfold build_inj_rev_f_expr.
             set (f0 := trans_rev_f _ _) at 2.
             assert (Trf.p c0 c0_1 f0) as T0. {
               apply trans_p.
@@ -950,6 +1045,13 @@ Module CTX.
           Qed.
         End Inj.
       End Build_Trf_Lem.
+
+      Declare Reduction red_vprop_trf_wit :=
+        cbv beta iota zeta delta [
+          WitATrf WitBTrf
+          Red.ForallT_of_sigT Red.projT1 Red.map
+        ].
+
 
       Ltac intro_wit_goal :=
         cbn;
@@ -1089,7 +1191,7 @@ Module CTX.
         [n : ord_t] [committed : bool] (G : Type)
         (C : A a (StATrf n (Some committed)) ps -> intro_wit_A (committed :: ps) G r)
         (W : w = if committed
-                 then @WitATrf1 rev a r T (fst (wit_of_intro_A (C (mk_A _ _ _))))
+                 then @WitATrf1 rev a r T (Red.fst (wit_of_intro_A (C (mk_A _ _ _))))
                  else @WitAAtom n a)
         (H : A a (StAFirst w) ps): G.
       Proof.
@@ -1122,7 +1224,7 @@ Module CTX.
              intro_wit_B (mk_cb PT PF committed :: ps) O n G r)
         (W : w = match committed with
                  | left pf => @WitBTrf1 rev a r (get_intro_rule T pf)
-                                                (fst (wit_of_intro_B (C (mk_B _ _ _ _))))
+                                                (Red.fst (wit_of_intro_B (C (mk_B _ _ _ _))))
                  | right _ => @WitBAtom a
                  end)
         (H : B a n (StBFirst w) ps): G.
@@ -1149,6 +1251,7 @@ Module CTX.
                 repeat (refine (rewrite_elim_rule _ _); [slv tt |]);
                 slv tt | ]
             then (
+              cbn in Tr;
               simple refine (Tr _ _ G _ _); clear Tr;
               [ (* n *) shelve | (* committed *) shelve
               | (* C *) intro; intro_wit_goal; apply_trf slv rfl k
@@ -1168,6 +1271,7 @@ Module CTX.
                 repeat (refine (rewrite_intro_rule _ _); [slv tt | cbn]);
                 slv tt | ]
             then (
+              cbn in Tr;
               simple refine (Tr _ G _ _); clear Tr;
               [ (* committed *) shelve
               | (* C *) intro; intro_wit_goal; apply_trf slv rfl k
@@ -1199,9 +1303,15 @@ Module CTX.
         intro_wit_goal;
         build_iter 10 try_end.
 
+      Declare Reduction red_vprop_trf_wit_partial :=
+        cbv beta iota zeta delta [
+          Red.fst Red.proj1_sig Red.ForallT_to_sigT Red.rev_append Red.map
+          WitATrf1 WitBTrf1 wit_of_intro_trf wit_of_intro_A wit_of_intro_B ord_of_r ord_None
+        ].
+
       Local Ltac build_wits c0 c1 try_end k(* wA -> wB -> ltac *) :=
         let w := constr:(@wit_of_intro_trf c0 c1 ltac:(build_until try_end)) in
-        let w := eval cbn iota beta zeta delta -[WitATrf WitBTrf] in w in
+        let w := eval red_vprop_trf_wit_partial in w in
         lazymatch w with mk_trf_wit ?wA ?wB =>
         abstract_term wA ltac:(fun wA =>
         abstract_term wB ltac:(fun wB =>
@@ -1240,6 +1350,7 @@ Module CTX.
         end.
 
       Ltac build_p :=
+        nant_cbn;
         lazymatch goal with |- Trf.p ?oc0 ?oc1 _ =>
         build_wits oc0 oc1 ltac:(build_p_end oc0 oc1) ltac:(fun wA wB =>
         simple refine (build_trf_lem wA wB _);
@@ -1280,6 +1391,7 @@ Module CTX.
         end.
 
       Ltac build_inj_p :=
+        nant_cbn;
         lazymatch goal with |- Trf.inj_p ?oc0 ?oc1 _ _ =>
         build_wits oc0 oc1 ltac:(build_inj_p_end oc0 oc1) ltac:(fun wA wB =>
         simple refine (build_inj_lem wA wB _ _);
@@ -1428,7 +1540,7 @@ Module VpropList.
     end.
 
   Lemma inst_length vs sl:
-    length (VpropList.inst vs sl) = length vs.
+    length (inst vs sl) = length vs.
   Proof.
     induction vs; cbn.
     - reflexivity.
