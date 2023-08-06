@@ -382,13 +382,21 @@ Section F_SPEC.
     fd_Hspec : forall x, fun_has_spec f fd_Hsig (s x);
   }.
 
+  Lemma cp_is_spec_declared (f : fid) (s : f_spec)
+    (HSIG : SIG f = Some sg)
+    (HSPC : CP.fun_has_spec SPC f HSIG = cp_f_spec s):
+    forall x, fun_has_spec f HSIG (s x).
+  Proof.
+    apply cp_has_spec, HSPC.
+  Qed.
+
   Lemma cp_is_declared (f : fid) (s : f_spec)
     (HSIG : SIG f = Some sg)
     (HSPC : CP.fun_has_spec SPC f HSIG = cp_f_spec s):
     f_declared f s.
   Proof.
     exists HSIG.
-    apply cp_has_spec, HSPC.
+    exact (cp_is_spec_declared f HSIG HSPC).
   Defined.
 
   Record f_decl (s : f_spec) : Type := {
@@ -1537,7 +1545,9 @@ Section F_ENTRY.
   Lemma has_f_entry [CT f A] C (H : CP.context_has_entry CT f (@f_entry A C)):
     to_f_decl F CT.
   Proof.
-    exact (fd_mk f F CT (proj1_sig H) (proj2_sig H)).
+    let t := constr:(let '(exist _ H0 H1) := H in fd_mk f F CT H0 H1) in
+    let t := eval cbv beta zeta delta [fd_mk cp_is_declared] in t in
+    exact t.
   Defined.
 
   Definition f_entry_erase [CT A C] [impl : f_body CT _] [r]
@@ -2125,20 +2135,20 @@ Module Tac.
     | Tac.cbn_refl
     | try solve [ CP.build_oracle_free ] ].
 
-  (* [assumption] but with only alpha conversion *)
-  Ltac sassumption :=
-    lazymatch goal with |- ?G =>
-    lazymatch goal with H : G |- _ =>
-    exact H
-    end end.
-
+  (* [assumption] but with only alpha conversion on some subterms *)
+  Ltac f_entry_assumption :=
+    lazymatch goal with |- NotationsDef.to_f_decl ?f _ =>
+    lazymatch goal with H : NotationsDef.to_f_decl f _ |- _ => exact H
+    | _ => ffail "failed to find f_decl assumption" f
+    end
+    | _ => ffail "Not a known f_entry assumption" end.
 
   (* solves a goal [CP.entry_impl_correct CT (f_entry F PF) ?impl] *)
   Ltac build_f_entry_impl_correct :=
-    match goal with |- CP.entry_impl_correct _ (f_entry _ ?C) _ =>
+    lazymatch goal with |- CP.entry_impl_correct _ (f_entry _ ?C) _ =>
     simple refine (f_entry_erase _ _ _ _);
     [ shelve
-    | unshelve eapply C; sassumption
+    | unshelve eapply C; f_entry_assumption
     | Tac.erase_impl
     | cbn; reflexivity ]
     end.

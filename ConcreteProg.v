@@ -511,9 +511,7 @@ End Concrete.
 Global Arguments impl_context : clear implicits.
 Global Arguments spec_context : clear implicits.
 
-Section ListRepresentation.
-  Import Util.List ListNotations.
-
+Section Context.
   Definition context := {SIG : sig_context & spec_context SIG}.
 
   Record context_entry := {
@@ -525,90 +523,140 @@ Section ListRepresentation.
     {HSIG : projT1 CT f = Some (ce_sig e) | fun_has_spec (projT2 CT) f HSIG = ce_spec e}.
 
   Local Set Implicit Arguments.
-  Record entry_impl_correct (CT : context) (e : context_entry) (r : @f_impl (projT1 CT) (ce_sig e)) : Prop := {
+  Record entry_impl_correct (CT : context) (e : context_entry)
+      (r : @f_impl (projT1 CT) (ce_sig e)) : Prop := {
     ce_correct     : f_match_spec (projT2 CT) r (ce_spec e);
     ce_oracle_free : forall x : f_arg_t (ce_sig e), oracle_free (r x);
   }.
   Local Unset Implicit Arguments.
+End Context.
 
-  Definition empty_context : context.
-  Proof.
-    exists (fun _ => None).
-    exact  (fun _ => tt).
-  Defined.
+(* Compact list representation *)
+Module L.
+  Import Util.List ListNotations.
 
-  Definition cons_context_entry (e : context_entry) (CT : context) : context.
+  (* context *)
+
+  Definition context : Type := list context_entry.
+
+  Definition get : context -> ConcreteProg.context.
   Proof.
-    unshelve eexists.
-    - intros [|f].
-      + exact (Some (ce_sig e)).
+    fix rec 1.
+    intros [|[sg sp] c].
+    - exact (existT spec_context (fun _ => None) (fun _ => tt)).
+    - pose (CT := rec c).
+      unshelve eexists; intros [|f].
+      + exact (Some sg).
       + exact (projT1 CT f).
-    - intros [|f].
-      + exact (ce_spec e).
+      + exact sp.
       + exact (projT2 CT f).
   Defined.
 
-  Definition context_of : list context_entry -> context :=
-    List.fold_right cons_context_entry empty_context.
+  (* implementations *)
 
-  Lemma context_of_has_entries es:
-    and_list (mapi (context_has_entry (context_of es)) es).
+  Definition impl_context_entry (SIG : sig_context) : Type :=
+    {e : context_entry & @f_impl SIG (ce_sig e)}.
+  
+  Definition impl_context (SIG : sig_context) : Type :=
+    list (impl_context_entry SIG).
+
+  Definition impl_list (c : context) : Type :=
+    impl_context (projT1 (get c)).
+  
+  Definition proj_impl_context [SIG : sig_context] : impl_context SIG -> context :=
+    map (@projT1 _ _).
+
+  Definition impl_match_eq (c : context) (ci : impl_list c) : Prop :=
+    proj_impl_context ci = c.
+
+  Definition get_impl' [SIG : sig_context] (ci : impl_context SIG):
+    @ConcreteProg.impl_context' SIG (projT1 (get (proj_impl_context ci))).
   Proof.
-    induction es.
-    - constructor.
-    - split.
-      + unshelve eexists; reflexivity.
-      + cbn.
-        destruct (context_of es).
-        exact IHes.
+    revert ci; fix rec 1.
+    intros [|[[sg sp] r] ci]; cbn.
+    - exact (fun _ => tt).
+    - intros [|f]; cbn.
+      + exact r.
+      + exact (rec ci f).
   Defined.
 
-  Definition impl_list' SIG es :=
-    Tuple.t (List.map (fun e => @f_impl SIG (ce_sig e)) es).
+  Definition get_impl [c : context] (ci : impl_list c) (E : impl_match_eq c ci):
+    ConcreteProg.impl_context (projT1 (get c))
+    := match E in _ = c' return ConcreteProg.impl_context' (projT1 (get c')) with
+       eq_refl => get_impl' ci
+       end.
 
-  Definition impl_list es := impl_list' (projT1 (context_of es)) es.
+  (* correctness *)
 
-  Definition impl_of_list' [IT] es (l : Tuple.t (List.map (fun e => IT (ce_sig e)) es)):
-    forall f : fid, opt_type IT (projT1 (context_of es) f).
+  Definition impl_context_correct_entry (CT : ConcreteProg.context) : Type :=
+    { e : impl_context_entry (projT1 CT) | entry_impl_correct CT (projT1 e) (projT2 e) }.
+
+  Definition impl_context_correct (CT : ConcreteProg.context) : Type :=
+    list (impl_context_correct_entry CT).
+
+  Definition proj_impl_context_correct [CT : ConcreteProg.context]
+    : impl_context_correct CT -> impl_context (projT1 CT) :=
+    map (@proj1_sig _ _).
+
+  Definition program_ok' SIG SPC SIG' SPC' (IMP : @ConcreteProg.impl_context' SIG SIG') :=
+    @context_match_spec' SIG SPC SIG' IMP SPC' /\
+    @context_oracle_free' SIG SIG' IMP.
+
+  Definition program_ok (c : context) (ci : impl_list c) :=
+    exists E : impl_match_eq c ci,
+    let SIG : sig_context                   := projT1 (get c) in
+    let SPC : ConcreteProg.spec_context SIG := projT2 (get c) in
+    let IMP : ConcreteProg.impl_context SIG := get_impl ci E  in
+    program_ok' SIG SPC SIG SPC IMP.
+
+  Lemma program_ok_all [c : context] [ci : impl_list c] (OK : program_ok c ci):
+    forall E : impl_match_eq c ci,
+    let SIG : sig_context                   := projT1 (get c) in
+    let SPC : ConcreteProg.spec_context SIG := projT2 (get c) in
+    let IMP : ConcreteProg.impl_context SIG := get_impl ci E  in
+    program_ok' SIG SPC SIG SPC IMP.
   Proof.
-    revert l; induction es as [|e es IH]; cbn.
-    - constructor.
-    - intros (i, is) [|f].
-      + exact i.
-      + exact (IH is f).
-  Defined.
-
-  Definition impl_of_list [es] (l : impl_list es) : impl_context (projT1 (context_of es))
-    := impl_of_list' es l.
-
-  Definition program_ok' SIG SPC SIG' SPC' (IMPL : @impl_context' SIG SIG') :=
-    @context_match_spec' SIG SPC SIG' IMPL SPC' /\
-    @context_oracle_free' SIG SIG' IMPL.
-
-  Fixpoint impl_list_correct CT es : impl_list' (projT1 CT) es -> Prop :=
-    match es with
-    | nil     => fun _       => True
-    | e :: es => fun '(i, l) => entry_impl_correct CT e i /\ impl_list_correct CT es l
-    end.
-
-  Lemma program_ok_of_list CT es (l : impl_list' (projT1 CT) es)
-    (H : impl_list_correct CT es l):
-    let CT' := context_of es in
-    program_ok' (projT1 CT) (projT2 CT) (projT1 CT') (projT2 CT') (impl_of_list' es l).
-  Proof.
-    split; revert l H;
-    (induction es; [constructor|
-     intros (p, l) [H0 H1] [|f]; [|exact (IHes l H1 f)]]).
-    - exact (ce_correct H0).
-    - exact (ce_oracle_free H0).
+    intros E0 SIG SPC; cbv zeta.
+    case OK as [E1 OK].
+    fold SIG SPC in OK; cbv zeta in OK.
+    pose (P (c' : context) (E : proj_impl_context ci = c') :=
+      program_ok' SIG SPC (projT1 (get c')) (projT2 (get c'))
+        (eq_rect _ (fun c' => impl_context' (projT1 (get c'))) (get_impl' ci) _ E)).
+    change (P _ E0).
+    change (P _ E1) in OK.
+    destruct E0, E1.
+    exact OK.
   Qed.
 
-  Definition of_entries (es : list context_entry) (p : impl_list es) : Prop :=
-    let IMPL := impl_of_list p in
-    context_match_spec IMPL (projT2 (context_of es)) /\
-    context_oracle_free IMPL.
-End ListRepresentation.
+  Lemma impl_context_correct_ok' (CT : ConcreteProg.context) (cc : impl_context_correct CT):
+    let ci  := proj_impl_context_correct cc in
+    let CT' := get (proj_impl_context ci)   in
+    program_ok' (projT1 CT) (projT2 CT) (projT1 CT') (projT2 CT') (get_impl' ci).
+  Proof.
+    induction cc as [|[[[sg sp] r] C] cc IH]; cbn.
+    - do 2 split.
+    - split; (intros [|f]; cbn; [apply C|apply IH]).
+  Qed.
 
+  Inductive impl_match (c : context) (ci : impl_list c) : Prop :=
+    impl_matchI
+      (cc : impl_context_correct (get c))
+      (Ec : proj_impl_context_correct cc = ci)
+      (Ei : impl_match_eq c ci).
+
+  Lemma impl_match_ok [c ci] (M : impl_match c ci): program_ok c ci.
+  Proof.
+    case M as [cc Ec Ei].
+    exists Ei.
+    specialize (impl_context_correct_ok' _ cc); cbn.
+    rewrite Ec in *; clear cc Ec.
+    unfold get_impl.
+    case Ei; auto.
+  Qed.
+End L.
+
+Definition of_entries (es : list context_entry) (p : L.impl_list es) : Prop :=
+  L.program_ok es p.
 
 (* solves a goal [ebind g ?A' ?k ?g'] *)
 Ltac build_ebind :=
@@ -726,64 +774,128 @@ Ltac build_oracle_free_aux :=
 (* solves a goal [oracle_free i] *)
 Ltac build_oracle_free := repeat build_oracle_free_aux.
 
-(* solves a goal [of_entries es ?prog]. *)
 
-Local Lemma entry_impl_correct_change [CT e impl0 impl1]
-  (C : entry_impl_correct CT e impl0)
-  (E : impl0 = impl1):
-  entry_impl_correct CT e impl1.
-Proof.
-  subst; assumption.
-Qed.
+(* Extraction *)
 
-Local Lemma intro_of_entries es [p1]
-  (C : let CT := context_of es in
-       { p0 : impl_list es | impl_list_correct CT es p0 })
-  (E : p1 = proj1_sig C):
-  of_entries es p1.
-Proof.
-  subst.
-  apply program_ok_of_list.
-  apply (proj2_sig C).
-Qed.
-
+(* Database for extraction.
+   Called on goals:
+     [Arrow (context_has_entry CT fid e) ?H]
+     [entry_impl_correct CT e ?impl]
+ *)
 Global Create HintDb extractDB discriminated.
 Global Hint Constants Opaque : extractDB.
 Global Hint Variables Opaque : extractDB.
 
+Local Definition exploit_has_entry [CT f e] R
+  (H : context_has_entry CT f e)
+  (A : Util.Tac.Arrow (context_has_entry CT f e) R):
+  R.
+Proof.
+  apply A, H.
+Defined.
+
+Local Definition mk_impl_context_correct_entry CT (e : context_entry) (impl : f_impl (ce_sig e))
+  (C : entry_impl_correct CT e impl):
+  L.impl_context_correct_entry CT
+  := exist _ (existT _ e impl) C.
+
+Local Definition proj_impl_context_correct_red :=
+  Eval cbv beta delta [L.proj_impl_context_correct List.map proj1_sig] in L.proj_impl_context_correct.
+Arguments proj_impl_context_correct_red [CT] _.
+
+Local Lemma intro_of_entries es prog ci cc
+  (Ec : proj_impl_context_correct_red cc = ci)
+  (Ei : L.impl_match_eq es ci)
+  (Ep : prog = ci):
+  of_entries es prog.
+Proof.
+  subst prog.
+  apply L.impl_match_ok.
+  exists cc; auto.
+Qed.
+
+(* solves a goal [of_entries es ?prog]. *)
 Ltac build_of_entries :=
-  lazymatch goal with |- of_entries ?es ?prog =>
-  simple refine (intro_of_entries es _ _); [
-    let CT := fresh "CT" in intro CT;
-    (* derive hypotheses from [CP.context_has_entry] *)
-    let rec pose_has_entry f es :=
+  lazymatch goal with |- of_entries ?es0 ?prog0 =>
+
+  (* reduces and abstracts some parts of the initial goal *)
+  let es0  := eval hnf in (List.force_value es0) in
+  let prog := eval hnf in  prog0                 in
+  change (of_entries es0 prog);
+  clear;
+
+  let rec abstract_entries es0 k(* es -> ltac *) :=
+    lazymatch es0 with
+    | cons ?e0 ?es0 =>
+        Tac.abstract_term e0 ltac:(fun e  =>
+        abstract_entries es0 ltac:(fun es =>
+        k (@cons context_entry e es)))
+    | nil => k (@nil context_entry)
+    end
+  in
+  abstract_entries es0 ltac:(fun es =>
+  change (of_entries es prog);
+
+  let CT  := fresh "CT"  in
+  unshelve epose (CT := _);
+    [ exact context | transparent_abstract exact (L.get es) |];
+  let SIG := fresh "SIG" in pose (SIG := projT1 CT);
+
+  (* for each entry, derives an hypotheses from [context_has_entry] *)
+  let rec pose_has_entry f es k(* itr -> ltac *) :=
+    lazymatch es with
+    | cons ?e ?es =>
+        let e := eval cbv delta [e] in e in
+        let t := constr:(@exploit_has_entry CT f e _ (exist _ eq_refl eq_refl)
+          ltac:(
+            (* [Arrow (context_has_entry CT fid e) ?H] *)
+            solve_db extractDB
+          )) in
+        lazymatch t with exploit_has_entry ?R _ _ =>
+        let t := eval hnf in t in
+        let H := fresh "H_f" in
+        Tac.pose_with_ty H t R;
+        pose_has_entry (S f) es ltac:(fun itr =>
+          k ltac:(fun g => itr g; g H))
+        end
+    | nil => k ltac:(fun _ => idtac)
+    end
+  in
+  pose_has_entry O es ltac:(fun itr =>
+
+  (* for each entry, builds an implementation proven correct in the context *)
+  simple refine (intro_of_entries es prog _ _  _ _ _);
+  [ (* ci *) shelve
+  | (* cc *)
+    change (L.impl_context_correct CT);
+    itr ltac:(fun H => clearbody H); clearbody CT;
+    let rec build_cc es :=
       lazymatch es with
       | cons ?e ?es =>
-          let H := fresh "H_f" in
-          assert (context_has_entry CT f e) as H;
-          [ exists eq_refl; reflexivity |];
-          Util.Tac.apply_Arrow H;
-          [ (* [Arrow (CP.context_has_entry CT fid e) ?H] *)
-            solve_db extractDB
-          |];
-          pose_has_entry (S f) es
-      | nil => idtac
+          refine (@cons (L.impl_context_correct_entry CT) _ _);
+          [ simple refine (mk_impl_context_correct_entry CT e _ _);
+            [ (* impl *) shelve
+            | (* [entry_impl_correct CT e ?impl] *)
+              lazymatch goal with |- entry_impl_correct _ _ ?impl =>
+              let e := eval cbv delta [e] in e in
+              change (entry_impl_correct CT e impl);
+              Tac.eabstract ltac:(fun _ => solve_db extractDB)
+              end ]
+          | build_cc es ]
+      | nil =>
+          exact (@nil (L.impl_context_correct_entry CT))
       end
-    in
-    pose_has_entry O es;
+    in build_cc es
+  | (* Ec *)
+    itr ltac:(fun H => subst H); subst CT SIG;
+    cbv beta iota zeta delta [proj_impl_context_correct_red mk_impl_context_correct_entry];
+    lazymatch goal with |- ?ci = _ => exact (@eq_refl _ ci) end
+  | (* Ei *)
+    reflexivity
+  | (* Ep *)
+    lazymatch goal with |- _ = ?ci => exact (@eq_refl (L.impl_context SIG) ci) end
+  ]))end.
 
-    unshelve eexists; [cbn; Tuple.build_shape |];
-    cbn -[CT];
-    let rec loop := try solve [split]; (split; [|loop]) in loop;
-    (refine (entry_impl_correct_change _ _);
-     [ clearbody CT;
-       (* [CP.entry_impl_correct CT e ?impl] *)
-       solve_db extractDB
-     | reflexivity ])
-  |
-    cbv; reflexivity
-  ]
-  end.
 
 (* Exported tactics *)
 

@@ -180,7 +180,7 @@ Proof.
 Qed.
 End Program.
 
-Derive prog SuchThat (CP.of_entries [
+Definition entries := [
   f_entry spec_0 correct_0;
   f_entry spec_1 correct_1;
   f_entry spec_2 correct_2;
@@ -189,10 +189,12 @@ Derive prog SuchThat (CP.of_entries [
   f_entry spec_5 correct_5;
   f_entry spec_6 correct_6;
   f_entry spec_7 correct_7
-] prog) As prog_correct.
+].
+
+Derive prog SuchThat (CP.of_entries entries prog) As prog_correct.
 Proof. Derived. Qed.
 
-Definition IMPL : CP.impl_context _ := CP.impl_of_list prog.
+Definition IMPL : CP.impl_context _ := CP.L.get_impl' prog.
 
 Lemma f_0_okstate m p0 p1 s'
   (NN_P0  : p0 <> NULL) (NN_P1  : p1 <> NULL)
@@ -200,8 +202,9 @@ Lemma f_0_okstate m p0 p1 s'
   (STEPS  : CP.steps IMPL (m, CP.get_fun_body IMPL 0 eq_refl (p0, p1)) s'):
   CP.okstate IMPL s'.
 Proof.
+  pose proof (CORRECT := CP.L.program_ok_all prog_correct eq_refl).
   eapply CP.func_okstate in STEPS; eauto.
-  1,2:apply prog_correct.
+  1,2:apply CORRECT.
   { cbn.
     eexists _, SLprop.True.
     split. 2:reflexivity.

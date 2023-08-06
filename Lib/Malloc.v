@@ -248,3 +248,9 @@ Lemma Free_correct : FCorrect Free_impl.
 Proof. solve_by_wlp. Qed.
 
 End Functions.
+
+Definition entries := [
+  f_entry Init_spec   Init_correct;
+  f_entry Malloc_spec Malloc_correct;
+  f_entry Free_spec   Free_correct
+].

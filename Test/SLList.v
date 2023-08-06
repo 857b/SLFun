@@ -514,33 +514,35 @@ Qed.
 
 End Program.
 
+(* We collect here the functions necessary to have a closed program. *)
+Definition entries := [
+  f_entry Main_spec     Main_correct;
+  f_entry Length_spec   Length_loop_correct;
+  f_entry Rev_spec      Rev_correct;
+  f_entry Seg_Next_spec Seg_Next_correct
+] ++ Malloc.entries.
+
 (* We combine the different functions into a concrete program.
    This also removes the ghost code (erasure) and resolves the dependencies between the functions,
    which can fail. *)
-Derive prog SuchThat (ConcreteProg.of_entries [
-  f_entry Main_spec          Main_correct;
-  f_entry Malloc.Init_spec   Malloc.Init_correct;
-  f_entry Malloc.Malloc_spec Malloc.Malloc_correct;
-  f_entry Length_spec        Length_loop_correct;
-  f_entry Rev_spec           Rev_correct;
-  f_entry Seg_Next_spec      Seg_Next_correct
-] prog) As prog_correct.
+Derive prog SuchThat (ConcreteProg.of_entries entries prog) As prog_correct.
 Proof. Derived. Qed.
 
-(* [prog] is a tuple of function implementation: *)
+(* [prog] is a list of function implementation: *)
 (* Print prog. *)
 (* [prog_correct] is a proof that they are correct with respect to their specifications. *)
 
 (* Representation of the program as a function. *)
-Definition IMPL : ConcreteProg.impl_context _ := ConcreteProg.impl_of_list prog.
+Definition IMPL : ConcreteProg.impl_context _ := ConcreteProg.L.get_impl' prog.
 
 (* Starting from the main function (identifier 0) and any memory, the program cannot get stuck. *)
 Lemma main_okstate m s'
   (STEPS  : ConcreteProg.steps IMPL (m, ConcreteProg.get_fun_body IMPL 0 eq_refl tt) s'):
   ConcreteProg.okstate IMPL s'.
 Proof.
+  pose proof (CORRECT := ConcreteProg.L.program_ok_all prog_correct eq_refl).
   eapply ConcreteProg.func_okstate in STEPS; eauto.
-  1,2:apply prog_correct.
+  1,2:apply CORRECT.
   { cbn.
     eexists _, SLprop.True.
     split. 2:reflexivity.

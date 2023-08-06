@@ -214,6 +214,19 @@ Module Tac.
     clear tmp;
     k bdy.
 
+  (* Add a definition [x := t : ty] to the context *)
+  Ltac pose_with_ty x t ty :=
+    unshelve epose (x := _);
+    [ exact ty | exact t |].
+
+  (* Version of [abstract] that handle existentials.
+     From https://github.com/coq/coq/issues/2386#issuecomment-337504557 *)
+  Ltac eabstract slv :=
+    lazymatch goal with |- ?G =>
+    let pf := constr:(ltac:(slv tt) : G) in
+    abstract exact_no_check pf
+    end.
+
   (* Builds a term of type [ty] using [build], abstracts it and continues with the
      resulting lemma. *)
   Ltac build_abstract ty build k(* term -> ltac *) :=
@@ -629,6 +642,15 @@ Module List.
       exists (existT P x y :: ys).
       case E; reflexivity.
   Defined.
+
+  (* For any closed list term [l], [force_value l] is convertible with [l]
+     but its list shape is fully reduced by [hnf]. *)
+  Definition force_value [A : Type] (l : list A) : list A :=
+    (fix rec (l : list A) (k : list A -> list A) {struct l} :=
+      match l with
+      | nil     => k nil
+      | x :: xs => rec xs (fun ys => k (x :: ys))
+      end) l (fun l => l).
 
   (* Transparent lemmas *)
 
