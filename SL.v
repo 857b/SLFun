@@ -1012,6 +1012,15 @@ Module SLprop.
     setoid_rewrite <- MEQ; eauto.
   Qed.
 
+  Lemma ex_morph_imp [A P0 P1]
+    (E : forall x : A, imp (P0 x) (P1 x)):
+    imp (ex A P0) (ex A P1).
+  Proof.
+    intros h [x H0].
+    exists x.
+    apply E, H0.
+  Qed.
+
   Global Add Parametric Morphism A : (ex A)
     with signature Morphisms.pointwise_relation A eq ==> eq
     as ex_morph.

@@ -140,9 +140,6 @@ Module Tac.
 
   Inductive display [A : Type] (x : A) : Prop := mk_display.
 
-  Local Tactic Notation "ret_constr" constr(t) :=
-    constr:(ltac:(exact t)).
-
   (* Continuation Passing Style binding *)
   Ltac cont f k := f k.
 

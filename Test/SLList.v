@@ -546,7 +546,7 @@ Proof.
   { cbn.
     eexists _, SLprop.True.
     split. 2:reflexivity.
-    unfold tr_f_spec, Spec.tr, Spec.Expanded.tr; cbn.
+    apply Spec.tr_eq_expanded; unfold Spec.Expanded.tr; cbn.
     exists tt, tt, Logic.I; cbn; reflexivity. }
   cbn.
   eapply SLprop.mem_match_sl_morph; try SL.normalize.

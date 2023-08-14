@@ -1,77 +1,60 @@
 From SLFun Require Import Util Values SL VProg.Vprop VProg.Core.
 From Coq   Require Import Lists.List.
 
-Import ListNotations SLNotations VProg.Core.Abbrev.
+Import ListNotations SLNotations VProg.Vprop.Notations VProg.Core.Abbrev.
 Import SL.Tactics.
 
 
 Section Read.
-  Context [CT : CP.context] (p : ptr).
+  Context [CT : CP.context].
 
-  Inductive Read_Spec (ctx : CTX.t) (s : i_sig_t memdata ctx) (f : i_spec_t s) : Prop
-    := Read_SpecI
-    (d : memdata)
-    (IJ : InjPre_SFrame_Spec [CTX.mka (SLprop.cell p, d)] ctx {|
-      sf_csm  := Vector.cons _ false _ (Vector.nil _) <: Sub.t [_];
-      sf_prd  := fun _ => nil;
-    |} (FunProg.Ret (TF.mk0 _ d Tuple.tt)) s f).
-
-  Program Definition Read : instr CT memdata := {|
-    i_impl := CP.Read p;
-    i_spec := fun ctx => Read_Spec ctx;
-  |}.
-  Next Obligation.
-    destruct SP.
-    apply (Tr_InjPre_SFrame IJ); clear IJ.
-    do 2 intro; cbn in *.
-    eapply SP.Cons.
-      { apply SP.Read with (d := d). }
-    split; cbn.
-    - SL.normalize; reflexivity.
-    - intro; SL.normalize.
-      Intro ->.
-      Apply PRE.
+  Local Lemma Read_correct:
+    Frag_correct CT  ptr None memdata None  Spec.sem_vf
+      (fun p _ => (CP.Read p,
+        Spec.mk_r0 memdata (fun d =>
+        Spec.mk_r1 (GO := None) [vptr p ~> d] [] (fun _ => []) (
+        FunProg.Ret (TF.mk0 (fun _ => []) d Tuple.tt)
+        )))).
+  Proof.
+    apply intro_Frag_correct; cbn.
+    intros p _ d pt SEM.
+    eapply SP.Cons. { apply SP.Read with (d := d). }
+    split; intros; SL.normalize.
+    - reflexivity.
+    - Intro ->.
+      Apply SEM.
       reflexivity.
-  Qed.
+   Qed.
+
+  Definition Read : ptr -> instr CT memdata :=
+    Eval cbn in Frag Read_correct.
 End Read.
 
-Local Ltac build_Read :=
-  simple refine (Read_SpecI _ _ _ _ _ _);
-  [ shelve | (* IJ *) Tac.build_InjPre_SFrame ].
-
 Section Write.
-  Context [CT : CP.context] (p : ptr) (d : memdata).
+  Context [CT : CP.context] (p : ptr).
 
-  Inductive Write_Spec (ctx : CTX.t) (s : i_sig_t unit ctx) (f : i_spec_t s): Prop
-    := Write_SpecI
-    (d0 : memdata)
-    (IJ : InjPre_SFrame_Spec [CTX.mka (SLprop.cell p, d0)] ctx {|
-      sf_csm  := Vector.cons _ true _ (Vector.nil _) <: Sub.t [_];
-      sf_prd  := fun _ => [Vprop.mk (SLprop.cell p)];
-    |} (FunProg.Ret (TF.mk0 (fun _ => [memdata]) tt (d, tt))) s f).
+  Local Lemma Write_correct:
+    Frag_correct CT  memdata None unit None  Spec.sem_vf
+      (fun d _ => (CP.Write p d,
+        Spec.mk_r0 memdata (fun d0 =>
+        Spec.mk_r1 (GO := None) [] [vptr p ~> d0] (fun _ => [vptr p ~>]) (
+        FunProg.Ret (TF.mk0 (fun _ => [memdata]) tt (d, tt))
+      )))).
+  Proof.
+    apply intro_Frag_correct; cbn.
+    intros d _ d0 pt SEM.
+    eapply SP.Cons. { apply SP.Write with (d0 := d0). }
+    split; [|intros []]; SL.normalize.
+    - reflexivity.
+    - Apply (d, tt).
+      Apply SEM.
+      SL.normalize.
+      reflexivity.
+   Qed.
 
-  Program Definition Write : instr CT unit := {|
-    i_impl := CP.Write p d;
-    i_spec := fun ctx => Write_Spec ctx;
-  |}.
-  Next Obligation.
-    destruct SP.
-    apply (Tr_InjPre_SFrame IJ); clear IJ.
-    do 2 intro; cbn in *.
-    eapply SP.Cons.
-      { apply SP.Write with (d0 := d0). }
-    split; cbn.
-    - SL.normalize; reflexivity.
-    - intros [].
-      Apply (d, tt).
-      Apply PRE.
-      SL.normalize; reflexivity.
-  Qed.
+   Definition Write : memdata -> instr CT unit :=
+     Eval cbn in Frag Write_correct.
 End Write.
-
-Local Ltac build_Write :=
-  simple refine (Write_SpecI _ _ _ _ _ _ _);
-  [ shelve | (* IJ *) Tac.build_InjPre_SFrame ].
 
 Section Loop.
   Context [CT : CP.context] [A B : Type]
@@ -400,10 +383,6 @@ Ltac build_Loop :=
 
 
 Module Tactics.
-  #[export] Hint Extern 1 (Read_Spec       _ _ _ _) =>
-    Tac.init_HasSpec_tac ltac:(fun _ => build_Read)  : HasSpecDB.
-  #[export] Hint Extern 1 (Write_Spec    _ _ _ _ _) =>
-    Tac.init_HasSpec_tac ltac:(fun _ => build_Write) : HasSpecDB.
   #[export] Hint Extern 1 (Loop_Spec _ _ _ _ _ _ _) =>
     Tac.init_HasSpec_tac ltac:(fun _ => build_Loop)  : HasSpecDB.
 End Tactics.

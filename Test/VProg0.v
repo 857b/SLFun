@@ -208,7 +208,7 @@ Proof.
   { cbn.
     eexists _, SLprop.True.
     split. 2:reflexivity.
-    unfold tr_f_spec, Spec.tr, Spec.Expanded.tr; cbn.
+    apply Spec.tr_eq_expanded; unfold Spec.Expanded.tr; cbn.
     exists tt, (m p0, m p1); cbn.
     unshelve eexists. split. reflexivity. }
   cbn.

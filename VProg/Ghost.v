@@ -9,10 +9,11 @@ Local Transparent FP.Bind FP.Ret FP.Call.
 Section Admit.
   Lemma admit_change {A} : @ghost_lem (mk_f_sig (VpropList.t * (A -> VpropList.t)) A)
     (fun '(V0, V1) _ =>
-     Spec.mk_r0 (Tuple.force_match (VpropList.sel V0) (fun sel0 =>
-     Spec.mk_r1 (GO := None) [] (VpropList.inst V0 sel0) False (fun x =>
-     Spec.mk_r2 _ (V1 x) (Tuple.of_fun (fun sel1 _ =>
-     Spec.mk_r3 _ sel1 True)))))).
+     Spec.mk_r0 _ (Tuple.force_match (VpropList.sel V0) (fun sel0 =>
+     Spec.mk_r1 (GO := None) [] (VpropList.inst V0 sel0) V1 (
+     Spec.mk_vs (GO := None) False (fun x =>
+     Spec.mk_vs0 (VpropList.sel (V1 x)) (Tuple.of_fun (fun sel1 _ =>
+     Spec.mk_vs1 sel1 True))))))).
   Proof.
     init_lemma (?, ?) ?.
     rewrite Tuple.to_of_fun; intros [].
@@ -25,17 +26,19 @@ Section Equivalence.
 
     Definition eqv_lem1_spec : ghost_spec (mk_f_sig unit unit) :=
       fun _ _ =>
-      Spec.mk_r0 (Tuple.force_match (VpropList.sel V0) (fun sel0 =>
-      Spec.mk_r1 [] (VpropList.inst V0 sel0) True (fun _ =>
-      Spec.mk_r2 [] V1 (fun _ =>
-      Spec.mk_r3 _ (f sel0) True)))).
+      Spec.mk_r0 _ (Tuple.force_match (VpropList.sel V0) (fun sel0 =>
+      Spec.mk_r1 [] (VpropList.inst V0 sel0) (fun _ => V1) (
+      Spec.mk_vs True (fun _ =>
+      Spec.mk_vs0 [] (fun _ =>
+      Spec.mk_vs1 (f sel0) True))))).
     
     Definition eqv_lem2_spec : ghost_spec (mk_f_sig unit unit) :=
       fun _ _ =>
-      Spec.mk_r0 (Tuple.force_match (VpropList.sel V1) (fun sel1 =>
-      Spec.mk_r1 [] (VpropList.inst V1 sel1) True (fun _ =>
-      Spec.mk_r2 [] V0 (fun _ =>
-      Spec.mk_r3 _ (g sel1) True)))).
+      Spec.mk_r0 _ (Tuple.force_match (VpropList.sel V1) (fun sel1 =>
+      Spec.mk_r1 [] (VpropList.inst V1 sel1) (fun _ => V0) (
+      Spec.mk_vs True (fun _ =>
+      Spec.mk_vs0 [] (fun _ =>
+      Spec.mk_vs1 (g sel1) True))))).
 
     Hypothesis (GF : forall x, g (f x) = x)
                (E : forall y, SLprop.eq (CTX.sl (VpropList.inst V0 (g y))) (CTX.sl (VpropList.inst V1 y))).
@@ -100,11 +103,11 @@ Section Replace.
 
   Definition replace (V0 V1 : VpropList.t) : @ghost_lem (mk_f_sig (VpropList.sel V0 = VpropList.sel V1) unit)
     (fun E _ =>
-     Spec.mk_r0 (Tuple.force_match (VpropList.sel V0) (fun sel0 =>
-     Spec.mk_r1 [] (VpropList.inst V0 sel0)
-       (eq_rect _ (fun st => Tuple.t st -> CTX.t) (VpropList.inst V0) _ E = VpropList.inst V1) (fun _ =>
-     Spec.mk_r2 [] V1 (fun _ =>
-     Spec.mk_r3 _ (eq_rect _ Tuple.t sel0 _ E) True))))).
+     Spec.mk_r0 _ (Tuple.force_match (VpropList.sel V0) (fun sel0 =>
+     Spec.mk_r1 [] (VpropList.inst V0 sel0) (fun _ => V1) (
+     Spec.mk_vs (eq_rect _ (fun st => Tuple.t st -> CTX.t) (VpropList.inst V0) _ E = VpropList.inst V1) (fun _ =>
+     Spec.mk_vs0 [] (fun _ =>
+     Spec.mk_vs1 (eq_rect _ Tuple.t sel0 _ E) True)))))).
   Proof.
     init_lemma E sel0.
     rewrite Tuple.to_of_fun; cbn.
@@ -234,10 +237,11 @@ Section Impp.
 
   Definition impp_lemma_spec : ghost_spec (mk_f_sig unit A) :=
     fun _ _ =>
-    Spec.mk_r0 (fun (sel : sel_t) => let '(sl, pre, post) := spc sel in
-    Spec.mk_r1 (GO := None) sl [] pre (fun (x : A) =>
-    Spec.mk_r2 [] [] (fun _ =>
-    Spec.mk_r3 [] tt (post x)))).
+    Spec.mk_r0 sel_t (fun sel => let '(sl, pre, post) := spc sel in
+    Spec.mk_r1 (GO := None) sl [] (fun _ => []) (
+    Spec.mk_vs (GO := None) pre (fun x : A =>
+    Spec.mk_vs0 [] (fun _ =>
+    Spec.mk_vs1 (vp := []) tt (post x))))).
 
   Definition impp_lemma := ghost_lem impp_lemma_spec.
 
@@ -266,10 +270,11 @@ Section Exploit.
 
   Definition exploit_spec : ghost_spec (mk_f_sig unit unit) :=
     fun _ _ =>
-    Spec.mk_r0 (Tuple.force_match (VpropList.sel vs) (fun sel =>
-    Spec.mk_r1 (GO := None) (VpropList.inst vs sel) [] True (fun _ =>
-    Spec.mk_r2 [] [] (fun _ =>
-    Spec.mk_r3 [] tt (exploit_hyp sel))))).
+    Spec.mk_r0 _ (Tuple.force_match (VpropList.sel vs) (fun sel =>
+    Spec.mk_r1 (GO := None) (VpropList.inst vs sel) [] (fun _ => []) (
+    Spec.mk_vs True (fun _ =>
+    Spec.mk_vs0 [] (fun _ =>
+    Spec.mk_vs1 (vp := []) tt (exploit_hyp sel)))))).
   Lemma exploit_correct : ghost_lem exploit_spec.
   Proof.
     init_lemma [] sel.

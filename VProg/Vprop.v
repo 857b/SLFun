@@ -1552,12 +1552,13 @@ Module VpropList.
   Definition of_ctx : CTX.t -> t :=
     map (@projT1 _ _).
 
-  Lemma of_inst (vs : t) (sl : sel_t vs):
+  Fixpoint of_inst (vs : t) (sl : sel_t vs) {struct vs}:
     of_ctx (inst vs sl) = vs.
   Proof.
-    induction vs; simpl.
+    destruct vs.
     - reflexivity.
-    - destruct sl; simpl; f_equal; auto.
+    - case sl as []; cbn.
+      f_equal; apply of_inst.
   Defined.
 
   Fixpoint sel_of_ctx (c : CTX.t) : sel_t (of_ctx c) :=
@@ -1570,6 +1571,18 @@ Module VpropList.
     inst (of_ctx ctx) (sel_of_ctx ctx) = ctx.
   Proof.
     induction ctx as [|[]]; simpl; f_equal; auto.
+  Qed.
+
+  Lemma sel_of_inst vs sl:
+    sel_of_ctx (inst vs sl) = eq_rect_r sel_t sl (of_inst vs sl).
+  Proof.
+    revert sl; induction vs as [|v vs IH].
+    - intros []; reflexivity.
+    - intros [s sl]; cbn.
+      rewrite IH; clear.
+      generalize (of_inst vs sl) as E.
+      generalize (inst    vs sl) as vs1.
+      destruct E; reflexivity.
   Qed.
 
   (* append *)
