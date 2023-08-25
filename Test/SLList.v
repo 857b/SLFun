@@ -544,10 +544,7 @@ Proof.
   eapply ConcreteProg.func_okstate in STEPS; eauto.
   1,2:apply CORRECT.
   { cbn.
-    eexists _, SLprop.True.
-    split. 2:reflexivity.
-    apply Spec.tr_eq_expanded; unfold Spec.Expanded.tr; cbn.
-    exists tt, tt, Logic.I; cbn; reflexivity. }
+    exact (fd_cp_spec Main_spec SLprop.True _ tt tt Logic.I). }
   cbn.
   eapply SLprop.mem_match_sl_morph; try SL.normalize.
   apply Malloc.match_full_mem.

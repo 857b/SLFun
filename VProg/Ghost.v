@@ -8,10 +8,10 @@ Local Transparent FP.Bind FP.Ret FP.Call.
 
 Section Admit.
   Lemma admit_change {A} : @ghost_lem (mk_f_sig (VpropList.t * (A -> VpropList.t)) A)
-    (fun '(V0, V1) _ =>
+    (fun '(V0, V1) =>
      Spec.mk_r0 _ (Tuple.force_match (VpropList.sel V0) (fun sel0 =>
-     Spec.mk_r1 (GO := None) [] (VpropList.inst V0 sel0) V1 (
-     Spec.mk_vs (GO := None) False (fun x =>
+     Spec.mk_r1 [] (VpropList.inst V0 sel0) V1 (
+     Spec.mk_vs False (fun x =>
      Spec.mk_vs0 (VpropList.sel (V1 x)) (Tuple.of_fun (fun sel1 _ =>
      Spec.mk_vs1 sel1 True))))))).
   Proof.
@@ -25,7 +25,7 @@ Section Equivalence.
     Variables (f : VpropList.sel_t V0 -> VpropList.sel_t V1) (g : VpropList.sel_t V1 -> VpropList.sel_t V0).
 
     Definition eqv_lem1_spec : ghost_spec (mk_f_sig unit unit) :=
-      fun _ _ =>
+      fun _ =>
       Spec.mk_r0 _ (Tuple.force_match (VpropList.sel V0) (fun sel0 =>
       Spec.mk_r1 [] (VpropList.inst V0 sel0) (fun _ => V1) (
       Spec.mk_vs True (fun _ =>
@@ -33,7 +33,7 @@ Section Equivalence.
       Spec.mk_vs1 (f sel0) True))))).
     
     Definition eqv_lem2_spec : ghost_spec (mk_f_sig unit unit) :=
-      fun _ _ =>
+      fun _ =>
       Spec.mk_r0 _ (Tuple.force_match (VpropList.sel V1) (fun sel1 =>
       Spec.mk_r1 [] (VpropList.inst V1 sel1) (fun _ => V0) (
       Spec.mk_vs True (fun _ =>
@@ -102,7 +102,7 @@ Section Replace.
   Qed.
 
   Definition replace (V0 V1 : VpropList.t) : @ghost_lem (mk_f_sig (VpropList.sel V0 = VpropList.sel V1) unit)
-    (fun E _ =>
+    (fun E =>
      Spec.mk_r0 _ (Tuple.force_match (VpropList.sel V0) (fun sel0 =>
      Spec.mk_r1 [] (VpropList.inst V0 sel0) (fun _ => V1) (
      Spec.mk_vs (eq_rect _ (fun st => Tuple.t st -> CTX.t) (VpropList.inst V0) _ E = VpropList.inst V1) (fun _ =>
@@ -236,10 +236,10 @@ Section Impp.
   Context [sel_t A : Type] (spc : sel_t -> (CTX.t * Prop * (A -> Prop))).
 
   Definition impp_lemma_spec : ghost_spec (mk_f_sig unit A) :=
-    fun _ _ =>
+    fun _ =>
     Spec.mk_r0 sel_t (fun sel => let '(sl, pre, post) := spc sel in
-    Spec.mk_r1 (GO := None) sl [] (fun _ => []) (
-    Spec.mk_vs (GO := None) pre (fun x : A =>
+    Spec.mk_r1 sl [] (fun _ => []) (
+    Spec.mk_vs pre (fun x : A =>
     Spec.mk_vs0 [] (fun _ =>
     Spec.mk_vs1 (vp := []) tt (post x))))).
 
@@ -269,9 +269,9 @@ Section Exploit.
     forall P : Prop, SLprop.impp (CTX.sl (VpropList.inst vs sel)) P -> P.
 
   Definition exploit_spec : ghost_spec (mk_f_sig unit unit) :=
-    fun _ _ =>
+    fun _ =>
     Spec.mk_r0 _ (Tuple.force_match (VpropList.sel vs) (fun sel =>
-    Spec.mk_r1 (GO := None) (VpropList.inst vs sel) [] (fun _ => []) (
+    Spec.mk_r1 (VpropList.inst vs sel) [] (fun _ => []) (
     Spec.mk_vs True (fun _ =>
     Spec.mk_vs0 [] (fun _ =>
     Spec.mk_vs1 (vp := []) tt (exploit_hyp sel)))))).

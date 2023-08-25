@@ -10,14 +10,14 @@ Section Read.
 
   Local Lemma Read_correct:
     Frag_correct CT  ptr None memdata None  Spec.sem_vf
-      (fun p _ => (CP.Read p,
+      (fun p => (CP.Read p,
         Spec.mk_r0 memdata (fun d =>
-        Spec.mk_r1 (GO := None) [vptr p ~> d] [] (fun _ => []) (
+        Spec.mk_r1 [vptr p ~> d] [] (fun _ => []) (
         FunProg.Ret (TF.mk0 (fun _ => []) d Tuple.tt)
         )))).
   Proof.
     apply intro_Frag_correct; cbn.
-    intros p _ d pt SEM.
+    intros p d pt SEM.
     eapply SP.Cons. { apply SP.Read with (d := d). }
     split; intros; SL.normalize.
     - reflexivity.
@@ -35,14 +35,14 @@ Section Write.
 
   Local Lemma Write_correct:
     Frag_correct CT  memdata None unit None  Spec.sem_vf
-      (fun d _ => (CP.Write p d,
+      (fun d => (CP.Write p d,
         Spec.mk_r0 memdata (fun d0 =>
-        Spec.mk_r1 (GO := None) [] [vptr p ~> d0] (fun _ => [vptr p ~>]) (
+        Spec.mk_r1 [] [vptr p ~> d0] (fun _ => [vptr p ~>]) (
         FunProg.Ret (TF.mk0 (fun _ => [memdata]) tt (d, tt))
       )))).
   Proof.
     apply intro_Frag_correct; cbn.
-    intros d _ d0 pt SEM.
+    intros d d0 pt SEM.
     eapply SP.Cons. { apply SP.Write with (d0 := d0). }
     split; [|intros []]; SL.normalize.
     - reflexivity.

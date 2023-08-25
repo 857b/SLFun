@@ -47,65 +47,104 @@ Module Spec. Section Spec.
     post := fun x => post s x ** fr;
   |}.
 
-  Definition tr (s : t): CP.Spec.t A := {|
+  Lemma frame_morph
+    [s0  s1 ] (LE : Spec.le s0 s1)
+    [fr0 fr1] (FR : SLprop.eq fr0 fr1):
+    Spec.le (frame s0 fr0) (frame s1 fr1).
+  Proof.
+    case LE as (LE_PRE, LE_POST).
+    split; cbn; intros; setoid_rewrite FR;
+    apply SLprop.star_morph_imp; auto; reflexivity.
+  Qed.
+
+  Definition tr_exact (s : t) : CP.Spec.t A := {|
     CP.Spec.pre  := SLprop.mem_match (pre s);
     CP.Spec.post := fun _ r => SLprop.mem_match (post s r);
   |}.
 
-  Definition wp_match (s : t) (wp : CP.Spec.wp_t A): Prop :=
-    forall fr, CP.Spec.wp_impl wp (tr (frame s fr)).
+  Lemma tr_exact_morph
+    [s0 s1] (LE : le s0 s1):
+    CP.Spec.le (tr_exact s0) (tr_exact s1).
+  Proof.
+    case LE as (LE_PRE & LE_POST).
+    unfold CP.Spec.le; cbn.
+    intros m0 PRE1.
+    split.
+    - eapply SLprop.mem_match_morph_imp, PRE1; auto.
+    - do 2 intro.
+      apply SLprop.mem_match_morph_imp, LE_POST.
+  Qed.
+
+  Definition tr (src : t) (trg : CP.Spec.t A) : Prop :=
+    exists fr, CP.Spec.le (tr_exact (frame src fr)) trg.
+
+  Lemma tr_morph
+    [src0 src1] (SRC : le         src1 src0)
+    [trg0 trg1] (TRG : CP.Spec.le trg0 trg1):
+    tr src0 trg0 -> tr src1 trg1.
+  Proof.
+    intros (fr & TR0); exists fr.
+    rewrite <- TRG, <- TR0.
+    apply tr_exact_morph, frame_morph;
+    auto; reflexivity.
+  Qed.
+
+  Definition wp_impl (wp : CP.Spec.wp_t A) (s : t) : Prop :=
+    forall fr, CP.Spec.wp_impl wp (tr_exact (frame s fr)).
+
+  Lemma wp_impl_iff wp src
+    (MONO : CP.Spec.monotone wp):
+    wp_impl wp src <-> (forall trg, tr src trg -> CP.Spec.wp_impl wp trg).
+  Proof.
+    unfold wp_impl, tr; split.
+    - intros H trg (fr & LE).
+      eapply CP.Spec.wp_impl_morph; eauto; reflexivity.
+    - intros H fr.
+      apply H.
+      exists fr; reflexivity.
+  Qed.
 
   Definition spec_match (s : t) (t : CP.Spec.t A -> Prop): Prop :=
-    forall fr, exists t_s, t t_s /\ CP.Spec.le t_s (tr (frame s fr)).
-End Spec. End Spec.
+    forall fr, exists t_s, t t_s /\ CP.Spec.le t_s (tr_exact (frame s fr)).
 
-Section F_SPEC.
+  Lemma spec_match_iff s t:
+    spec_match s t <-> Rel.set_le (@CP.Spec.le A) t (tr s).
+  Proof.
+    unfold spec_match, tr; split.
+    - intros H t_s0 [fr LE]; setoid_rewrite <- LE.
+      apply H.
+    - intros H fr.
+      apply H.
+      exists fr; reflexivity.
+  Qed.
+End Spec. End Spec.
+Module FSpec. Section FSpec.
   Local Set Implicit Arguments.
   Variable sg : f_sig.
 
-  Definition f_spec :=
+  Definition t :=
     f_arg_t sg -> Spec.t (f_ret_t sg) -> Prop.
 
-  Definition match_f_spec (s : f_spec) (t : CP.f_spec sg) : Prop :=
-    forall x s_s, s x s_s -> Spec.spec_match s_s (t x).
-
-  Definition tr_f_spec (s : f_spec) : CP.f_spec sg :=
-    fun x t_s => exists s_s fr, s x s_s /\ t_s = Spec.tr (Spec.frame s_s fr).
-
-  Lemma tr_f_spec_match (s : f_spec):
-    match_f_spec s (tr_f_spec s).
-  Proof.
-    intros x s_s S fr; do 2 esplit.
-    - exists s_s, fr; eauto.
-    - reflexivity.
-  Qed.
-
-  Lemma wp_impl_tr_f_spec [sp : f_spec] [x wp]
-    (IM : forall s (SP : sp x s), Spec.wp_match s wp)
-    s (TR : tr_f_spec sp x s):
-    CP.Spec.wp_impl wp s.
-  Proof.
-    case TR as (? & fr & SP & ->).
-    apply IM, SP.
-  Qed.
-End F_SPEC.
+  Definition tr (src : t) : CP.FSpec.t sg :=
+    fun x t_s => exists s_s, src x s_s /\ Spec.tr s_s t_s.
+End FSpec. End FSpec.
 
 Section SLS. 
   Context [SG : sig_context] (SPC : CP.spec_context SG).
 
   (* Separation Logic Spec *)
   Definition sls [A] (i : CP.instr A) (s : Spec.t A) : Prop :=
-    Spec.wp_match s (CP.wlp SPC i).
+    Spec.wp_impl (CP.wlp SPC i) s.
 
   Lemma sls_morph_imp [A] (i : CP.instr A) (s0 s1 : Spec.t A) (LE : Spec.le s0 s1):
     sls i s0 -> sls i s1.
   Proof.
-    intros SLS fr m0; simpl; intro M0.
-    eapply CP.wlp_monotone, SLS with (fr := fr); cycle 1; simpl.
-    - eapply SLprop.mem_match_morph_imp, M0.
-      apply SLprop.star_morph_imp; [apply LE|reflexivity].
-    - intros x m1.
-      apply SLprop.mem_match_morph_imp, SLprop.star_morph_imp; [apply LE|reflexivity].
+    unfold sls.
+    rewrite !Spec.wp_impl_iff.
+    setoid_rewrite CP.Spec.wp_impl_iff.
+    intros H trg TR.
+    eapply H, Spec.tr_morph, TR.
+    all:eauto using CP.wlp_monotone; reflexivity.
   Qed.
 
   Global Add Parametric Morphism A i : (@sls A i)
@@ -116,6 +155,16 @@ Section SLS.
     intros s0 s1 E.
     apply sls_morph_imp.
     rewrite E; reflexivity.
+  Qed.
+
+  Lemma sls_impl_tr A impl s_s t_s
+    (SLS : sls impl s_s)
+    (TR  : Spec.tr s_s t_s):
+    CP.Spec.wp_impl (@CP.wlp SG SPC A impl) t_s.
+  Proof.
+    unfold sls in SLS.
+    rewrite Spec.wp_impl_iff in SLS;
+    auto using CP.wlp_monotone.
   Qed.
 
   (* Constructors *)
@@ -209,16 +258,18 @@ Section SLS.
     Qed.
   End Bind.
   Section Call.
-    Context [sg : f_sig] (f : fid) (x : f_arg_t sg) (HSIG : SG f = Some sg) (s : Spec.t (f_ret_t sg)).
+    Context [sg : f_sig] (sgh : CP.f_sigh sg)
+      (f : fid) (HSIG : SG f = Some sg) (x : CP.f_arggh_t sgh) (s : Spec.t (CP.f_retgh_t sgh)).
 
     Definition fun_has_spec :=
-      Spec.spec_match s (CP.fun_has_spec SPC f HSIG x).
+      Spec.spec_match s (CP.fun_has_spec_ghost sgh SPC f HSIG x).
     Hypothesis (HSPC : fun_has_spec).
 
-    Lemma Call : sls (CP.Call f HSIG x) s.
+    Lemma Call : sls (CP.Call_gh sgh f HSIG x) s.
     Proof.
       intros fr m0; simpl; intro M0.
       case (HSPC fr) as (t_s & HS & SLE).
+      apply CP.Call_gh_wlp.
       exists t_s. split. exact HS.
       exact (SLE _ M0).
     Qed.

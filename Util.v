@@ -185,14 +185,19 @@ Module Tac.
     )).
 
   (* Given a term [t] of type [ty] containing evars,
-     builds a term [t' : ty] using [build] and unify [t] with [t'] *)
-  Ltac build_unify t build :=
+     builds a term [t' : ty] using [build], unify [t] with [t']
+     and continues with [t'] *)
+  Ltac build_unify_get t build k(* term -> ltac *) :=
     let ty  := type of t   in
     let tmp := fresh "tmp" in
     pose_build tmp ty build;
     let t' := body_of tmp in
     clear tmp;
-    unify t t'.
+    unify t t';
+    k t'.
+
+  Ltac build_unify t build :=
+    build_unify_get t build ltac:(fun _ => idtac).
 
   (* Instantiates an evar [e] using [build]. *)
   Ltac build_evar e build :=
@@ -345,7 +350,7 @@ Module Tac.
     end.
 
   (* Given [t] with shape [match x with _ => _ end arg0 ... arg9],
-     and [case_x] is convertible to [x],
+     and [case_x] convertible to [x],
      continues with [k t' rev_args] where:
      - [t'] is [match case_x with _ => _ end arg0' ... arg9']
        where [arg'_i := arg_i]
@@ -490,6 +495,25 @@ Module Rel.
       - etransitivity; eauto.
     Qed.
   End Pull.
+  Section SetLe.
+    Context [A : Type] (R : relation A).
+
+    Definition set_le : relation (A -> Prop) :=
+      fun s0 s1 =>
+      forall x1 : A, s1 x1 ->
+      exists x0 : A, s0 x0 /\ R x0 x1.
+
+    Global Instance set_le_Reflexive {_ : Reflexive R} : Reflexive set_le.
+    Proof.
+      intros s x1 ?; exists x1; intuition.
+    Qed.
+
+    Global Instance set_le_Transitive {_ : Transitive R} : Transitive set_le.
+    Proof.
+      intros s0 s1 s2 H0 H1 x2 (x1 & (x0 & S0 & R0)%H0 & R1)%H1.
+      exists x0; intuition eauto.
+    Qed.
+  End SetLe.
 
   Global Ltac by_expr E :=
     match goal with

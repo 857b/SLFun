@@ -19,17 +19,19 @@ Proof.
   reflexivity.
 Qed.
 
-Definition m_body [sg sgh e] (F : @FSpec sg sgh e) : Type := f_body CT sgh.
+Definition m_body [sg sgh e] (F : @FSpec.of_exp (@CP.ghost_sg sg sgh) e) : Type := f_body CT sgh.
 
-Inductive Test [sg sgh] (e : @f_spec_exp sg sgh) (b : f_body CT sgh) : Prop :=
+Inductive Test [sg sgh]
+  (e : @FSpec.t_exp (@CP.ghost_sg sg sgh))
+  (b : CP.opt_sigG_arrow (CP.f_ghin_t sgh) (fun _ => instr CT (CP.f_retgh_t sgh))) : Prop :=
   mk_test_fun
-    (S : FSpec sgh e)
-    (E : f_erase b)
-    (M : f_body_match b (m_spec S)).
+    (S : @FSpec.of_exp (@CP.ghost_sg sg sgh) e)
+    (E : f_erase (CP.opt_sigG_to_fun b))
+    (M : f_body_match (CP.opt_sigG_to_fun b) (FSpec.m_spec S)).
 Arguments Test _ _ e%vprog_spec.
 
 Ltac init_Test :=
-  unshelve eexists; [ Tac.build_FSpec | Tac.erase_impl | cbn ].
+  unshelve eexists; [ Tac.build_of_exp | Tac.erase_impl | cbn ].
 
 
 Goal Test SPEC (p : ptr)
@@ -222,18 +224,18 @@ Qed.
 End Branch.
 
 
-Definition spec_a2a : FSpec _
+Definition spec_a2a : FSpec.of_exp
   SPEC ((p0, p1) : ptr * ptr)
   '(n0, n1) [vptr p0 ~> n0] [vptr p1 ~> n1] (n0 <= n1)
   '(_ : unit) n1' [vptr p1 ~> n1'] (n0 <= n1').
-Proof. Tac.build_FSpec. Defined.
+Proof. Tac.build_of_exp. Defined.
 
 Definition vprog_a2a : m_body spec_a2a := fun '(p0, p1) =>
   'v1 <- Read p1;
   'v0 <- gGet (SLprop.cell p0);
   Assert (fun 'tt => ([], v0 <= v1));;
   Write p1 (S v1).
-Goal f_body_match vprog_a2a (m_spec spec_a2a).
+Goal f_body_match vprog_a2a (FSpec.m_spec spec_a2a).
 Proof. solve_by_wlp. Qed.
 Goal f_erase vprog_a2a.
 Proof. Tac.erase_impl. Defined.
@@ -245,7 +247,7 @@ Definition vprog_a2b : m_body spec_a2a := fun '(p0, p1) =>
     RetG v1 v0);
   Assert (fun 'tt => ([], v0 <= v1));;
   Write p1 (S v1).
-Goal f_body_match vprog_a2b (m_spec spec_a2a).
+Goal f_body_match vprog_a2b (FSpec.m_spec spec_a2a).
 Proof. solve_by_wlp. Qed.
 Goal f_erase vprog_a2b.
 Proof. Tac.erase_impl. Defined.

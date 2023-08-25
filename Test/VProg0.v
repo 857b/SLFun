@@ -206,11 +206,9 @@ Proof.
   eapply CP.func_okstate in STEPS; eauto.
   1,2:apply CORRECT.
   { cbn.
-    eexists _, SLprop.True.
-    split. 2:reflexivity.
-    apply Spec.tr_eq_expanded; unfold Spec.Expanded.tr; cbn.
-    exists tt, (m p0, m p1); cbn.
-    unshelve eexists. split. reflexivity. }
+    unshelve apply (fd_cp_spec spec_0 SLprop.True _ tt); cbn.
+    - exact (m p0, m p1).
+    - split. }
   cbn.
   eexists (FMem.of_mem m); split. apply FMem.match_of_mem.
   SL.normalize.

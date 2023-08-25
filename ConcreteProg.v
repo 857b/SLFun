@@ -3,20 +3,9 @@ From SLFun Require Import Util.
 From Coq   Require Import Relations.Relations Setoids.Setoid.
 
 
-(* sig ghost *)
-Inductive sigG (A : Type) (P : A -> Type) : Type :=
-  existG (x : A) (y : P x).
-Global Arguments existG [_] P.
-
-Definition projG1 [A P] (x : sigG A P) : A :=
-  let '(existG _ x _) := x in x.
-Definition projG2 [A P] (x : sigG A P) : P (projG1 x) :=
-  let '(existG _ _ y) := x in y.
-Definition split_sigG [A P B] (f : forall (x : A) (y : P x), B) (x : sigG A P) : B :=
-  f (projG1 x) (projG2 x).
-
-
 Module Spec. Section Spec.
+  (* Specifications of an instruction *)
+
   Local Set Implicit Arguments.
   Variable A : Type.
 
@@ -61,9 +50,90 @@ Module Spec. Section Spec.
       case (L0 m0) as (PA & L0'); auto.
   Qed.
 
-  Definition wp_impl (wp : wp_t) (s : t) :=
+  Definition spec_wp (s : t) : wp_t :=
+    fun pt m0 => pre s m0 /\ forall r m1, post s m0 r m1 -> pt r m1.
+
+  Lemma spec_wp_monotone s:
+    monotone (spec_wp s).
+  Proof.
+    unfold monotone, spec_wp; intuition.
+  Qed.
+
+  Lemma spec_wp_morph
+    [s0 s1] (LE : le s0 s1):
+    wp_le (spec_wp s0) (spec_wp s1).
+  Proof.
+    unfold wp_le, spec_wp.
+    intros pt m0 ((PRE0 & POST0)%LE & POST1).
+    intuition.
+  Qed.
+
+  Definition wp_impl (wp : wp_t) (s : t) : Prop :=
     forall m0, pre s m0 -> wp (post s m0) m0.
+
+  Lemma wp_impl_morph
+    [wp0 wp1 : wp_t] (WP : wp_le wp1 wp0)
+    (MONO : monotone wp0)
+    [s0  s1  : t]    (S  : le s0 s1):
+    wp_impl wp0 s0 -> wp_impl wp1 s1.
+  Proof.
+    intros H m0 [PRE POST]%S.
+    eapply WP, MONO, H; auto.
+  Qed.
+
+  Lemma wp_impl_iff wp s
+    (MONO : monotone wp):
+    wp_impl wp s <-> wp_le wp (spec_wp s).
+  Proof.
+    unfold wp_impl, spec_wp, wp_le; intuition eauto.
+  Qed.
 End Spec. End Spec.
+Module FSpec. Section FSpec.
+  (* Specification of a function. *)
+
+  Local Set Implicit Arguments.
+  Variable sg : f_sig.
+
+  Definition t : Type := f_arg_t sg -> Spec.t (f_ret_t sg) -> Prop.
+
+  Definition le (a b : t) : Prop :=
+    forall x : f_arg_t sg, Rel.set_le (@Spec.le (f_ret_t sg)) (a x) (b x).
+
+  Global Instance le_PreOrder : PreOrder le.
+  Proof.
+    Rel.by_expr (Rel.point (f_arg_t sg) (Rel.set_le (@Spec.le (f_ret_t sg))));
+    eauto 7 using Build_PreOrder with typeclass_instances.
+  Qed.
+
+  Definition such_that (P : t -> Prop) : t :=
+    fun x s => exists a : t, P a /\ a x s.
+
+  Definition spec_wp (fs : t) (x : f_arg_t sg) : Spec.wp_t (f_ret_t sg) :=
+    fun pt m0 => exists s, fs x s /\ Spec.spec_wp s pt m0.
+
+  Lemma spec_wp_monotone fs x:
+    Spec.monotone (spec_wp fs x).
+  Proof.
+    unfold Spec.monotone, spec_wp.
+    intros pt0 pt1 PT m (s & FS & WP).
+    eapply Spec.spec_wp_monotone in WP;
+    eauto.
+  Qed.
+
+  Lemma spec_wp_morph
+    [fs0 fs1] (LE : le fs0 fs1) (x : f_arg_t sg):
+    Spec.wp_le (spec_wp fs0 x) (spec_wp fs1 x).
+  Proof.
+    unfold Spec.wp_le, spec_wp.
+    intros pt m0 (s1 & (s0 & S0 & sLE)%LE & WP0).
+    exists s0; intuition.
+    apply (Spec.spec_wp_morph sLE WP0).
+  Qed.
+
+  Definition wp_impl (wp : f_arg_t sg -> Spec.wp_t (f_ret_t sg)) (fs : t) : Prop :=
+    forall (x : f_arg_t sg) (s : Spec.t (f_ret_t sg)),
+    fs x s -> Spec.wp_impl (wp x) s.
+End FSpec. End FSpec.
 
 Section Concrete.
   Context [SG : sig_context].
@@ -92,15 +162,15 @@ Definition impl_context := impl_context' SG.
 (* Small step semantics *)
 
 Section Semantics.
-  Variable G : impl_context.
+  Variable SPC : impl_context.
 
   Definition state A := (mem * instr A)%type.
 
   Definition get_fun_body [sg] (f : fid) (SIG : SG f = Some sg) : f_arg_t sg -> instr (f_ret_t sg).
   Proof.
-    specialize (G f).
-    rewrite SIG in G.
-    exact G.
+    specialize (SPC f).
+    rewrite SIG in SPC.
+    exact SPC.
   Defined.
 
   Inductive step : forall [A], state A -> state A -> Prop :=
@@ -156,20 +226,14 @@ Definition context_oracle_free' SG' (c : impl_context' SG') : Prop :=
 Definition context_oracle_free : impl_context -> Prop :=
   context_oracle_free' SG.
 
-Definition f_spec (sg : f_sig) : Type := f_arg_t sg -> Spec.t (f_ret_t sg) -> Prop.
-
 Definition spec_context SG :=
-  forall f : fid, opt_type f_spec (SG f).
+  forall f : fid, opt_type FSpec.t (SG f).
 
 Section WLP.
-  Variable G : spec_context SG.
+  Variable SPC : spec_context SG.
   
-  Definition fun_has_spec [sg] (f : fid) (SIG : SG f = Some sg) : f_spec sg.
-  Proof.
-    specialize (G f).
-    rewrite SIG in G.
-    exact G.
-  Defined.
+  Definition fun_has_spec [sg] (f : fid) (SIG : SG f = Some sg) : FSpec.t sg :=
+    eq_rect (SG f) (opt_type FSpec.t) (SPC f) (Some sg) SIG.
 
   Fixpoint wlp [A] (i : instr A) {struct i} : Spec.wp_t A :=
     match i with
@@ -177,10 +241,8 @@ Section WLP.
         post x
     | Bind f g => fun post =>
         wlp f (fun y => wlp (g y) post)
-    | @Call sg f SIG x => fun post m =>
-        exists s, fun_has_spec f SIG x s /\
-          Spec.pre s m /\
-          forall r m', Spec.post s m r m' -> post r m'
+    | @Call sg f SIG x =>
+        FSpec.spec_wp (fun_has_spec f SIG) x
     | @Loop A B x f => fun post m =>
         exists Inv : A + B -> mem -> Prop,
         Inv x m /\
@@ -199,15 +261,13 @@ Section WLP.
   Lemma wlp_monotone [A] (i : instr A):
     Spec.monotone (wlp i).
   Proof.
-    induction i using instr_ind; do 4 intro; simpl;
+    induction i using instr_ind;
+    eauto using FSpec.spec_wp_monotone;
+    do 4 intro; simpl;
     try solve [apply LE | intuition eauto].
     - (* Bind *)
       apply IHi.
       do 2 intro; apply H, LE.
-    - (* Call *)
-      intros (? & ? & ? & IMP).
-      eexists; do 2 (esplit; [eassumption|]).
-      intros; apply LE, IMP; assumption.
     - (* Loop *)
       intros (Inv & ? & ? & IMP).
       exists Inv; eauto.
@@ -215,8 +275,8 @@ Section WLP.
       intros (? & P); eauto.
   Qed.
 
-  Definition f_match_spec [sg : f_sig] (fi : f_impl sg) (fs : f_spec sg) : Prop :=
-    forall x s, fs x s -> Spec.wp_impl (wlp (fi x)) s.
+  Definition f_match_spec [sg : f_sig] (fi : f_impl sg) (fs : FSpec.t sg) : Prop :=
+    FSpec.wp_impl (fun x => wlp (fi x)) fs.
 End WLP.
 
 Section WLP_Correct.
@@ -225,7 +285,7 @@ Section WLP_Correct.
   Definition context_match_spec' SG' (C' : impl_context' SG') (S' : spec_context SG') : Prop :=
     forall f,
     match SG' f as sg return
-      opt_type f_impl sg -> opt_type f_spec sg -> Prop
+      opt_type f_impl sg -> opt_type FSpec.t sg -> Prop
     with
     | Some sg => @f_match_spec S sg
     | None    => fun _  _  => True
@@ -328,6 +388,294 @@ Section WLP_Correct.
     - exact PRE.
   Qed.
 End WLP_Correct.
+
+(* Ghost local variables, argument and result *)
+
+Section SigG.
+  (* [sig] type to store a concrete and a ghost values *)
+
+  Inductive sigG (A : Type) (P : A -> Type) : Type :=
+    existG (x : A) (y : P x).
+  Global Arguments existG [_] P.
+
+  Definition projG1 [A P] (x : sigG A P) : A :=
+    let '(existG _ x _) := x in x.
+  Definition projG2 [A P] (x : sigG A P) : P (projG1 x) :=
+    let '(existG _ _ y) := x in y.
+  Definition split_sigG [A P B] (f : forall (x : A) (y : P x), B) (x : sigG A P) : B :=
+    f (projG1 x) (projG2 x).
+
+  Section OptSigG.
+    Local Set Implicit Arguments.
+    Variables (A : Type) (P : option (A -> Type)).
+
+    Let P_t (x : A) : Type := OptTy.t (option_map (fun g => g x) P).
+
+    Definition opt_sigG : Type :=
+      match P with
+      | Some P => sigG A P
+      | None   => A
+      end.
+
+    Definition to_opt_sigG : sigG A P_t -> opt_sigG.
+    Proof.
+      unfold P_t, opt_sigG.
+      case P as [T|].
+      - exact (fun x => x).
+      - exact (fun '(existG _ x _) => x).
+    Defined.
+
+    Definition of_opt_sigG : opt_sigG -> sigG A P_t.
+    Proof.
+      unfold P_t, opt_sigG.
+      case P as [T|].
+      - exact (fun x => x).
+      - exact (fun x => existG _ x tt).
+    Defined.
+
+    Lemma opt_sigG_iso : type_iso (sigG A P_t) opt_sigG to_opt_sigG of_opt_sigG.
+    Proof.
+      unfold P_t, opt_sigG, to_opt_sigG, of_opt_sigG.
+      case P as [T|]; split; cbn; try reflexivity.
+      intros [? []]; reflexivity.
+    Qed.
+  End OptSigG.
+  Global Arguments to_opt_sigG [A P].
+  Global Arguments of_opt_sigG [A P].
+
+  Definition proj1_opt_sigG [A P] : @opt_sigG A P -> A :=
+    match P with
+    | Some P => fun '(existG _ x _) => x
+    | None   => fun x => x
+    end.
+
+  Definition opt_sigG_arrow1 [A] (P : option (A -> Type)) (TRG : opt_sigG P -> Type) (x : A) : Type :=
+    match P as P return (opt_sigG P -> Type) -> Type with
+    | Some P => fun TRG => forall y : P x, TRG (existG P x y)
+    | None   => fun TRG => TRG x
+    end TRG.
+
+  Definition opt_sigG_arrow [A] (P : option (A -> Type)) (TRG : opt_sigG P -> Type) : Type :=
+    forall x : A, opt_sigG_arrow1 P TRG x.
+
+  Definition opt_sigG_of_fun [A P] : forall [TRG], (forall x : opt_sigG P, TRG x) -> @opt_sigG_arrow A P TRG :=
+    match P with
+    | Some P => fun _ f x y => f (existG P x y)
+    | None   => fun _ f x => f x
+    end.
+
+  Definition opt_sigG_to_fun [A P] : forall [TRG], @opt_sigG_arrow A P TRG -> forall x : opt_sigG P, TRG x :=
+    match P with
+    | Some P => fun _ f '(existG _ x y) => f x y
+    | None   => fun _ f x => f x
+    end.
+End SigG.
+
+Section SpecGhost.
+  (* Specification with an additional ghost result *)
+
+  Local Set Implicit Arguments.
+  Variables (A : Type) (GO : option (A -> Type)).
+
+  Let AG := @opt_sigG A GO.
+
+  Definition ghost_tr_spec (gs : Spec.t AG) : Spec.t A := {|
+    Spec.pre  := Spec.pre gs;
+    Spec.post := fun m0 res m1 =>
+      exists go : OptTy.t (option_map (fun go => go res) GO),
+      let resG := to_opt_sigG (existG _ res go) in
+      Spec.post gs m0 resG m1
+  |}.
+
+  Definition remove_ghost_res : instr AG -> instr A :=
+    match GO as GO' return instr (opt_sigG GO') -> instr A with
+    | Some GO => fun i => Bind i (fun xG => Ret (let '(existG _ x _) := xG in x))
+    | None    => fun i => i
+    end.
+
+  Lemma remove_ghost_res_correct SPC (i : instr AG) (gs : Spec.t AG):
+    Spec.wp_impl (wlp SPC i) gs ->
+    Spec.wp_impl (wlp SPC (remove_ghost_res i)) (ghost_tr_spec gs).
+  Proof.
+    intros H m0.
+    unfold remove_ghost_res, ghost_tr_spec, AG in *; cbn.
+    intros WLP_I%H.
+    destruct GO; cbn;
+    eapply wlp_monotone, WLP_I.
+    - intros []; eauto.
+    - exists tt; auto.
+  Qed.
+
+  Definition add_ghost_res (i : instr A) : instr AG :=
+    match GO as GO' return instr (opt_sigG GO') with
+    | Some GO => Bind i (fun x =>
+                 Bind (Oracle (GO x)) (fun g =>
+                 Ret (existG _ x g)))
+    | None    => i
+    end.
+
+  Lemma add_ghost_res_correct SPC (i : instr A) (gs : Spec.t AG):
+    Spec.wp_impl (wlp SPC i) (ghost_tr_spec gs) ->
+    Spec.wp_impl (wlp SPC (add_ghost_res i)) gs.
+  Proof.
+    unfold Spec.wp_impl, add_ghost_res, ghost_tr_spec, AG in *; cbn.
+    destruct GO; cbn; intros H m0 PRE.
+    - auto.
+    - eapply wlp_monotone, H, PRE.
+      intros ? ? [_ POST]; auto.
+  Qed.
+End SpecGhost.
+Global Arguments ghost_tr_spec [A GO].
+Section FSpec_Ghost.
+  (* Function specification with ghost argument and result *)
+
+  Local Set Implicit Arguments.
+  Variable sg : f_sig.
+
+  Record f_sigh := mk_f_sigh {
+    f_ghin_t  : option (f_arg_t sg -> Type);
+    f_ghout_t : option (f_ret_t sg -> Type);
+  }.
+  Variable sgh : f_sigh.
+
+  Definition f_ghin_t_x (x : f_arg_t sg) : option Type :=
+    option_map (fun gi => gi x) (f_ghin_t sgh).
+
+  Definition f_ghout_t_x (x : f_ret_t sg) : option Type :=
+    option_map (fun go => go x) (f_ghout_t sgh).
+
+  Definition f_arggh_t : Type :=
+    @opt_sigG (f_arg_t sg) (f_ghin_t sgh).
+
+  Definition f_retgh_t : Type :=
+    @opt_sigG (f_ret_t sg) (f_ghout_t sgh).
+
+  Definition ghost_sg : f_sig := {|
+    f_arg_t := f_arggh_t;
+    f_ret_t := f_retgh_t;
+  |}.
+
+  Definition ghost_tr (gfs : FSpec.t ghost_sg) : FSpec.t sg :=
+    fun (arg : f_arg_t sg) (cs : Spec.t (f_ret_t sg)) =>
+    exists (gi : OptTy.t (f_ghin_t_x arg)) (gs : Spec.t (f_retgh_t)),
+    let argG := to_opt_sigG (existG _ arg gi) in
+    gfs argG gs /\
+    Spec.le (ghost_tr_spec gs) cs.
+
+  Definition fun_has_spec_ghost (SPC : spec_context SG) (f : fid) (SIG : SG f = Some sg) : FSpec.t ghost_sg :=
+    FSpec.such_that (fun gs => FSpec.le (fun_has_spec SPC f SIG) (ghost_tr gs)).
+
+  (* Body of a function *)
+  (* [f_ebody] transforms an implementation with signature [ghost_sg] that includes the ghost
+     argument and result (if any) into an implementation with signature [sg] that does
+     not mention them.
+     This is achieved by introducing the ghost argument using [Oracle] and dropping the ghost result.
+   *)
+
+  Definition f_ebody_def (impl : f_impl ghost_sg) : f_impl sg.
+  Proof.
+    intro x.
+    apply remove_ghost_res with (GO := f_ghout_t sgh).
+    revert impl.
+    unfold ghost_sg, f_impl, f_arggh_t; cbn.
+    case (f_ghin_t sgh) as [GI|]; cbn; intro impl.
+    - exact (Bind (Oracle (GI x)) (fun gi => impl (existG _ x gi))).
+    - exact (impl x).
+  Defined.
+
+  Definition f_ebody :=
+    Eval cbv beta zeta delta [f_ebody_def remove_ghost_res] in f_ebody_def.
+
+  Lemma f_ebody_correct SPC (impl : f_impl ghost_sg) (gfs : FSpec.t ghost_sg):
+    FSpec.wp_impl (fun x => wlp SPC (impl x)) gfs ->
+    FSpec.wp_impl (fun x => wlp SPC (f_ebody impl x)) (ghost_tr gfs).
+  Proof.
+    change f_ebody with f_ebody_def.
+    unfold FSpec.wp_impl, f_ebody_def, ghost_tr.
+    intros H x s (gi & gs & WLP%H & LE).
+    eapply Spec.wp_impl_morph;
+      [reflexivity | auto using wlp_monotone | exact LE|];
+      clear LE.
+    apply remove_ghost_res_correct.
+    eapply Spec.wp_impl_morph;
+      [|auto using wlp_monotone | reflexivity | exact WLP];
+      clear H WLP.
+    unfold ghost_sg, f_impl, f_arggh_t, f_ghin_t_x in *; cbn in *.
+    destruct (f_ghin_t sgh) as [GI|]; cbn in *.
+    - intros pt m0; cbn; eauto.
+    - reflexivity.
+  Qed.
+
+  (* Call of a function *)
+
+  Definition Call_gh_def (f : fid) (SIG : SG f = Some sg) (x : f_arggh_t) : instr f_retgh_t :=
+    add_ghost_res (f_ghout_t sgh) (Call f SIG (proj1_opt_sigG x)).
+
+  Definition Call_gh :=
+    Eval cbv beta zeta delta [Call_gh_def add_ghost_res proj1_opt_sigG] in Call_gh_def.
+
+  Lemma Call_gh_wlp SPC f SIG x:
+    Spec.wp_le
+      (wlp SPC (@Call_gh f SIG x))
+      (FSpec.spec_wp (fun_has_spec_ghost SPC SIG) x).
+  Proof.
+    change Call_gh with Call_gh_def.
+    unfold Call_gh_def, FSpec.spec_wp.
+    intros pt m0 (s & (fs & LE & FS) & WP).
+    specialize add_ghost_res_correct with (gs := s) as AR;
+      setoid_rewrite Spec.wp_impl_iff in AR; auto using wlp_monotone.
+    apply AR, WP.
+    clear pt m0 WP AR; cbn.
+    eapply FSpec.spec_wp_morph in LE as ->.
+    intros pt m0 WP.
+    exists (ghost_tr_spec s); intuition.
+    unfold ghost_tr, ghost_sg, f_arggh_t, f_ghin_t_x in *.
+    destruct (f_ghin_t sgh) as [GI|]; cbn in *.
+    - destruct x as [x gi].
+      exists gi, s; intuition.
+    - exists tt, s; intuition.
+  Qed.
+End FSpec_Ghost.
+Section No_Ghost.
+  Lemma ghost_tr_spec_no_ghost1 [A] s:
+    Spec.le (@ghost_tr_spec A None s) s.
+  Proof.
+    unfold Spec.le, ghost_tr_spec; cbn.
+    intuition.
+    case H0; auto.
+  Qed.
+
+  Lemma ghost_tr_spec_no_ghost2 [A] s:
+    Spec.le s (@ghost_tr_spec A None s).
+  Proof.
+    unfold Spec.le, ghost_tr_spec; cbn.
+    intuition.
+    exists tt; auto.
+  Qed.
+
+  Lemma fun_has_spec_no_ghost1 SPC sg f SIG:
+    FSpec.le (@fun_has_spec SPC sg f SIG) (@fun_has_spec_ghost sg (mk_f_sigh sg None None) SPC f SIG).
+  Proof.
+    intros x s (fs & LE & FS).
+    apply LE.
+    unfold ghost_tr; cbn.
+    exists tt, s; intuition.
+    apply ghost_tr_spec_no_ghost1.
+  Qed.
+
+  Lemma fun_has_spec_no_ghost2 SPC sg f SIG:
+    FSpec.le (@fun_has_spec_ghost sg (mk_f_sigh sg None None) SPC f SIG) (@fun_has_spec SPC sg f SIG).
+  Proof.
+    intros x s H.
+    do 2 esplit. 2:reflexivity.
+    exists (fun_has_spec SPC f SIG); split. 2:exact H.
+    clear.
+    intros x s; unfold ghost_tr; cbn.
+    intros (_ & s' & H & LE).
+    exists s'; intuition.
+    rewrite <- LE; apply ghost_tr_spec_no_ghost2.
+  Qed.
+End No_Ghost.
 
 Section Erasure.
   Inductive k_opt (A : Type) : forall B : Type, Type :=
@@ -516,7 +864,7 @@ Section Context.
 
   Record context_entry := {
     ce_sig  : f_sig;
-    ce_spec : f_spec ce_sig;
+    ce_spec : FSpec.t ce_sig;
   }.
 
   Definition context_has_entry (CT : context) (f : fid) (e : context_entry) :=
