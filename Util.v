@@ -123,8 +123,8 @@ Module Tac.
         idtac G
     end.
 
-  Inductive silent_ffail (b : bool) : Prop :=.
 
+  Inductive silent_ffail (b : bool) : Prop :=.
 
   Module Notations_Fail.
     Tactic Notation "ffail" string(m) uconstr_list(a) :=
@@ -694,6 +694,14 @@ Module List.
       induction u; simpl; f_equal; auto.
     Defined.
   End Transp.
+
+  (* Tactic *)
+
+  Ltac iter f l :=
+    lazymatch l with
+    | nil => idtac
+    | cons ?x ?l => f x; iter f l
+    end.
 End List.
 
 Module Vector.

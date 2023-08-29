@@ -541,6 +541,17 @@ Module CTX.
 
       Import Util.Tac.
 
+
+      Inductive verbose (b : bool) : Prop :=.
+
+      Ltac if_verb f :=
+        get_flag verbose false ltac:(fun s =>
+        lazymatch s with
+        | true  => f tt
+        | false => idtac
+        end).
+
+
       Module Red.
         (* We define here some aliases for common functions that we want to selectively reduce.
            That is, we want to reduce only the occurrences coming from our definitions, not
@@ -1286,7 +1297,11 @@ Module CTX.
 
       Ltac transform_hyps fl k :=
         revert_hyps_first fl;
-        apply_trf ltac:(fun _ => solve [eauto 1 with CtxTrfDB nocore])
+        apply_trf ltac:(fun _ => solve [ eauto 1 with CtxTrfDB nocore
+                                       | if_verb ltac:(fun _ => lazymatch goal with |- ?g =>
+                                            idtac "no transformation for " g
+                                         end);
+                                         fail ])
                   ltac:(fun _ => reflexivity)
                   k.
 
@@ -1352,6 +1367,7 @@ Module CTX.
       Ltac build_p :=
         nant_cbn;
         lazymatch goal with |- Trf.p ?oc0 ?oc1 _ =>
+        if_verb ltac:(fun _ => idtac "BEGIN build_p" oc0 oc1);
         build_wits oc0 oc1 ltac:(build_p_end oc0 oc1) ltac:(fun wA wB =>
         simple refine (build_trf_lem wA wB _);
         (* E *) Tac.cbn_refl
@@ -1393,6 +1409,7 @@ Module CTX.
       Ltac build_inj_p :=
         nant_cbn;
         lazymatch goal with |- Trf.inj_p ?oc0 ?oc1 _ _ =>
+        if_verb ltac:(fun _ => idtac "BEGIN build_inj_p" oc0 oc1);
         build_wits oc0 oc1 ltac:(build_inj_p_end oc0 oc1) ltac:(fun wA wB =>
         simple refine (build_inj_lem wA wB _ _);
         (* E *) Tac.cbn_refl

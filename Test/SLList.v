@@ -288,7 +288,7 @@ Qed.
 
 End Lemmas.
 
-Section Program.
+Section Impl.
   Variable CT : ConcreteProg.context.
 
 Variables
@@ -512,7 +512,7 @@ Proof.
   FunProg.solve_by_wlp.
 Qed.
 
-End Program.
+End Impl.
 
 (* We collect here the functions necessary to have a closed program. *)
 Definition entries := [

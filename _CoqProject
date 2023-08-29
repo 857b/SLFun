@@ -11,8 +11,10 @@ VProg/Ghost.v
 VProg/Instructions.v
 VProg/Main.v
 Lib/Malloc.v
+Lib/DLList.v
 Test/ConcreteProg.v
 Test/SLProg.v
 Test/VProg0.v
 Test/VProg1.v
 Test/SLList.v
+Test/DLList.v

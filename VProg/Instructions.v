@@ -27,7 +27,7 @@ Section Read.
    Qed.
 
   Definition Read : ptr -> instr CT memdata :=
-    Eval cbn in Frag Read_correct.
+    Eval cbn in Frag_instr Read_correct.
 End Read.
 
 Section Write.
@@ -53,7 +53,7 @@ Section Write.
    Qed.
 
    Definition Write : memdata -> instr CT unit :=
-     Eval cbn in Frag Write_correct.
+     Eval cbn in Frag_instr Write_correct.
 End Write.
 
 Section Loop.

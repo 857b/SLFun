@@ -1003,8 +1003,16 @@ Module L.
   Qed.
 End L.
 
-Definition of_entries (es : list context_entry) (p : L.impl_list es) : Prop :=
+Definition of_entries
+    (es : list context_entry)
+    {aux : opt_arg (list {A : context -> Type & forall CT : context, A CT }) nil}
+    (p : L.impl_list es)
+  : Prop :=
   L.program_ok es p.
+
+(* ---- Tactics ---- *)
+
+Import Util.Tac.
 
 (* solves a goal [ebind g ?A' ?k ?g'] *)
 Ltac build_ebind :=
@@ -1129,6 +1137,7 @@ Ltac build_oracle_free := repeat build_oracle_free_aux.
    Called on goals:
      [Arrow (context_has_entry CT fid e) ?H]
      [entry_impl_correct CT e ?impl]
+     [entry_asm H]
  *)
 Global Create HintDb extractDB discriminated.
 Global Hint Constants Opaque : extractDB.
@@ -1151,102 +1160,149 @@ Local Definition proj_impl_context_correct_red :=
   Eval cbv beta delta [L.proj_impl_context_correct List.map proj1_sig] in L.proj_impl_context_correct.
 Arguments proj_impl_context_correct_red [CT] _.
 
-Local Lemma intro_of_entries es prog ci cc
-  (Ec : proj_impl_context_correct_red cc = ci)
-  (Ei : L.impl_match_eq es ci)
-  (Ep : prog = ci):
-  of_entries es prog.
-Proof.
-  subst prog.
-  apply L.impl_match_ok.
-  exists cc; auto.
-Qed.
+(* solving a goal [@of_entries es aux ?prog]. *)
 
-(* solves a goal [of_entries es ?prog]. *)
-Ltac build_of_entries :=
-  lazymatch goal with |- of_entries ?es0 ?prog0 =>
+Inductive entry_asm (H : Type) : Type := mk_entry_asm (h : H).
+Global Arguments mk_entry_asm [H] h.
+Definition get_entry_asm (H : Type) (h : entry_asm H) : H :=
+  let '(mk_entry_asm h) := h in h.
 
-  (* reduces and abstracts some parts of the initial goal *)
-  let es0  := eval hnf in (List.force_value es0) in
-  let prog := eval hnf in  prog0                 in
-  change (of_entries es0 prog);
-  clear;
+Ltac entry_assumption :=
+  lazymatch goal with |- ?H => first
+  [ refine (get_entry_asm H _); solve_db extractDB
+  | (* [assumption] with only alpha conversion *)
+    lazymatch goal with h : H |- _ => exact h end
+  | assumption
+  | ffail "Missing entry assumption" H
+  ] end.
 
-  let rec abstract_entries es0 k(* es -> ltac *) :=
-    lazymatch es0 with
-    | cons ?e0 ?es0 =>
-        Tac.abstract_term e0 ltac:(fun e  =>
-        abstract_entries es0 ltac:(fun es =>
-        k (@cons context_entry e es)))
-    | nil => k (@nil context_entry)
-    end
-  in
-  abstract_entries es0 ltac:(fun es =>
-  change (of_entries es prog);
+Module build_of_entries_aux.
 
-  let CT  := fresh "CT"  in
-  unshelve epose (CT := _);
-    [ exact context | transparent_abstract exact (L.get es) |];
-  let SIG := fresh "SIG" in pose (SIG := projT1 CT);
+  (* Reduces and abstracts some parts of the initial goal.
+     Continues on a goal [@of_entries es aux prog]. *)
+  Ltac init k(* es -> aux -> prog -> ltac *) :=
+    lazymatch goal with |- @of_entries ?es0 ?aux0 ?prog0 =>
+    let es0  := eval hnf in (List.force_value es0)  in
+    let aux  := eval hnf in (List.force_value aux0) in
+    let prog := eval hnf in  prog0                  in
+    change (@of_entries es0 aux prog);
+    clear;
 
-  (* for each entry, derives an hypotheses from [context_has_entry] *)
-  let rec pose_has_entry f es k(* itr -> ltac *) :=
-    lazymatch es with
-    | cons ?e ?es =>
-        let e := eval cbv delta [e] in e in
-        let t := constr:(@exploit_has_entry CT f e _ (exist _ eq_refl eq_refl)
-          ltac:(
-            (* [Arrow (context_has_entry CT fid e) ?H] *)
-            solve_db extractDB
-          )) in
-        lazymatch t with exploit_has_entry ?R _ _ =>
-        let t := eval hnf in t in
-        let H := fresh "H_f" in
-        Tac.pose_with_ty H t R;
-        pose_has_entry (S f) es ltac:(fun itr =>
-          k ltac:(fun g => itr g; g H))
-        end
-    | nil => k ltac:(fun _ => idtac)
-    end
-  in
-  pose_has_entry O es ltac:(fun itr =>
+    let rec abstract_entries es0 k(* es -> ltac *) :=
+      lazymatch es0 with
+      | cons ?e0 ?es0 =>
+          Tac.abstract_term e0 ltac:(fun e  =>
+          abstract_entries es0 ltac:(fun es =>
+          k (@cons context_entry e es)))
+      | nil => k (@nil context_entry)
+      end
+    in
+    abstract_entries es0 ltac:(fun es =>
+    change (@of_entries es aux prog);
+    k es aux prog
+    )end.
 
-  (* for each entry, builds an implementation proven correct in the context *)
-  simple refine (intro_of_entries es prog _ _  _ _ _);
-  [ (* ci *) shelve
-  | (* cc *)
-    change (L.impl_context_correct CT);
-    itr ltac:(fun H => clearbody H); clearbody CT;
-    let rec build_cc es :=
+  Ltac pose_CT es k(* CT -> SIG -> ltac *) :=
+    let CT  := fresh "CT"  in
+    unshelve epose (CT := _);
+      [ exact context | transparent_abstract exact (L.get es) |];
+    let SIG := fresh "SIG" in pose (SIG := projT1 CT);
+    k CT SIG.
+
+  (* For each entry, derives an hypotheses from [context_has_entry].
+     Continues with an iterator [itr : (H -> ltac) -> ltac] on the posed hypotheses. *)
+  Ltac derive CT SIG es k(* itr -> ltac *) :=
+    let rec pose_has_entry f es k(* itr -> ltac *) :=
       lazymatch es with
       | cons ?e ?es =>
-          refine (@cons (L.impl_context_correct_entry CT) _ _);
-          [ simple refine (mk_impl_context_correct_entry CT e _ _);
-            [ (* impl *) shelve
-            | (* [entry_impl_correct CT e ?impl] *)
-              lazymatch goal with |- entry_impl_correct _ _ ?impl =>
-              let e := eval cbv delta [e] in e in
-              change (entry_impl_correct CT e impl);
-              Tac.eabstract ltac:(fun _ => solve_db extractDB)
-              end ]
-          | build_cc es ]
-      | nil =>
-          exact (@nil (L.impl_context_correct_entry CT))
+          let e := eval cbv delta [e] in e in
+          let t := constr:(@exploit_has_entry CT f e _ (exist _ eq_refl eq_refl)
+            ltac:(
+              (* [Arrow (context_has_entry CT fid e) ?H] *)
+              solve_db extractDB
+            )) in
+          lazymatch t with exploit_has_entry ?R _ _ =>
+          let t := eval hnf in t in
+          let H := fresh "H_f" in
+          Tac.pose_with_ty H t R;
+          pose_has_entry (S f) es ltac:(fun itr =>
+            k ltac:(fun g => itr g; g H))
+          end
+      | nil => k ltac:(fun _ => idtac)
       end
-    in build_cc es
-  | (* Ec *)
-    itr ltac:(fun H => subst H); subst CT SIG;
-    cbv beta iota zeta delta [proj_impl_context_correct_red mk_impl_context_correct_entry];
-    lazymatch goal with |- ?ci = _ => exact (@eq_refl _ ci) end
-  | (* Ei *)
-    reflexivity
-  | (* Ep *)
-    lazymatch goal with |- _ = ?ci => exact (@eq_refl (L.impl_context SIG) ci) end
-  ]))end.
+    in
+    pose_has_entry O es k.
+
+  (* Pose an auxiliary definition, to be used as hypothesis for the implementations. *)
+  Ltac pose_aux CT aux :=
+    lazymatch aux with existT _ _ ?f =>
+    let H := fresh "H_a" in
+    unshelve epose (H := _);
+    [ shelve
+    | (* We rely on the following behavior of [apply]:
+         when applying a term of type [H0 -> H1 -> ... -> C] to a goal [?G],
+         [apply] unifies [G] with [C] (rather than with the whole sequence of
+         arrows) and leaves hypotheses [H0, H1...] *)
+      solve [ apply (f CT); entry_assumption ] |]
+    end.
+
+  Local Lemma intro_of_entries es aux prog ci cc
+    (Ec : proj_impl_context_correct_red cc = ci)
+    (Ei : L.impl_match_eq es ci)
+    (Ep : prog = ci):
+    @of_entries es aux prog.
+  Proof.
+    subst prog.
+    apply L.impl_match_ok.
+    exists cc; auto.
+  Qed.
+
+  (* For each entry, builds an implementation proven correct in the context. *)
+  Ltac impls es aux prog CT SIG itr :=
+    simple refine (intro_of_entries es aux prog _ _  _ _ _);
+    [ (* ci *) shelve
+    | (* cc *)
+      change (L.impl_context_correct CT);
+      itr ltac:(fun H => clearbody H); clearbody CT;
+      let rec build_cc es :=
+        lazymatch es with
+        | cons ?e ?es =>
+            refine (@cons (L.impl_context_correct_entry CT) _ _);
+            [ simple refine (mk_impl_context_correct_entry CT e _ _);
+              [ (* impl *) shelve
+              | (* [entry_impl_correct CT e ?impl] *)
+                lazymatch goal with |- entry_impl_correct _ _ ?impl =>
+                let e := eval cbv delta [e] in e in
+                change (entry_impl_correct CT e impl);
+                Tac.eabstract ltac:(fun _ => solve_db extractDB)
+                end ]
+            | build_cc es ]
+        | nil =>
+            exact (@nil (L.impl_context_correct_entry CT))
+        end
+      in build_cc es
+    | (* Ec *)
+      itr ltac:(fun H => subst H); subst CT SIG;
+      cbv beta iota zeta delta [proj_impl_context_correct_red mk_impl_context_correct_entry];
+      lazymatch goal with |- ?ci = _ => exact (@eq_refl _ ci) end
+    | (* Ei *)
+      reflexivity
+    | (* Ep *)
+      lazymatch goal with |- _ = ?ci => exact (@eq_refl (L.impl_context SIG) ci) end
+    ].
+End build_of_entries_aux.
+
+Ltac build_of_entries :=
+  build_of_entries_aux.init             ltac:(fun es aux prog =>
+  build_of_entries_aux.pose_CT es       ltac:(fun CT SIG =>
+  build_of_entries_aux.derive CT SIG es ltac:(fun itr =>
+  List.iter ltac:(build_of_entries_aux.pose_aux CT) aux;
+  build_of_entries_aux.impls es aux prog CT SIG itr
+  ))).
 
 
 (* Exported tactics *)
 
 Module Tactics.
-  #[export] Hint Extern 1 (of_entries _ _) => build_of_entries : DeriveDB.
+  #[export] Hint Extern 1 (@of_entries _ _ _) => build_of_entries : DeriveDB.
 End Tactics.

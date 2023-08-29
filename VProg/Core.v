@@ -1510,7 +1510,7 @@ Section Call.
             [impl : frag_impl sgh] [spec : FSpec.t' sg1 p_val]
             (F : frag_correct sem impl spec).
 
-    Program Definition Frag :
+    Program Definition Frag_instr :
       CP.opt_sigG_arrow (CP.f_ghin_t sgh) (fun _ => instr (CP.f_retgh_t sgh))
     :=
       CP.opt_sigG_of_fun (fun x => {|
@@ -1535,7 +1535,7 @@ Global Arguments Bind [_ _ _] f g.
 Global Arguments Call [_ _ _] HSIG [_] x [_] HSPC.
 Global Arguments Call_f_decl [_ _ _ _] fd x.
 Global Arguments gLem [_ _ _] L x.
-Global Arguments Frag [_ _ _ _ sem] {repr} [impl spec] F x.
+Global Arguments Frag_instr [_ _ _ _ sem] {repr} [impl spec] F x.
 
 Global Arguments transform_spec [CT A ctx i s0 s1 F f].
 Global Arguments Tr_change_exact [CT A ctx s csm1 prd1 F].
@@ -1621,9 +1621,28 @@ Module NotationsDef.
   Definition Call_FragCorrect [sg sgh e F CT I] (C : @FragCorrect sg sgh e F CT I):
     forall x : f_arg_t sg,
     CP.opt_sigG_arrow1 (CP.f_ghin_t sgh) (fun _ => instr CT (CP.f_retgh_t sgh)) x
-    := Frag (impl := fun x => i_impl (CP.opt_sigG_to_fun I x)) (get_fr_correct C).
+    := Frag_instr
+        (impl := fun x => i_impl (CP.opt_sigG_to_fun I x))
+        (get_fr_correct C).
+
+  (* FragImpl + FragCorrect *)
+  Record Frag [sg sgh e] (F : @FDecl sg sgh e) (CT : CP.context) : Type := mkFrag {
+    Frag_get_impl   : FragImpl F CT;
+    Frag_is_correct : FragCorrect Frag_get_impl;
+  }.
+  Global Arguments Frag_get_impl   [_ _ _ _ CT].
+  Global Arguments Frag_is_correct [_ _ _ _ CT].
+  Global Arguments mkFrag [sg sgh e F CT] & I {C} : rename.
+
+  Definition Call_Frag [sg sgh e F CT] (fr : @Frag sg sgh e F CT):
+    forall x : f_arg_t sg,
+    CP.opt_sigG_arrow1 (CP.f_ghin_t sgh) (fun _ => instr CT (CP.f_retgh_t sgh)) x
+    := Frag_instr
+        (impl := fun x => i_impl (CP.opt_sigG_to_fun (Frag_get_impl fr) x))
+        (get_fr_correct (Frag_is_correct fr)).
 
   Coercion Call_FragCorrect : FragCorrect >-> Funclass.
+  Coercion Call_Frag        : Frag        >-> Funclass.
 
 
   Record LDecl [arg_t : Type] [ret_t : Type] (e : FSpec.t_exp (mk_f_sig arg_t ret_t))
@@ -2150,19 +2169,20 @@ Module Tac.
      by simplifying the lhs. *)
   Ltac simplify_ex_eq_tuple :=
     refine (iff_trans _ _);
-    [ repeat first [
+    [ iter ltac:(fun rc => first [
         (* remove an [exists x] if we have an equality [x = _] *)
         refine (iff_trans _ _); [
         refine (exists_eq_const _ _ (fun x => _));
         repeat refine (ex_ind (fun x => _));
         refine (elim_tuple_eq_conj _);
         nant_cbn; repeat intro; eassumption
-        |]
+        | rc tt ]
       | (* otherwise, conitinue with the next [exists] *)
-        refine (Morphisms_Prop.ex_iff_morphism _ _ (fun x => _))
+        refine (Morphisms_Prop.ex_iff_morphism _ _ (fun x => _));
+        rc tt
       | (* if no more [exists] remains *)
-        reflexivity
-      ]
+        exact (iff_refl _)
+      ])
     | nant_cbn;
       repeat refine (Morphisms_Prop.ex_iff_morphism _ _ (fun x => _));
       refine (simpl_tuple_eq_conj _ _);
@@ -2264,19 +2284,17 @@ Module Tac.
     | try solve [ CP.build_oracle_free ] ].
 
   (* [assumption] but with only alpha conversion on some subterms *)
-  Ltac f_entry_assumption :=
-    lazymatch goal with |- NotationsDef.to_f_decl ?f _ =>
+  Ltac f_decl_assumption f :=
     lazymatch goal with H : NotationsDef.to_f_decl f _ |- _ => exact H
     | _ => ffail "failed to find f_decl assumption" f
-    end
-    | _ => ffail "Not a known f_entry assumption" end.
+    end.
 
   (* solves a goal [CP.entry_impl_correct CT (f_entry F PF) ?impl] *)
   Ltac build_f_entry_impl_correct :=
     lazymatch goal with |- CP.entry_impl_correct _ (f_entry _ ?C) _ =>
     simple refine (f_entry_erase _ _ _ _);
     [ shelve
-    | unshelve eapply C; f_entry_assumption
+    | unshelve eapply C; CP.entry_assumption
     | Tac.erase_impl
     | cbn; reflexivity ]
     end.
@@ -2291,6 +2309,10 @@ Module ExtractTactics.
   
   #[export] Hint Extern 1 (CP.entry_impl_correct _ (f_entry _ _) _) =>
      Tac.build_f_entry_impl_correct : extractDB.
+
+  #[export] Hint Extern 1 (CP.entry_asm (NotationsDef.to_f_decl ?f _)) =>
+     refine (CP.mk_entry_asm _);
+     Tac.f_decl_assumption f : extractDB.
 End ExtractTactics.
 Export ExtractTactics.
 

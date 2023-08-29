@@ -190,7 +190,7 @@ Qed.
 
 End Lemmas.
 
-Section Functions.
+Section Impl.
   Variable CT : ConcreteProg.context.
   Import VGroup.Tactics VTrue.Tactics.
 
@@ -247,7 +247,7 @@ Definition Free_impl : FImpl Free := fun p =>
 Lemma Free_correct : FCorrect Free_impl.
 Proof. solve_by_wlp. Qed.
 
-End Functions.
+End Impl.
 
 Definition entries := [
   f_entry Init_spec   Init_correct;
