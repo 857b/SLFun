@@ -3,7 +3,7 @@ VProg
 
 ### Vprop
 
-[../VProg/Vprop.v](source)
+[source](../VProg/Vprop.v)
 
 Vprop, VpropList, CTX, Sub
 Trf, tactic
@@ -11,7 +11,7 @@ record, group
 
 ### Program definition
 
-[../VProg/Core.v](source)
+[source](../VProg/Core.v)
 
 Spec
 HasSpec

@@ -1,7 +1,7 @@
 ConcreteProg
 =========================================
 
-[../ConcreteProg.v](source)
+[source](../ConcreteProg.v)
 
 program: signatures + implementations
 small step semantics

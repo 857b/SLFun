@@ -33,7 +33,7 @@ We use the following notations:
 ### Specifications
 
 A specification (for a function or a lemma) is declared using the following
-notation (from [../VProg/Core.v](VProg.Core)):
+notation (from [VProg.Core)](../VProg/Core.v):
 
 ```coq
 SPEC (args : args_ty) & (gargs : garg_ty)
@@ -127,11 +127,11 @@ An introduction (resp. elimination) rule allows to replace an atom that appears
 in the target (resp. source) context of the transformation by a list of other
 atoms.
 For instance, the list cell `lcell p` described in the
-[./example_SLList.md](example program) can be replaced with two `vptr` (one for
+[example program](./example_SLList.md) can be replaced with two `vptr` (one for
 each field).
 Custom rules can be added to the `CtxTrfDB`.
 
-The modules `VRecord` and `VGroup` in [../VProg/Vprop.v](Vprop) defines vprops
+The modules `VRecord` and `VGroup` in [Vprop](../VProg/Vprop.v) defines vprops
 already equipped with introduction and elimination rules.
 `VRecord` allows the definition of C-like structures such as `lcell`:
 
@@ -201,7 +201,7 @@ Lemma fun_correct : FCorrect fun_impl.
 
 The first step of this proof is the translation of the proof obligations into a
 functional program using `build_fun_spec`.
-We can then use tactics defined in [../FunProg.v](FunProg) to solve the goal.
+We can then use tactics defined in [FunProg](../FunProg.v) to solve the goal.
 On can also directly call the tactic `solve_by_wlp`, which call
 `build_fun_spec`, generate a verification condition using a weakest precondition
 and decompose it using a tactic similar to `intuition`.
@@ -234,7 +234,7 @@ They can then be called from functions or other fragments using
 
 The main use of fragments is to build libraries parametrized by the objects they
 uses.
-For instance [../Lib/DLList.v](Lib.DLList) defines doubly linked list using an
+For instance [Lib.DLList](../Lib/DLList.v) defines doubly linked list using an
 abstract vprop to represent the list cells. It is parametrized by a set
 `Param.impl` of fragments that implements the reading and writing operations on
 the `prev` and `next` fields.
@@ -267,7 +267,7 @@ proof of the correctness of the chosen implementation.
 
 `ConcreteProg.of_entries` also has an optional argument `aux` which allows to
 provide some auxiliary definitions needed by some functions.
-For instance in [../Test/DLList.v](Test.DLList) one must provide the
+For instance in [Test.DLList](../Test/DLList.v) one must provide the
 implementations needed by the parametrized doubly linked list library:
 
 ```coq

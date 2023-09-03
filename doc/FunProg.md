@@ -1,7 +1,7 @@
 FunProg: representation of functional programs
 =========================================
 
-[../FunProg.v](source)
+[source](../FunProg.v)
 
 non-deterministic functional programs
 semantic definition: WP

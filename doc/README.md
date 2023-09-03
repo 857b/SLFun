@@ -1,15 +1,15 @@
 Index
 =========================================
 
-- [./example_SLList.md](Program example)
-- [./interface.md](Interface)
+- [Program example](./example_SLList.md)
+- [Interface](./interface.md)
 - Specification layers
-  + [./ConcreteProg.md](ConcreteProg)
-  + [./SLProg.md](SLProg)
-  + [./FunProg.md](FunProg)
-  + [./VProg.md](VProg)
+  + [ConcreteProg](./ConcreteProg.md)
+  + [SLProg](./SLProg.md)
+  + [FunProg](./FunProg.md)
+  + [VProg](./VProg.md)
 - Implementation:
-  + [./shallow_embedding.md](Shallow embedding)
-  + [./tactics.md](Tactics)
-- [./Steel.md](Comparison with Steel)
-- [./improvements.md](Possible improvements)
+  + [Shallow embedding](./shallow_embedding.md)
+  + [Tactics](./tactics.md)
+- [Comparison with Steel](./Steel.md)
+- [Possible improvements](./improvements.md)

@@ -1,7 +1,7 @@
 Program example: Singly Linked Lists
 =========================================
 
-This file is a short walk-through of the module [../Test/SLList.v](Test.SLList),
+This file is a short walk-through of the module [Test.SLList](../Test/SLList.v),
 which defines some functions that use singly linked lists.
 It illustrates how programs can be defined and proven correct in our framework.
 

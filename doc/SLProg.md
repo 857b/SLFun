@@ -3,7 +3,7 @@ SLProg: Separation logic on the concrete programs
 
 ### Separation logic
 
-[../SL.v](source)
+[source](../SL.v)
 
 Toy separation logic
 Option monoid
@@ -11,7 +11,7 @@ pure, star, exist
 
 ### Proof of program in spearation logic
 
-[../SLProg.v](source)
+[source](../SLProg.v)
 
 Spec, sls
 translation
