@@ -137,7 +137,7 @@ Qed.
    - [ens] (ensures) is a proposition expressing a postcondition.
      It can depend on all the previously bound variables.
    There are the following restrictions, that can trigger an error either at the declaration or at the use:
-   - Each input selectors mist occur exactly once as the selector of a vprop of [prs_ctx] or [pre_ctx].
+   - Each input selectors must occur exactly once as the selector of a vprop of [prs_ctx] or [pre_ctx].
    - All selectors of [prs_ctx] and [pre_ctx] must be variables from [sel0].
    - One cannot pattern match on the returned value (or on the ghost one), if it is a record, one must use
      projections in [post_ctx].
@@ -310,21 +310,30 @@ Proof. Derived. Defined.
 Variable Length : Length_spec CT.
 
 Definition Length_impl : FImpl Length := fun p0 =>
+  (* [llist p0~>] *)
   if Mem.ptr_eq p0 NULL
   then
+    (* [llist p0~>] *)
     gLem (lseg_null_nil p0 NULL) tt;;
+    (* [llist p0~>] *)
     Ret 0
   else
+    (* [llist p0~>] *)
     'g_p1 <- gLem elim_llist_nnull p0;
+    (* [lcell p0~>; llist g_p1~>] *)
     'p1 <- Read (p_next p0);
+    (* [lcell p0~>; llist g_p1~>] *)
     gRewrite g_p1 p1;;
       (* Replaces [g_p1] with [p1] everywhere in the context.
          Explicit alternatives here would be:
            [gLem replace1 (llist g_p1, llist p1)]
            [gLem (replace [llist g_p1~>] [llist p1~>]) eq_refl]
        *)
+    (* [lcell p0~>; llist p1~>] *)
     'n  <- Length p1;
+    (* [lcell p0~>; llist p1~>] *)
     gLem intro_lseg_cons (p0, p1, NULL);;
+    (* [llist p0~>] *)
     Ret (S n).
 Lemma Length_correct : FCorrect Length_impl.
 Proof.
