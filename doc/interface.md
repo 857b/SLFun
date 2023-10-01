@@ -98,18 +98,18 @@ Derive lem_name_spec SuchThat (
   lem_name_spec) As lem_name.
 ```
 
-The proof begins with the `init_lemma args sel0 REQ` which processes the
+The proof begins with `init_lemma args sel0 REQ` which processes the
 specification (recording the processed version in `lem_name`) like `FDecl`
 does.
 It leaves as goal the underlying separation logic entailment.
 It uses its arguments to introduce the lemma's arguments, input selectors and
 requires clause. Those arguments can be introduction patterns.
-The user then need to solves this entailment and close the proof with `Qed`.
+The user then need to solve this entailment and close the proof with `Qed`.
 
 #### Automatic introduction/elimination rules
 
-The proofs obligation about the shape of the memory that the tactics solves
-reduces to finding a transformation between two contexts (list of atoms).
+The proofs obligations about the shape of the memory that the tactics solve
+reduce to finding a transformation between two contexts (list of atoms).
 For instance, when calling a function with precondition `[vptr p0 ~>]` in a
 context `[vptr p1 ~> sel1; vptr p0 ~> sel0]`, we need to find a transformation:
 
@@ -281,3 +281,7 @@ Derive prog SuchThat (ConcreteProg.of_entries entries (aux := [existT _ _ iP]) p
   As prog_correct.
 Proof. Derived. Qed.
 ```
+
+The program comes with a correctness lemma `prog_correct` that states the
+partial correctness (i.e. we do not prove termination) of each functions with
+respect to the provided specifications.
