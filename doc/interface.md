@@ -66,13 +66,14 @@ where:
 
 There are the following restrictions, that can trigger an error either at the
 declaration or at the use:
-- Each input selectors mist occur exactly once as the selector of a vprop of
+- Each input selectors must occur exactly once as the selector of a vprop of
   `prs_ctx` or `pre_ctx`.
 - All selectors of `prs_ctx` and `pre_ctx` must be variables from `sel0`.
 - One cannot pattern match on the returned value (or on the ghost one), if it
   is a record, one must use projections in `post_ctx`.
-- The vprops of `post_ctx` must be independents of `sel1`, but their selectors
-  can and can also be arbitrary expressions not necessarily variables of `sel1`.
+- The vprops of `post_ctx` must be independent of `sel1`, but their selectors
+  can. The selectors can in fact be arbitrary expressions, not necessarily
+  variables of `sel1`.
 - More generally, the vprops of `prs_ctx`, `pre_ctx` and `post_ctx` should not
   depend on the selectors.
 
@@ -129,9 +130,9 @@ atoms.
 For instance, the list cell `lcell p` described in the
 [example program](./example_SLList.md) can be replaced with two `vptr` (one for
 each field).
-Custom rules can be added to the `CtxTrfDB`.
+Custom rules can be added to `CtxTrfDB`.
 
-The modules `VRecord` and `VGroup` in [Vprop](../VProg/Vprop.v) defines vprops
+The modules `VRecord` and `VGroup` in [Vprop](../VProg/Vprop.v) define vprops
 already equipped with introduction and elimination rules.
 `VRecord` allows the definition of C-like structures such as `lcell`:
 
@@ -213,7 +214,7 @@ functions but which are inlined in the final program. Hence they do not generate
 a function in the program (so they cannot be recursive).
 
 Given a specification `frag_spec : FDecl SPEC...`, a fragment implementation can
-defined with with a vprog using:
+be defined with a vprog using:
 
 ```coq
 Definition frag_impl : FragImpl frag_spec CT := fun arg ghost_arg =>

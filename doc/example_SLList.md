@@ -7,7 +7,7 @@ It illustrates how programs can be defined and proven correct in our framework.
 
 ### Definition of the vprops
 
-Since the functions use singly linked lists, we must start by defining a vprops
+Since the functions use singly linked lists, we must start by defining a vprop
 that represent them.
 
 Our lists are chains of list cells, with the following C-like signature:
@@ -123,7 +123,7 @@ the memory as lists of vprops (without selectors),
 here `[lcell p0 ~>; lseg p1 pn ~>]` and `[lseg p0 pn ~>]`.
 When verifying implementations, this will allow us to solve the obligations
 about the shape of the memory without taking into account (in a first step) its
-content (that is the value of the selectors).
+content (that is the values of the selectors).
 
 Lemmas unfolds to entailment (`SLprop.imp` in our notations) between
 propositions in separation logic:
@@ -144,7 +144,7 @@ Qed.
 
 ### Implementations
 
-Once we have proved the necessary lemmas, we can defined and prove correct our
+Once we have proved the necessary lemmas, we can define and prove correct our
 functions.
 We will describe here the `Length` function.
 
@@ -260,7 +260,7 @@ Qed.
 
 After defining the functions we are interested in, we can compose them to obtain
 a closed program.
-We start by gathering the specification, implementation and correctness proof of
+We start by gathering the specifications, implementations and correctness proofs of
 the functions we want to include:
 
 ```coq
